@@ -1,0 +1,31 @@
+# dependencias
+/node_modules
+
+# next.js
+/.next/
+/out/
+next-env.d.ts
+*.tsbuildinfo
+
+# prisma
+/src/generated/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# entorno
+.env
+.env*.local
+!.env.example
+
+# tests
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/coverage/
+
+# misc
+.DS_Store
+*.log

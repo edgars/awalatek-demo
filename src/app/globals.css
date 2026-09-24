@@ -1,0 +1,12 @@
+:root {
+  font-family: system-ui, sans-serif;
+  color: #1a1a1a;
+  background: #f7f7f5;
+}
+body { margin: 0; }
+.topo { display: flex; gap: 1rem; align-items: baseline; padding: 0.75rem 1.5rem; background: #1f3a5f; color: #fff; }
+main { padding: 1.5rem; }
+.grupos { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 1rem; }
+.grupos section { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem 1rem; }
+.grupos h2 { font-size: 1rem; margin: 0 0 0.5rem; }
+.grupos ul { margin: 0; padding-left: 1.1rem; }

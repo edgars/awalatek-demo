@@ -1,0 +1,290 @@
+// SIFAP — esquema completo (docs/architecture.md §4).
+// Convenciones (ADR-005/006/008):
+//   - Fechas legadas como Int: AAAAMMDD (fecha), AAAAMM (competencia), HHMMSS (hora); 0 = vacío.
+//   - Dinero como Int en centavos (nunca Float/Decimal).
+//   - Factores/porcentajes como String decimal (N3.4, N3.2, N5.6), p. ej. "1.3500".
+//   - CPF/NIS como String de 11 dígitos con ceros a la izquierda.
+//   - Grupos periódicos Adabas → tablas hijas con FK + occurrence, onDelete: Cascade.
+//   - ➕ = campo usado por el código legado que no existe en el DDM.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// DDM PROGRAMA-SOCIAL (arq. 151)
+model ProgramaSocial {
+  id                 Int     @id @default(autoincrement())
+  codPrograma        String  @unique // COD-PROGRAMA, String(4)
+  nomePrograma       String // NOME-PROGRAMA, String(60)
+  siglaPrograma      String? // String(10)
+  tipoPrograma       String // TIPO — A/P/T
+  orgaoResponsavel   String?
+  leiCriacao         String?
+  dtCriacao          Int // DT-INICIO, AAAAMMDD
+  dtEncerramento     Int     @default(0) // DT-FIM, AAAAMMDD (0 = vigente)
+  sitPrograma        String  @default("A") // STATUS-PROG — A/I/E
+  vlrBaseIndividual  Int // VLR-BASE, centavos — ya grabado × FATOR-K (D8)
+  vlrBaseFamiliar    Int? // centavos — sin lógica fase 1
+  vlrTetoBenef       Int? // centavos — sin lógica fase 1
+  vlrPisoBenef       Int? // centavos — sin lógica fase 1
+  fatorReajuste      String // ➕ FATOR-REAJUSTE, N3.4 — usado como (1 + f)
+  pctReajusteAnual   String? // N3.2 — sin lógica fase 1
+  dtUltReajuste      Int? // AAAAMMDD — sin lógica fase 1
+  fatorK             String // N5.6 — calculado en la inclusión (FR-PRG-03)
+  codElegibilidade   String? // ➕ COD-ELEGIBILIDADE, String(5) — pos.1 R, pos.2 D
+  rendaMaxPercap     Int     @default(0) // RENDA-MAX, centavos (0 = sin límite)
+  idadeMin           Int     @default(0) // 0 = sin límite
+  idadeMax           Int     @default(0) // 0 = sin límite
+  indExigeFilhos     String? // S/N — sin lógica fase 1
+  indExigeEscola     String?
+  indExigeVacina     String?
+  indExigePrenatal   String?
+  indExigeBiometria  String?
+  qtdMinFilhos       Int?
+  tiposDescontoAplic String? // MU TIPO-DSCT-APLIC — CSV, máx. 8
+  dtInclusao         Int     @default(0)
+  usrInclusao        String  @default("")
+  dtUltAlteracao     Int     @default(0)
+  usrUltAlteracao    String  @default("")
+
+  faixasCalculo   ProgramaFaixaCalculo[]
+  paramsRegionais ProgramaParamRegional[]
+  beneficiarios   Beneficiario[]
+}
+
+// PE GRP-FAIXA-CALCULO (máx. 5 — validado en el dominio)
+model ProgramaFaixaCalculo {
+  id                 Int            @id @default(autoincrement())
+  programaId         Int
+  programa           ProgramaSocial @relation(fields: [programaId], references: [id], onDelete: Cascade)
+  occurrence         Int // 1..5
+  rendaInicio        Int // centavos
+  rendaFim           Int // centavos
+  vlrAdicional       Int // centavos
+  fatorMultiplicador String // N3.4
+  indAcumulativo     String // S/N
+
+  @@unique([programaId, occurrence])
+}
+
+// PE GRP-PARAM-REGIONAL (máx. 6). D1: persistido/editable; el motor usa tablas fijas.
+model ProgramaParamRegional {
+  id                Int            @id @default(autoincrement())
+  programaId        Int
+  programa          ProgramaSocial @relation(fields: [programaId], references: [id], onDelete: Cascade)
+  occurrence        Int // 1..6
+  codRegiao         Int // 01–05 o 99
+  fatorRegional     String // N3.4
+  vlrComplementoReg Int // centavos
+  indAtivoRegiao    String // S/N
+
+  @@unique([programaId, occurrence])
+}
+
+// DDM BENEFICIARIO (arq. 150)
+model Beneficiario {
+  id                Int            @id @default(autoincrement())
+  numCpf            String         @unique // CPF, String(11) — clave de negocio
+  nis               String?        @unique // ➕ NIS, String(11) — único si no vacío (NULL cuando vacío)
+  numInscricao      Int?
+  nomeCompleto      String // NOME, String(60)
+  nomeMae           String?
+  nomePai           String?
+  estCivil          String?
+  dtNascimento      Int // AAAAMMDD — inmutable tras la inclusión
+  sexo              String // M/F — inmutable
+  rgNumero          String? // RG, String(15)
+  rgOrgao           String?
+  rgUf              String?
+  rgDtExpedicao     Int? // AAAAMMDD
+  logradouro        String? // ENDERECO, String(80)
+  numero            String?
+  complemento       String?
+  bairro            String?
+  municipio         String?
+  uf                String?
+  cep               Int?
+  codIbge           Int?
+  codRegiao         Int // COD-REGIAO (1–25 o 99) — inmutable; NO es FK (D1)
+  codPrograma       String // COD-PROGRAMA, String(4) — inmutable
+  programa          ProgramaSocial @relation(fields: [codPrograma], references: [codPrograma])
+  dtCadastro        Int // AAAAMMDD
+  dtInicioBenef     Int? // AAAAMMDD
+  dtFimBenef        Int? // AAAAMMDD
+  sitBeneficiario   String // STATUS — A/S/C/I/D
+  motSituacao       String?
+  dtUltSituacao     Int? // AAAAMMDD
+  vlrRendaFamiliar  Int // RENDA-FAMILIAR, centavos
+  qtdMembrosFamilia Int?
+  indRendaPercap    Int?
+  numDependentes    Int            @default(0) // ➕ NUM-DEPENDENTES — contador mantenido por CADDEPEND
+  documentosOk      String? // ➕ DOCUMENTOS-OK — S/N
+  telFixo           String? // TELEFONE
+  telCelular        String?
+  email             String?
+  indBiometria      String? // sin lógica fase 1
+  dtColetaBio       Int? // sin lógica fase 1
+  codPostoBio       String? // sin lógica fase 1
+  hashDigital       String? // sin lógica fase 1
+  dtInclusao        Int            @default(0)
+  hrInclusao        Int            @default(0) // HHMMSS
+  usrInclusao       String         @default("")
+  dtUltAlteracao    Int            @default(0) // = DT-ATUALIZACAO
+  hrUltAlteracao    Int            @default(0) // HHMMSS
+  usrUltAlteracao   String         @default("")
+  numVersao         Int            @default(1) // concurrencia optimista
+
+  dependentes BeneficiarioDependente[]
+  descontos   BeneficiarioDesconto[]
+  pagamentos  Pagamento[]
+
+  @@index([codPrograma])
+}
+
+// PE GRP-DEPENDENTE (DDM máx. 10; límite de negocio D6 validado en el dominio)
+model BeneficiarioDependente {
+  id             Int          @id @default(autoincrement())
+  beneficiarioId Int
+  beneficiario   Beneficiario @relation(fields: [beneficiarioId], references: [id], onDelete: Cascade)
+  occurrence     Int
+  nomeDependente String
+  dtNascDepend   Int // AAAAMMDD
+  parentesco     String // FI/CO/IR/OU (D15)
+  cpfDependente  String? // String(11) — único por titular si no vacío (NULL cuando vacío)
+  docDependente  String? // ➕
+  sexoDependente String? // ➕ M/F
+  sitDependente  String?
+  indDeficiencia String? // S/N
+
+  @@unique([beneficiarioId, occurrence])
+  @@unique([beneficiarioId, cpfDependente])
+}
+
+// ➕ PE DESCONTOS del código de CALCDSCT — descuentos REGISTRADOS (D14)
+model BeneficiarioDesconto {
+  id             Int          @id @default(autoincrement())
+  beneficiarioId Int
+  beneficiario   Beneficiario @relation(fields: [beneficiarioId], references: [id], onDelete: Cascade)
+  occurrence     Int
+  tipoDesconto   String // C/I/J/S/P/A
+  vlrDesconto    Int // centavos
+  pctDesconto    String // N3.2
+  dtInicioDsct   Int // AAAAMMDD
+  dtFimDsct      Int          @default(0) // AAAAMMDD (0 = indefinido)
+  numProcesso    String?
+
+  @@unique([beneficiarioId, occurrence])
+}
+
+// DDM PAGAMENTO (arq. 160). ADR-009: sin CRUD libre.
+model Pagamento {
+  id               Int          @id @default(autoincrement())
+  numPagamento     Int          @unique // NUM-PAGTO — secuencial (máx. + 1)
+  numCpf           String // CPF-BENEF, String(11)
+  beneficiario     Beneficiario @relation(fields: [numCpf], references: [numCpf])
+  numInscricao     Int?
+  codPrograma      String // String(4)
+  anoMesRef        Int // COMPETENCIA, AAAAMM
+  numCiclo         Int?
+  vlrBruto         Int // centavos
+  vlrLiquido       Int // centavos
+  vlrDescontoTotal Int          @default(0) // VLR-DESCONTO, centavos
+  vlrAbono         Int          @default(0) // ➕ VLR-ABONO, centavos
+  tipoPgto         String       @default("N") // ➕ N/D/T
+  sitPagamento     String // STATUS-PGTO — G/P/C/D/E (D15)
+  dtGeracao        Int // AAAAMMDD
+  hrGeracao        Int // HHMMSS
+  dtPagamento      Int? // ➕ DT-PAGAMENTO, AAAAMMDD
+  codBanco         String? // String(3)
+  codRetornoBanco  String? // COD-RETORNO, String(2)
+  vlrCorrecao      Int? // ➕ CALCCORR, centavos
+  dtCorrecao       Int? // ➕ CALCCORR, AAAAMMDD
+  indCorrigido     String? // ➕ CALCCORR, S/N
+
+  // Resto del DDM PAGAMENTO — opcional, sin lógica en fase 1
+  dtEmissao       Int? // DT-EMISSAO, AAAAMMDD
+  dtConfirmacao   Int? // DT-CONFIRMACAO, AAAAMMDD
+  dtCancelamento  Int? // DT-CANCELAMENTO, AAAAMMDD
+  motCancelamento String? // MOT-CANCELAMENTO, String(3)
+  codAgencia      String? // COD-AGENCIA, String(6)
+  numConta        String? // NUM-CONTA, String(13)
+  tipoConta       String? // TIPO-CONTA — C/P
+  codOperacao     String? // COD-OPERACAO, String(3)
+  numObSiafi      String? // NUM-OB-SIAFI, String(12)
+  numNeSiafi      String? // NUM-NE-SIAFI, String(12)
+  codUgEmitente   String? // COD-UG-EMITENTE, String(6)
+  codGestao       String? // COD-GESTAO, String(5)
+  sitIntegSiafi   String? // SIT-INTEG-SIAFI — I/P/E
+  dtConciliacao   Int? // DT-CONCILIACAO, AAAAMMDD
+  sitConciliacao  String? // SIT-CONCILIACAO — C/D/P/N
+  vlrConciliado   Int? // VLR-CONCILIADO, centavos
+  desRetornoBanco String? // DES-RETORNO-BANCO, String(40)
+  hashArqRemessa  String? // HASH-ARQ-REMESSA, SHA-256
+  hashArqRetorno  String? // HASH-ARQ-RETORNO, SHA-256
+
+  dtInclusao      Int    @default(0)
+  hrInclusao      Int    @default(0) // HHMMSS
+  usrInclusao     String @default("") // "BATCH" en el lote
+  dtUltAlteracao  Int    @default(0)
+  hrUltAlteracao  Int    @default(0) // HHMMSS
+  usrUltAlteracao String @default("")
+
+  descontos PagamentoDesconto[]
+
+  @@index([numCpf, anoMesRef])
+}
+
+// PE GRP-DESCONTO (máx. 8) — descuentos APLICADOS a un pago (D14)
+model PagamentoDesconto {
+  id           Int       @id @default(autoincrement())
+  pagamentoId  Int
+  pagamento    Pagamento @relation(fields: [pagamentoId], references: [id], onDelete: Cascade)
+  occurrence   Int
+  tipoDesconto String
+  vlrDesconto  Int // centavos
+  pctDesconto  String // N3.2
+  numProcesso  String?
+  dtInicioDsct Int // AAAAMMDD
+  dtFimDsct    Int       @default(0) // AAAAMMDD (0 = indefinido)
+
+  @@unique([pagamentoId, occurrence])
+}
+
+// DDM AUDITORIA (arq. 170). Append-only; solo src/server/auditoria.ts escribe.
+model Auditoria {
+  id             Int     @id @default(autoincrement())
+  numAuditoria   Int     @unique // SEQ-AUDIT — secuencial
+  dtEvento       Int // AAAAMMDD
+  hrEvento       Int // HHMMSS
+  codAcao        String // ACAO — IN/AL/CO/CN/DV/EX
+  tipoEntidade   String // TABELA-REF, String(15)
+  idEntidade     String // CHAVE-REF, String(20)
+  usrEvento      String // USUARIO, String(8)
+  desAcao        String // DESCRICAO, String(80)
+  valorAnterior  String? // VLR-ANTERIOR
+  valorPosterior String? // VLR-NOVO
+
+  // Resto del DDM AUDITORIA — opcional
+  tsEvento         String? // TS-EVENTO, AAAAMMDDHHMMSS (N14; String para no perder precisión)
+  codModulo        String? // COD-MODULO — programa Natural, String(8)
+  numCpfAfetado    String? // NUM-CPF-AFETADO, String(11)
+  nomeUsuario      String? // NOME-USUARIO, String(40)
+  codPerfil        String? // COD-PERFIL — ADM/OPR/CON/AUD/SUP
+  codLotacao       String? // COD-LOTACAO, String(10)
+  ipOrigem         String? // IP-ORIGEM, String(15)
+  idSessao         String? // ID-SESSAO, String(20)
+  numCicloBatch    Int? // NUM-CICLO-BATCH
+  numSeqBatch      Int? // NUM-SEQ-BATCH
+  nomJobBatch      String? // NOM-JOB-BATCH, String(16)
+  sitBatch         String? // SIT-BATCH — S/E/W
+  desErroBatch     String? // DES-ERRO-BATCH, String(120)
+  idCorrelacao     String? // ID-CORRELACAO — UUID
+  numSeqCorrelacao Int? // NUM-SEQ-CORRELACAO
+
+  @@index([dtEvento])
+}
