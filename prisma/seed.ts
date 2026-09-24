@@ -1,26 +1,14 @@
 import "dotenv/config";
 import { pathToFileURL } from "node:url";
+import { completaDv } from "../src/domain/cpf.ts";
 import type { PrismaClient } from "../src/generated/prisma/client.ts";
 
 // Seed de desarrollo/e2e — idempotente (upsert por clave de negocio).
 // Datos ficticios: ningún CPF/nombre corresponde a una persona real.
 
-/**
- * Completa un CPF de 9 dígitos con sus dígitos verificadores (módulo 11).
- * Función local mínima solo para el seed; la utilidad de dominio es
- * `src/domain/cpf.ts` (story 0.2) y la reemplazará.
- */
+/** Completa un CPF de 9 dígitos con sus DV — delega en la utilidad de dominio. */
 export function cpfComDv(base9: string): string {
-  if (!/^\d{9}$/.test(base9)) throw new Error("base de CPF deve ter 9 dígitos");
-  const dv = (digits: string, pesoInicial: number): number => {
-    let soma = 0;
-    for (let i = 0; i < digits.length; i++) soma += Number(digits[i]) * (pesoInicial - i);
-    const resto = soma % 11;
-    return resto < 2 ? 0 : 11 - resto;
-  };
-  const dv1 = dv(base9, 10);
-  const dv2 = dv(base9 + dv1, 11);
-  return `${base9}${dv1}${dv2}`;
+  return completaDv(base9);
 }
 
 const HOJE = 20260924;
