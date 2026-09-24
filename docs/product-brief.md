@@ -1,39 +1,46 @@
 # Product Brief — SIFAP
 
-## Overview
+## Visión general
 
-SIFAP is a modernization of a legacy system that has been reverse-engineered by RNC. The system manages 8 core entities with create/read/update/delete workflows and enforces 289 extracted business rules. The goal is to rebuild this application on a modern, supported technology stack while maintaining functional equivalence.
+SIFAP (Sistema de Fiscalização e Administração de Pagamentos) es un sistema
+Natural/Adabas de mainframe que gestiona programas sociales de transferencia de
+renta. RNC hizo ingeniería reversa de sus **15 programas** y **4 DDMs** y extrajo
+**289 reglas de negocio**. El objetivo es reconstruirlo sobre un stack moderno y
+soportado, con **equivalencia funcional**: mismos cálculos, mismos mensajes y
+mismas validaciones, al centavo.
 
-## Problem Statement
+## Problema
 
-The original application runs on legacy technology that is costly to maintain and difficult to evolve. A modern rebuild will reduce maintenance burden and enable future development.
+El sistema corre sobre tecnología legada, cara de mantener y difícil de
+evolucionar. Toda la lógica está repartida en programas monolíticos, con tablas
+de cálculo fijas en el código y fechas y valores guardados como numéricos
+legados. Además, el sistema tiene impacto social directo: paga beneficios a
+ciudadanos vulnerables.
 
-## Target Users
+## Usuarios
 
-Current operators of the legacy system. All existing data and workflows will be preserved to ensure continuity.
+Operadores de cadastro, analistas de beneficios, gestores financieros y
+auditores. Hoy usan pantallas 3270 y jobs batch.
 
-## Core Entities in Scope
+## Alcance: 7 dominios
 
-The modernized system will manage the following 8 entities:
+1. **Programas sociales**: alta, consulta, tramos y parámetros regionales.
+2. **Beneficiarios**: cadastro, validaciones, documentos, dependientes, descuentos registrados y consulta.
+3. **Elegibilidad**: beneficiario × programa, con todos los motivos de rechazo.
+4. **Cálculo y pagos**: motor único (factores regional, familiar, de renta y de edad; 13.º; abono), lote mensual y recálculo de descuentos.
+5. **Corrección retroactiva**: por índice IPCA.
+6. **Conciliación bancaria**: retorno CNAB 240.
+7. **Informes y auditoría**: analítico de pagos, consolidado mensual y trilla de auditoría.
 
-1. **ProgramaSocials** (`/programa_socials`)
-2. **ProgramaSocialGrpFaixaCalculos** (`/programa_social_grp_faixa_calculos`)
-3. **ProgramaSocialGrpParamRegionals** (`/programa_social_grp_param_regionals`)
-4. **Auditorias** (`/auditorias`)
-5. **Beneficiarios** (`/beneficiarios`)
-6. **BeneficiarioGrpDependentes** (`/beneficiario_grp_dependentes`)
-7. **Pagamentos** (`/pagamentos`)
-8. **PagamentoGrpDescontos** (`/pagamento_grp_descontos`)
+Las rarezas del legado se replican y quedan documentadas como decisiones
+`LEGACY-QUIRK` (PRD §5).
 
-Each entity will support full CRUD operations and enforce the 289 business rules extracted from the legacy system.
+## Fuera de alcance (fase 1)
 
-## Out of Scope (Phase 1)
+- Migración de datos del Adabas.
+- Remesa bancaria, integración SIAFI y biometría.
+- Funcionalidades nuevas no presentes en el legado.
 
-- Data migration from the legacy database
-- New features not present in the legacy system
+## Stack objetivo
 
-## Target Technology Stack
-
-- **Frontend:** Next.js
-- **Backend:** Next.js + Prisma
-- **Database:** SQLite
+Next.js (App Router) + Prisma + SQLite, desplegado con docker-compose.

@@ -1,201 +1,160 @@
-# UX Design — SIFAP
+# UX — Diseño de pantallas (DESIGN)
 
-One section per managed entity. Each has a list page, a create form and an edit form. Render fields in the order shown.
+> Versión 2 — corrección de rumbo del 2026-09-24. Fuente: 16 pantallas legadas
+> del UIR (`603f473c-…`) + programas Natural. Flujos en `EXPERIENCE.md`.
 
-## ProgramaSocials  (`/programa_socials`)
+## 1. Principios
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| codPrograma | Cod Programa | input | no | yes |
-| nomePrograma | Nome Programa | input | no | yes |
-| siglaPrograma | Sigla Programa | input | no | yes |
-| tipoPrograma | Tipo Programa | input | no | yes |
-| orgaoResponsavel | Orgao Responsavel | input | no | yes |
-| leiCriacao | Lei Criacao | input | no | yes |
-| dtCriacao | Dt Criacao | input | no | yes |
-| dtEncerramento | Dt Encerramento | input | no | yes |
-| sitPrograma | Sit Programa | input | no | yes |
-| vlrBaseIndividual | Vlr Base Individual | input | no | yes |
-| vlrBaseFamiliar | Vlr Base Familiar | input | no | yes |
-| vlrTetoBenef | Vlr Teto Benef | input | no | yes |
-| vlrPisoBenef | Vlr Piso Benef | input | no | yes |
-| pctReajusteAnual | Pct Reajuste Anual | input | no | yes |
-| dtUltReajuste | Dt Ult Reajuste | input | no | yes |
-| fatorK | Fator K | input | no | yes |
-| rendaMaxPercap | Renda Max Percap | input | no | yes |
-| idadeMin | Idade Min | input | no | yes |
-| idadeMax | Idade Max | input | no | yes |
-| indExigeFilhos | Ind Exige Filhos | input | no | yes |
-| qtdMinFilhos | Qtd Min Filhos | input | no | yes |
-| indExigeEscola | Ind Exige Escola | input | no | yes |
-| indExigeVacina | Ind Exige Vacina | input | no | yes |
-| indExigePrenatal | Ind Exige Prenatal | input | no | yes |
-| indExigeBiometria | Ind Exige Biometria | input | no | yes |
-| dtInclusao | Dt Inclusao | input | no | yes |
-| usrInclusao | Usr Inclusao | input | no | yes |
-| dtUltAlteracao | Dt Ult Alteracao | input | no | yes |
-| usrUltAlteracao | Usr Ult Alteracao | input | no | yes |
+- **Idioma de la interfaz: portugués (pt-BR).** Los operadores son brasileños y los
+  mensajes del legado se muestran literalmente (PRD §4). Los documentos del
+  proyecto están en español; la UI no.
+- **Equivalencia antes que rediseño:** cada pantalla web corresponde a una
+  pantalla 3270 del legado, con los mismos campos de entrada; la mejora es de
+  usabilidad (máscaras, selectores, tablas), no de comportamiento.
+- **Densidad de back-office:** tablas compactas, formularios en 2 columnas en
+  desktop, 1 columna en móvil.
+- **Mensajes del legado visibles tal cual** (mayúsculas, portugués) en el panel de
+  resultado; ayudas de interfaz nuevas en tono normal.
 
-## ProgramaSocialGrpFaixaCalculos  (`/programa_social_grp_faixa_calculos`)
+## 2. Sistema visual
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| rendaInicio | Renda Inicio | input | no | yes |
-| rendaFim | Renda Fim | input | no | yes |
-| fatorMultiplicador | Fator Multiplicador | input | no | yes |
-| vlrAdicional | Vlr Adicional | input | no | yes |
-| indAcumulativo | Ind Acumulativo | input | no | yes |
+- Base: Tailwind CSS + shadcn/ui. Tema claro por defecto, oscuro opcional.
+- Tipografía: sans del sistema; valores (R$, CPF, competencia) en cifras tabulares.
+- Colores semánticos: `success` (válido/elegível/conciliado), `destructive`
+  (erro/inválido/divergente), `warning` (suspenso/LEGACY-QUIRK visible), `muted`.
+- Layout: barra lateral con los grupos **Cadastro**, **Validação**, **Cálculo e
+  Pagamentos**, **Processos**, **Relatórios**; encabezado con usuario operativo (`SIFAP_USER`).
 
-## ProgramaSocialGrpParamRegionals  (`/programa_social_grp_param_regionals`)
+## 3. Componentes de campo
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| codRegiao | Cod Regiao | input | no | yes |
-| fatorRegional | Fator Regional | input | no | yes |
-| vlrComplementoReg | Vlr Complemento Reg | input | no | yes |
-| indAtivoRegiao | Ind Ativo Regiao | input | no | yes |
+| Componente | Uso | Entrada → valor enviado |
+|---|---|---|
+| `CpfInput` | CPF, CPF titular, CPF dependente | máscara `000.000.000-00` → `String(11)` con ceros a la izquierda |
+| `NisInput` | NIS | 11 dígitos → `String(11)` |
+| `DataLegada` | fechas | selector de fecha → `Int` AAAAMMDD (0 si vacío cuando el campo lo admite) |
+| `Competencia` | competencias | selector mes/año → `Int` AAAAMM |
+| `Moeda` | valores | `R$ 0.000,00` → `Int` centavos |
+| `Fator` | factores y porcentajes | decimal con 4 (factor) o 2 (%) casas → `String` |
+| `Codigo` | código de programa, región | numérico con longitud fija (4 / 2) |
+| `Select` | dominios cerrados | valores del código legado (D15) con etiqueta |
+| `ResultadoLegado` | panel de resultado | título (`V`/`I`, elegível/não) + lista numerada de mensajes literales |
+| `ResumoProcesso` | fin de procesos | tarjeta de contadores y totales |
+| `TabelaPaginada` | listas e informes | orden, búsqueda, paginación; CPF siempre enmascarado |
 
-## Auditorias  (`/auditorias`)
+## 4. Pantallas
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| numAuditoria | Num Auditoria | input | no | yes |
-| dtEvento | Dt Evento | input | no | yes |
-| hrEvento | Hr Evento | input | no | yes |
-| tsEvento | Ts Evento | input | no | yes |
-| codAcao | Cod Acao | input | no | yes |
-| codModulo | Cod Modulo | input | no | yes |
-| desAcao | Des Acao | input | no | yes |
-| tipoEntidade | Tipo Entidade | input | no | yes |
-| idEntidade | Id Entidade | input | no | yes |
-| numCpfAfetado | Num Cpf Afetado | input | no | yes |
-| usrEvento | Usr Evento | input | no | yes |
-| nomeUsuario | Nome Usuario | input | no | yes |
-| codPerfil | Cod Perfil | input | no | yes |
-| codLotacao | Cod Lotacao | input | no | yes |
-| ipOrigem | Ip Origem | input | no | yes |
-| idSessao | Id Sessao | input | no | yes |
-| numCicloBatch | Num Ciclo Batch | input | no | yes |
-| numSeqBatch | Num Seq Batch | input | no | yes |
-| nomJobBatch | Nom Job Batch | input | no | yes |
-| sitBatch | Sit Batch | input | no | yes |
-| desErroBatch | Des Erro Batch | input | no | yes |
-| idCorrelacao | Id Correlacao | input | no | yes |
-| numSeqCorrelacao | Num Seq Correlacao | input | no | yes |
+### 4.1 Programas — lista `/programas`
+Columnas: Código · Nome · Sigla · Tipo · Situação · Valor base (R$). Búsqueda por código/nombre. Botón **Novo programa**.
 
-## Beneficiarios  (`/beneficiarios`)
+### 4.2 Programa — inclusión `/programas/novo` (legado: CADASTRO PROGRAMAS SOCIAIS + DADOS DO PROGRAMA)
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| numInscricao | Num Inscricao | input | no | yes |
-| numCpf | Num Cpf | input | no | yes |
-| nomeCompleto | Nome Completo | input | no | yes |
-| nomeMae | Nome Mae | input | no | yes |
-| nomePai | Nome Pai | input | no | yes |
-| dtNascimento | Dt Nascimento | input | no | yes |
-| sexo | Sexo | input | no | yes |
-| estCivil | Est Civil | input | no | yes |
-| rgNumero | Rg Numero | input | no | yes |
-| rgOrgao | Rg Orgao | input | no | yes |
-| rgUf | Rg Uf | input | no | yes |
-| rgDtExpedicao | Rg Dt Expedicao | input | no | yes |
-| logradouro | Logradouro | input | no | yes |
-| numero | Numero | input | no | yes |
-| complemento | Complemento | input | no | yes |
-| bairro | Bairro | input | no | yes |
-| municipio | Municipio | input | no | yes |
-| uf | Uf | input | no | yes |
-| cep | Cep | input | no | yes |
-| codIbge | Cod Ibge | input | no | yes |
-| codRegiao | Cod Regiao | input | no | yes |
-| codPrograma | Cod Programa | input | no | yes |
-| dtCadastro | Dt Cadastro | input | no | yes |
-| dtInicioBenef | Dt Inicio Benef | input | no | yes |
-| dtFimBenef | Dt Fim Benef | input | no | yes |
-| sitBeneficiario | Sit Beneficiario | input | no | yes |
-| motSituacao | Mot Situacao | input | no | yes |
-| dtUltSituacao | Dt Ult Situacao | input | no | yes |
-| vlrRendaFamiliar | Vlr Renda Familiar | input | no | yes |
-| qtdMembrosFamilia | Qtd Membros Familia | input | no | yes |
-| indRendaPercap | Ind Renda Percap | input | no | yes |
-| telFixo | Tel Fixo | input | no | yes |
-| telCelular | Tel Celular | input | no | yes |
-| email | Email | input | no | yes |
-| indBiometria | Ind Biometria | input | no | yes |
-| dtColetaBio | Dt Coleta Bio | input | no | yes |
-| codPostoBio | Cod Posto Bio | input | no | yes |
-| hashDigital | Hash Digital | input | no | yes |
-| dtInclusao | Dt Inclusao | input | no | yes |
-| hrInclusao | Hr Inclusao | input | no | yes |
-| usrInclusao | Usr Inclusao | input | no | yes |
-| dtUltAlteracao | Dt Ult Alteracao | input | no | yes |
-| hrUltAlteracao | Hr Ult Alteracao | input | no | yes |
-| usrUltAlteracao | Usr Ult Alteracao | input | no | yes |
-| numVersao | Num Versao | input | no | yes |
+| Campo | Componente | Legado | Validación |
+|---|---|---|---|
+| Código do programa | `Codigo(4)` | COD PROGRAMA (N4) | obligatorio, único |
+| Nome | texto (60) | NOME | |
+| Tipo | `Select` A=Assistencial · P=Previdenciário · T=Trabalho | TIPO (A1) | |
+| Valor base | `Moeda` | VLR BASE (N9.2) | nota: "será gravado ajustado pelo fator K" |
+| Código de elegibilidade | texto (5) | COD ELEGIBIL | ayuda: pos.1 R = exige NIS; pos.2 D = exige dependentes |
+| Data início | `DataLegada` | DT INICIO | |
+| Data fim | `DataLegada` (vacío = indeterminado → 0) | DT FIM | |
+| Renda máxima | `Moeda` (0 = sem limite) | RENDA MAXIMA | |
+| Idade mínima / máxima | numérico (3) (0 = sem limite) | IDADE MINIMA/MAXIMA | |
+| Fator de reajuste | `Fator(4)` | FATOR REAJUSTE (N3.4) | |
 
-## BeneficiarioGrpDependentes  (`/beneficiario_grp_dependentes`)
+Tras grabar: `ResultadoLegado` con "PROGRAMA INCLUIDO COM SUCESSO - VLR AJUSTADO: R$ …".
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| cpfDependente | Cpf Dependente | input | no | yes |
-| nomeDependente | Nome Dependente | input | no | yes |
-| dtNascDepend | Dt Nasc Depend | input | no | yes |
-| parentesco | Parentesco | input | no | yes |
-| sitDependente | Sit Dependente | input | no | yes |
-| indDeficiencia | Ind Deficiencia | input | no | yes |
+### 4.3 Programa — consulta `/programas/[cod]`
+Ficha: código, nombre, tipo, valor base, elegibilidad, situación (FR-PRG-01). Dos
+secciones editables en línea:
+- **Faixas de cálculo** (máx. 5): Renda início · Renda fim · Fator multiplicador · Valor adicional · Acumulativo (S/N).
+- **Parâmetros regionais** (máx. 6): Código região · Fator regional · Complemento · Ativo (S/N).
+Aviso fijo: "Parâmetros informativos — o cálculo usa as tabelas legadas (D1)".
 
-## Pagamentos  (`/pagamentos`)
+### 4.4 Beneficiários — lista `/beneficiarios`
+Columnas: CPF (enmascarado) · Nome · Programa · Situação (badge) · Região · Dependentes. Búsqueda por CPF o nombre. Acciones por fila: Editar · Dependentes · Descontos · Consultar.
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| numPagamento | Num Pagamento | input | no | yes |
-| numCpf | Num Cpf | input | no | yes |
-| numInscricao | Num Inscricao | input | no | yes |
-| codPrograma | Cod Programa | input | no | yes |
-| anoMesRef | Ano Mes Ref | input | no | yes |
-| numCiclo | Num Ciclo | input | no | yes |
-| vlrBruto | Vlr Bruto | input | no | yes |
-| vlrLiquido | Vlr Liquido | input | no | yes |
-| vlrDescontoTotal | Vlr Desconto Total | input | no | yes |
-| sitPagamento | Sit Pagamento | input | no | yes |
-| dtGeracao | Dt Geracao | input | no | yes |
-| hrGeracao | Hr Geracao | input | no | yes |
-| dtEmissao | Dt Emissao | input | no | yes |
-| dtConfirmacao | Dt Confirmacao | input | no | yes |
-| dtCancelamento | Dt Cancelamento | input | no | yes |
-| motCancelamento | Mot Cancelamento | input | no | yes |
-| codBanco | Cod Banco | input | no | yes |
-| codAgencia | Cod Agencia | input | no | yes |
-| numConta | Num Conta | input | no | yes |
-| tipoConta | Tipo Conta | input | no | yes |
-| codOperacao | Cod Operacao | input | no | yes |
-| numObSiafi | Num Ob Siafi | input | no | yes |
-| numNeSiafi | Num Ne Siafi | input | no | yes |
-| codUgEmitente | Cod Ug Emitente | input | no | yes |
-| codGestao | Cod Gestao | input | no | yes |
-| sitIntegSiafi | Sit Integ Siafi | input | no | yes |
-| dtConciliacao | Dt Conciliacao | input | no | yes |
-| sitConciliacao | Sit Conciliacao | input | no | yes |
-| vlrConciliado | Vlr Conciliado | input | no | yes |
-| codRetornoBanco | Cod Retorno Banco | input | no | yes |
-| desRetornoBanco | Des Retorno Banco | input | no | yes |
-| hashArqRemessa | Hash Arq Remessa | input | no | yes |
-| hashArqRetorno | Hash Arq Retorno | input | no | yes |
-| dtInclusao | Dt Inclusao | input | no | yes |
-| hrInclusao | Hr Inclusao | input | no | yes |
-| usrInclusao | Usr Inclusao | input | no | yes |
-| dtUltAlteracao | Dt Ult Alteracao | input | no | yes |
-| hrUltAlteracao | Hr Ult Alteracao | input | no | yes |
-| usrUltAlteracao | Usr Ult Alteracao | input | no | yes |
+### 4.5 Beneficiário — inclusión/alteración `/beneficiarios/novo`, `/beneficiarios/[cpf]/editar` (legado: CADASTRO DE BENEFICIARIO)
 
-## PagamentoGrpDescontos  (`/pagamento_grp_descontos`)
+| Campo | Componente | Legado | Alteración |
+|---|---|---|---|
+| CPF | `CpfInput` | CPF (N11) | solo lectura |
+| Nome | texto (60) | NOME | editable |
+| Data de nascimento | `DataLegada` | DT NASCIMENTO (AAAAMMDD) | solo lectura |
+| Sexo | `Select` M/F | SEXO | solo lectura |
+| Endereço | texto (80) | ENDERECO | editable |
+| Município | texto (40) | MUNICIPIO | editable |
+| UF | `Select` 27 UFs | UF | editable |
+| CEP | máscara `00000-000` → Int | CEP (N8) | editable |
+| Telefone | texto (15) | TELEFONE | editable |
+| RG | texto (15) | RG | editable |
+| Programa | `Select` de programas (código – nome) | COD PROGRAMA (N4) | solo lectura |
+| Renda familiar | `Moeda` | RENDA FAMILIAR | editable |
+| Nº dependentes | numérico (2) | NUM DEPENDENTES | editable (también lo actualiza la pantalla de dependientes) |
+| Região | `Codigo(2)` con ayuda de regiones 1–25 / 99 | COD REGIAO | solo lectura |
+| NIS | `NisInput` | NIS | solo lectura |
+| Situação | `Select` A/S/C/I/D | STATUS | solo en alteración |
 
-| Field | Label | Component | Required | List column |
-|---|---|---|---|---|
-| tipoDesconto | Tipo Desconto | input | no | yes |
-| vlrDesconto | Vlr Desconto | input | no | yes |
-| pctDesconto | Pct Desconto | input | no | yes |
-| numProcesso | Num Processo | input | no | yes |
-| dtInicioDsct | Dt Inicio Dsct | input | no | yes |
-| dtFimDsct | Dt Fim Dsct | input | no | yes |
+Error: un solo mensaje literal (FR-BEN-01, corta en el primero) junto al campo y en el panel.
+Si al grabar el status pasa a `S` por edad > 75: aviso `warning` "Situação ajustada para SUSPENSO (idade > 75 — regra legada)".
 
+### 4.6 Dependentes `/beneficiarios/[cpf]/dependentes` (legado: CADASTRO DE DEPENDENTES + DADOS DO DEPENDENTE)
+Encabezado: titular (CPF enmascarado, nombre, situación, total de dependientes).
+Tabla: Nome · Nascimento · Parentesco · CPF · Documento · Sexo.
+Formulario de alta: Nome (60) · Data de nascimento (`DataLegada`) · Parentesco (`Select` FI=Filho · CO=Cônjuge · IR=Irmão · OU=Outro) · CPF (`CpfInput`, opcional) · Documento (15) · Sexo (M/F).
+Tras grabar: "DEPENDENTE INCLUIDO - TOTAL: n" + botones **Incluir outro dependente** / **Concluir**.
+Titular C/D: formulario deshabilitado con el mensaje literal.
+
+### 4.7 Descontos do beneficiário `/beneficiarios/[cpf]/descontos`
+Tabla editable (máx. 8): Tipo (`Select` C=Contribuição · I=Imposto · J=Judicial · S=Sindical · P=Pensão alimentícia · A=Administrativo) · Valor (`Moeda`) · Percentual (`Fator(2)`) · Início · Fim (vacío = indefinido) · Nº processo (obligatorio si J). Indicador "vigente hoje" por fila.
+
+### 4.8 Consulta `/consulta` (legado: CONSULTA BENEFICIARIO)
+Entrada: Tipo de busca (radio CPF / NIS, default CPF) + CPF o NIS.
+Resultado: ficha (FR-CON-01) con situación + descripción; tabla **Histórico de pagamentos (últimos 12)**: Competência · Bruto · Líquido · Situação · Tipo; vacío → "NENHUM PAGAMENTO ENCONTRADO".
+
+### 4.9 Validação cadastral `/validacao/cadastro` (VALBENEF)
+Entrada: CPF, Nome, Data de nascimento, UF, Situação (o botón "Carregar do cadastro" por CPF).
+Resultado: `ResultadoLegado` con `V`/`I` y hasta 10 errores numerados.
+
+### 4.10 Validação de documentos `/validacao/documentos` (legado: VALIDACAO DE DOCUMENTOS)
+Entrada: CPF · RG (15) · Título de eleitor (12) · CTPS (15).
+Resultado: `V`/`I` + hasta 5 errores; si aplica (flag activo), sello "** DOCUMENTO ESPECIAL VALIDADO **".
+
+### 4.11 Elegibilidade `/elegibilidade` (legado: VALIDACAO ELEGIBILIDADE)
+Entrada: CPF do beneficiário · Programa (`Select`).
+Resultado: badge **ELEGÍVEL** / **NÃO ELEGÍVEL** + motivos numerados literales; región 99 muestra "BENEFICIARIO ELEGIVEL - REGIAO ESPECIAL".
+
+### 4.12 Cálculo de benefício `/calculo` (legado: CALCULO BENEFICIO)
+Entrada: CPF do beneficiário · Competência.
+Resultado (`ResumoProcesso`): CPF, competência, valor bruto, desconto, líquido, tipo de pagamento; en diciembre además 13º y abono. Enlace al pago generado.
+
+### 4.13 Lote mensal `/lote` (BATCHPGT)
+Muestra la competencia que se procesará (mes actual) y cuántos pagos ya existen en ella.
+Botón **Executar lote** con confirmación ("Gerar pagamentos da competência AAAAMM para todos os beneficiários ativos?").
+Durante la ejecución: progreso (procesados / último CPF). Al final `ResumoProcesso`: processados, gerados, ignorados, erros, totais bruto/desconto/líquido/abono + lista de errores.
+
+### 4.14 Cálculo de descontos `/descontos` (legado: CALCULO DESCONTOS)
+Entrada: CPF do beneficiário · Nº do pagamento.
+Resultado: "DESCONTOS CALCULADOS" — valor bruto, desconto total, teto 30 % + tabla de descuentos aplicados. Aviso `warning`: "O valor líquido não é recalculado (regra legada D13)".
+
+### 4.15 Pagamentos `/pagamentos`, `/pagamentos/[num]` (solo lectura)
+Lista: Nº · CPF · Programa · Competência · Bruto · Desconto · Líquido · Situação · Tipo; filtros CPF, competência, programa, situación.
+Detalle: valores, descuentos aplicados, corrección (valor, fecha, corregido S/N), conciliación (fecha de pago, código de retorno).
+
+### 4.16 Correção retroativa `/correcao` (legado: CORRECAO RETROATIVA)
+Entrada: CPF do beneficiário · Competência inicial · Competência final.
+Resultado: "CORRECAO RETROATIVA FINALIZADA" — registros corrigidos, valor total + tabla de pagos corregidos (competência, original, corrigido, diferença).
+
+### 4.17 Conciliação bancária `/conciliacao` (legado: CONCILIACAO BANCARIA)
+Entrada: Competência · Arquivo de retorno (upload `.ret`/`.txt`, CNAB 240) — reemplaza el campo "ARQUIVO RETORNO" (ruta de archivo) del legado.
+Resultado: `ResumoProcesso` (lidos, conciliados, divergentes, não encontrados, registros de auditoria) + tablas **Divergências** (CPF enmascarado, SIFAP, banco) y **Não encontrados** (CPF, documento).
+
+### 4.18 Relatório de pagamentos `/relatorios/pagamentos` (legado: RELATORIO PAGAMENTOS)
+Filtros: Competência inicial · Competência final · Programa (0/vacío = todos).
+Tabla con corte por programa: Competência · CPF (`***.XXX.XXX-XX`) · Nome (30) · UF · Bruto · Desconto · Líquido · Tipo · Situação; subtotal por programa y total general. Botón **Versão para impressão** (66 linhas/página).
+
+### 4.19 Relatório consolidado `/relatorios/consolidado` (legado: COMPETENCIA RELATORIO)
+Filtro: Competência. Tres bloques: **Por região** (Norte, Nordeste, Sudeste, Sul, Centro-Oeste: qtd, bruto, desconto, líquido) · **Por situação** (Gerado, Pago, Cancelado, Devolvido, Estornado: qtd, bruto) · **Totais gerais**.
+
+### 4.20 Relatório de auditoria `/relatorios/auditoria` (legado: RELATORIO AUDITORIA)
+Filtros: Data inicial (default 01/01/1997) · Data final (default hoje) · Ação (`Select` IN/AL/CO/CN/DV, vacío = todas) · Usuário (8) · Tabela (15) · Saída (T = tela, I = impressão).
+Tabla: Data · Hora (HH:MM:SS) · Usuário · Ação · Tabela · Chave (+ Descrição en salida I). Resumen por acción al pie.

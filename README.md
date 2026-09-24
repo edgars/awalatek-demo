@@ -13,15 +13,22 @@
 
 | | |
 |---|---|
-| **Sistema legado** | Engenharia reversa: 0 telas, 8 entidades, 289 regras de negócio extraídas |
+| **Sistema legado** | SIFAP — Natural/Adabas: 15 programas, 4 DDMs, 16 telas 3270, **289 regras** extraídas |
+| **Workspace RNC** | `603f473c-d0aa-4d1a-bdb1-6e365371c787` (fonte retido; regras com chave `RK-`) |
 | **Gerado por** | Plataforma **RNC**: código legado → UIR (representação intermediária) → documentos BMAD |
-| **Stack alvo** | Frontend **nextjs** · Backend **nextjs + prisma** · Banco **sqlite** · **docker-compose** |
+| **Stack alvo** | **Next.js** (UI + API) · **Prisma** · **SQLite** · **docker-compose** (1 serviço) |
 | **SSO** | desligado |
 
 O método [BMAD](https://github.com/bmad-code-org) organiza um projeto em fases:
 brief → PRD/UX → arquitetura/épicos → histórias. Aqui, **todas as fases de
 planejamento já estão prontas** — derivadas do código legado, não escritas à
 mão. Seu agente executa apenas o build.
+
+> **Correção de rumo (2026-09-24):** o pack original modelava o sistema como 8
+> CRUDs genéricos. PRD, arquitetura, UX, épicos e histórias foram refeitos por
+> **domínio/processo** a partir do UIR e do fonte legado — ver
+> `_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-24.md`.
+> Documentos em `docs/` estão em espanhol; a interface do app é em pt-BR.
 
 ---
 
@@ -32,15 +39,15 @@ README.md                    ← você está aqui (o "como usar")
 bmad-context.md              ← ordens permanentes para o agente. Ele lê PRIMEIRO.
 docs/
 ├── product-brief.md         ← o que o app é, em uma página
-├── prd.md                   ← FONTE DE VERDADE: requisitos FR-nn + regras `RK-…`
-├── ux/DESIGN.md             ← campos de cada tela
-├── ux/EXPERIENCE.md         ← fluxos e rotas
-├── architecture.md          ← stack, modelo de dados, deployment, auth, ADRs
-├── epics/epic-*.md          ← um épico por entidade gerenciada
-└── stories/                 ← trabalho implementável, um arquivo por vez
-    ├── story-00-*           ← (se existir) implementar PRIMEIRO
-    ├── story-<entidade>-crud.md
-    └── story-zz-deployment.md ← implementar POR ÚLTIMO
+├── prd.md                   ← FONTE DE VERDADE: 74 FR + 289 regras `RK-…` + decisões LEGACY-QUIRK (§5)
+├── ux/DESIGN.md             ← 20 telas (campos, componentes, origem 3270)
+├── ux/EXPERIENCE.md         ← navegação, fluxos e padrões de interação
+├── architecture.md          ← stack, modelo de dados, processos, deployment, ADRs
+├── epics/epic-N-*.md        ← 9 épicos por domínio (0 Fundação … 8 Deployment)
+└── stories/N-M-*.md         ← 20 histórias, uma por vez, na ordem do sprint-status
+_bmad-output/
+├── planning-artifacts/      ← sprint change proposal
+└── implementation-artifacts/sprint-status.yaml ← ordem e status das histórias
 ```
 
 **Quando documentos parecerem divergir**, a hierarquia é:
@@ -52,19 +59,21 @@ ela carrega intenção do arquiteto.
 
 ## 3. O domínio em um minuto
 
-| Entidade | Colunas | Papel |
+| Épico | Programas legados | Papel |
 |---|---|---|
-| `programa_social` | 29 | Gerenciada — CRUD completo em `/programa_socials` |
-| `programa_social_grp_faixa_calculo` | 5 | Gerenciada — CRUD completo em `/programa_social_grp_faixa_calculos` |
-| `programa_social_grp_param_regional` | 4 | Gerenciada — CRUD completo em `/programa_social_grp_param_regionals` |
-| `auditoria` | 23 | Gerenciada — CRUD completo em `/auditorias` |
-| `beneficiario` | 45 | Gerenciada — CRUD completo em `/beneficiarios` |
-| `beneficiario_grp_dependente` | 6 | Gerenciada — CRUD completo em `/beneficiario_grp_dependentes` |
-| `pagamento` | 39 | Gerenciada — CRUD completo em `/pagamentos` |
-| `pagamento_grp_desconto` | 6 | Gerenciada — CRUD completo em `/pagamento_grp_descontos` |
+| 0 Fundação | — | Esquema completo, utilitários (dinheiro, data AAAAMMDD, CPF mód. 11), auditoria |
+| 1 Programas sociais | CADPROG | Inclusão/consulta + faixas de cálculo e parâmetros regionais |
+| 2 Beneficiários | CADBENEF, VALBENEF, VALDOCS, CADDEPEND, CONSBENF | Cadastro, validações, dependentes, descontos, consulta |
+| 3 Elegibilidade | VALELEG | Beneficiário × programa com todos os motivos |
+| 4 Cálculo e pagamentos | CALCBENF, CALCDSCT, BATCHPGT | Motor único, cálculo individual, lote mensal, descontos |
+| 5 Correção retroativa | CALCCORR | Correção por IPCA |
+| 6 Conciliação bancária | BATCHCON | Retorno CNAB 240 |
+| 7 Relatórios e auditoria | RELPGT, BATCHREL, RELAUDIT | Analítico, consolidado, trilha de auditoria |
+| 8 Deployment | — | docker-compose |
 
-Cada regra de negócio tem uma **chave estável** `RK-…` no PRD.
-Ela identifica a regra para sempre e permite rastreá-la até o código-fonte original.
+`Pagamento` e `Auditoria` **não têm CRUD**: pagamentos nascem dos processos,
+auditoria é só escrita pelo sistema. Cada regra tem uma **chave estável** `RK-…`
++ localização `PROGRAMA:linha`, rastreável até o fonte original.
 
 ---
 
@@ -104,10 +113,10 @@ agente e digite `*help` para ver o menu numerado):
 
 ```
 1. Carregue o agente DEV                     (ex.: /bmad:bmm:agents:dev)
-2. Peça: implementar a primeira história      (ordem alfabética em docs/stories/)
+2. Peça: implementar a próxima história        (ordem de sprint-status.yaml: 0-1 … 8-1)
 3. O agente implementa e marca os acceptance criteria
 4. Revise o diff; rode os testes da história
-5. Próxima história — repita 2–4 até story-zz-deployment.md
+5. Próxima história — repita 2–4 até 8-1-deployment
 ```
 
 Opcional, para times: use o agente **SM (Scrum Master)** antes de cada história
@@ -121,9 +130,9 @@ Abra este repositório na sua ferramenta e cole:
 
 > Leia `bmad-context.md` por inteiro e trate-o como instruções permanentes
 > desta sessão. Depois leia `docs/prd.md` e `docs/architecture.md`. Construa a
-> aplicação implementando as histórias de `docs/stories/` **uma por vez, em
-> ordem alfabética** — a de autenticação primeiro se existir, a de deployment
-> por último. Ao terminar cada história, verifique cada item dos *acceptance
+> aplicação implementando as histórias de `docs/stories/` **uma por vez, na
+> ordem de `_bmad-output/implementation-artifacts/sprint-status.yaml`** (0-1
+> primeiro, 8-1 por último). Ao terminar cada história, verifique cada item dos *acceptance
 > criteria* antes de avançar. Não invente stack, entidade ou campo que não
 > esteja nos documentos. Recomendado: se sua ferramenta suportar MCP, conecte o
 > **servidor MCP da RNC** e siga o protocolo de verificação descrito no
@@ -136,31 +145,34 @@ cp .env.example .env    # preencha as variáveis
 docker compose up --build
 ```
 
-App no ar: frontend nextjs, API nextjs, sqlite com volume persistente.
+App no ar: serviço único `app` (Next.js, porta 3000), SQLite no volume `sifap-data`.
+Lote mensal: `docker compose run --rm app npm run lote:pagamentos`.
 
 ---
 
 ## 5. O protocolo de build
 
-1. **Uma história por vez, na ordem.**
-2. **O PRD é a fonte de verdade de comportamento.**
-3. **`NEEDS REVIEW`** = regra ambígua no fonte: implemente a interpretação mais
-   provável e deixe `// TODO(review): …`.
-4. **Tabelas de referência não ganham CRUD** — só API read-only + dropdown,
-   como no legado.
-5. **"Legacy behaviors"** (impressões, conexões, diálogos) **não são
-   requisitos** — confirme antes de portar.
-6. **"Out of scope"** no PRD: não implemente.
-7. **"Probable relations"** no architecture: sugestões derivadas — confirme
-   antes de criar FK; o schema não as inclui de propósito.
-8. **Campos NOT NULL sem default** sinalizados nas stories: resolva antes do
-   primeiro insert.
+1. **Uma história por vez, na ordem do sprint-status.**
+2. **O PRD é a fonte de verdade de comportamento** — fórmulas, mensagens literais, efeitos.
+3. **`LEGACY-QUIRK(Dn)`** = comportamento estranho do legado **replicado de propósito**
+   (PRD §5). Não "corrija"; comente o ID no código.
+4. **`TODO(review)`** = ponto que um humano precisa confirmar.
+5. **Sem CRUD em `Pagamento` e `Auditoria`.**
+6. **Grupos periódicos Adabas** (dependentes, descontos, faixas, parâmetros regionais)
+   são tabelas filhas do registro pai.
+7. **Dinheiro em centavos + truncamento mainframe** centralizado; nunca `float`.
+8. **Motor de cálculo único** para cálculo individual e lote.
+9. **Cada `RK-`** da história implementada em `src/domain` com comentário e teste.
 
 ---
 
 ## 6. Decisões pendentes deste projeto
 
-Nenhuma pendência detectada automaticamente.
+| ID | Decisão | Dono |
+|---|---|---|
+| D4 | Ativar ou não o bypass de documentos por prefixo de CPF (`LEGACY_DOC_ESPECIAL_ENABLED`, padrão **false**) | Negócio / segurança |
+| D17 | Renda > 9.999,99 no lote herda o fator do beneficiário anterior — bug a corrigir? | Negócio |
+| D7 | Qualquer mudança na máscara de CPF exige aprovação da auditoria | Auditoria |
 
 ---
 
@@ -168,10 +180,11 @@ Nenhuma pendência detectada automaticamente.
 
 | Sintoma | Ação |
 |---|---|
-| Agente resumiu e pulou regras | Uma história por vez; recite as `RK-…` da história atual |
+| Agente resumiu e pulou regras | Uma história por vez; recite as `RK-…` da tabela da história |
+| Agente "corrigiu" um comportamento legado | Aponte o `LEGACY-QUIRK(Dn)` no PRD §5 |
 | Agente inventou tela/campo | Aponte a seção 5 e o `bmad-context.md`; peça diff contra o PRD |
 | Documentos parecem se contradizer | Hierarquia da seção 2 |
-| Dúvida sobre uma regra | Procure a `RK-…` no PRD (condição + campos afetados) |
+| Dúvida sobre uma regra | Procure a `RK-…` no Anexo A do PRD ou `getRule`/`getSourceFile` via MCP |
 
 ---
 
