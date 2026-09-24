@@ -1,0 +1,553 @@
+# Product Requirements Document — SIFAP
+
+## Overview
+
+This PRD specifies the functional requirements for SIFAP, a modern rebuild of a legacy system. Requirements are derived from the legacy UI screens, data model and business rules recovered by RNC.
+
+## Goals
+
+- Preserve the behavior of the legacy system on a modern, supported stack.
+- Provide full CRUD for every managed entity.
+- Expose reference data as read-only lookups.
+- Enforce the recovered business rules.
+
+## Functional requirements
+
+### Entity management
+
+- **FR-01** — The system shall let a user list, create, view, edit and delete **ProgramaSocials** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/programa_socials`; required fields are validated.
+- **FR-02** — The system shall let a user list, create, view, edit and delete **ProgramaSocialGrpFaixaCalculos** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/programa_social_grp_faixa_calculos`; required fields are validated.
+- **FR-03** — The system shall let a user list, create, view, edit and delete **ProgramaSocialGrpParamRegionals** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/programa_social_grp_param_regionals`; required fields are validated.
+- **FR-04** — The system shall let a user list, create, view, edit and delete **Auditorias** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/auditorias`; required fields are validated.
+- **FR-05** — The system shall let a user list, create, view, edit and delete **Beneficiarios** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/beneficiarios`; required fields are validated.
+- **FR-06** — The system shall let a user list, create, view, edit and delete **BeneficiarioGrpDependentes** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/beneficiario_grp_dependentes`; required fields are validated.
+- **FR-07** — The system shall let a user list, create, view, edit and delete **Pagamentos** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/pagamentos`; required fields are validated.
+- **FR-08** — The system shall let a user list, create, view, edit and delete **PagamentoGrpDescontos** records.
+  - *Acceptance:* a list page, a create form, an edit form and delete all work at `/pagamento_grp_descontos`; required fields are validated.
+
+### Business rules
+
+- **FR-09** — Conditional
+  - *Condition:* `NOT #CPF-VALIDO`
+  - *Severity:* WARN
+- **FR-10** — Conditional
+  - *Condition:* `#ERRO`
+  - *Severity:* WARN
+- **FR-11** — Conditional
+  - *Condition:* `#RESTO < 2`
+  - *Severity:* WARN
+- **FR-12** — Conditional
+  - *Condition:* `#DV1 NE #DIG(10)`
+  - *Severity:* WARN
+- **FR-13** — Conditional
+  - *Condition:* `#RESTO < 2`
+  - *Severity:* WARN
+- **FR-14** — Conditional
+  - *Condition:* `#DV2 NE #DIG(11)`
+  - *Severity:* WARN
+- **FR-15** — Conditional
+  - *Condition:* `NOT #FOUND`
+  - *Severity:* WARN
+- **FR-16** — DECIDE ON BENEFICIARIO-V.STATUS
+  - *Condition:* `BENEFICIARIO-V.STATUS`
+  - *Severity:* WARN · *Fields:* BENEFICIARIO-V.STATUS
+- **FR-17** — Conditional
+  - *Condition:* `PAGAMENTO-V.CPF-BENEF NE BENEFICIARIO-V.CPF`
+  - *Severity:* WARN
+- **FR-18** — Conditional
+  - *Condition:* `#QTD-HIST > 12`
+  - *Severity:* WARN
+- **FR-19** — Conditional
+  - *Condition:* `#QTD-HIST = 0`
+  - *Severity:* WARN
+- **FR-20** — Conditional
+  - *Condition:* `BENEFICIARIO-V.CPF < 10000000000`
+  - *Severity:* WARN
+- **FR-21** — Conditional
+  - *Condition:* `NOT #FOUND-B`
+  - *Severity:* WARN
+- **FR-22** — Conditional
+  - *Condition:* `BENEFICIARIO-V.STATUS NE 'A'`
+  - *Severity:* WARN
+- **FR-23** — Conditional
+  - *Condition:* `NOT #FOUND-P`
+  - *Severity:* WARN
+- **FR-24** — Derivation of #ANO-NASC — Calc Fator Idade
+  - *Condition:* `BENEFICIARIO-V.DT-NASCIMENTO / 10000`
+  - *Severity:* WARN · *Fields:* #ANO-NASC, BENEFICIARIO.DT-NASCIMENTO
+- **FR-25** — Conditional
+  - *Condition:* `#RENDA <= #FAIXA-RENDA(#J)`
+  - *Severity:* WARN
+- **FR-26** — Conditional
+  - *Condition:* `AUDITORIA-V.DT-EVENTO < #DT-INI`
+  - *Severity:* WARN · *Fields:* AUDITORIA.DT-EVENTO, #DT-INI
+- **FR-27** — Conditional
+  - *Condition:* `AUDITORIA-V.DT-EVENTO > #DT-FIM`
+  - *Severity:* WARN · *Fields:* AUDITORIA.DT-EVENTO, #DT-FIM
+- **FR-28** — Conditional
+  - *Condition:* `AUDITORIA-V.ACAO = 'EX'`
+  - *Severity:* WARN
+- **FR-29** — Conditional
+  - *Condition:* `AUDITORIA-V.ACAO NE #ACAO-FILTRO`
+  - *Severity:* WARN · *Fields:* #ACAO-FILTRO
+- **FR-30** — Conditional
+  - *Condition:* `AUDITORIA-V.USUARIO NE #USUARIO-FILTRO`
+  - *Severity:* WARN · *Fields:* #USUARIO-FILTRO
+- **FR-31** — Conditional
+  - *Condition:* `AUDITORIA-V.TABELA-REF NE #TABELA-FILTRO`
+  - *Severity:* WARN · *Fields:* #TABELA-FILTRO
+- **FR-32** — DECIDE ON AUDITORIA-V.ACAO
+  - *Condition:* `AUDITORIA-V.ACAO`
+  - *Severity:* WARN · *Fields:* AUDITORIA-V.ACAO
+- **FR-33** — Conditional
+  - *Condition:* `#LINHA >= (#MAX-LINHAS - 5)`
+  - *Severity:* WARN
+- **FR-34** — Conditional
+  - *Condition:* `#CNAB-TIPO-REG NE '3'`
+  - *Severity:* WARN
+- **FR-35** — Conditional
+  - *Condition:* `PAGAMENTO-V.CPF-BENEF = #CPF-NUM`
+  - *Severity:* WARN · *Fields:* #COMPETENCIA
+- **FR-36** — Conditional
+  - *Condition:* `NOT #FOUND`
+  - *Severity:* WARN
+- **FR-37** — Derivation of #DIFF — Conciliar Valores
+  - *Condition:* `PAGAMENTO-V.VLR-LIQUIDO - #VLR-RETORNO`
+  - *Severity:* WARN · *Fields:* #DIFF, PAGAMENTO.VLR-LIQUIDO
+- **FR-38** — Conditional
+  - *Condition:* `PAGAMENTO-V.CPF-BENEF NE #CPF`
+  - *Severity:* WARN · *Fields:* #CPF
+- **FR-39** — Conditional
+  - *Condition:* `PAGAMENTO-V.COMPETENCIA < #COMP-INI`
+  - *Severity:* WARN · *Fields:* #COMP-INI
+- **FR-40** — Conditional
+  - *Condition:* `PAGAMENTO-V.COMPETENCIA > #COMP-FIM`
+  - *Severity:* WARN · *Fields:* #COMP-FIM
+- **FR-41** — Conditional
+  - *Condition:* `PAGAMENTO-V.IND-CORRIGIDO = 'S'`
+  - *Severity:* WARN
+- **FR-42** — Conditional
+  - *Condition:* `#ANO-TAB(#K) = #ANO-C`
+  - *Severity:* WARN
+- **FR-43** — Conditional
+  - *Condition:* `PAGAMENTO-V.COMPETENCIA NE #COMPETENCIA`
+  - *Severity:* WARN · *Fields:* #COMPETENCIA
+- **FR-44** — Derivation of #VLR-ARR — Nota: Arredondamento Difere Do Calcbenf (Round Vs Truncate)
+  - *Condition:* `PAGAMENTO-V.VLR-BRUTO + 0.005`
+  - *Severity:* WARN · *Fields:* #VLR-ARR, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP
+- **FR-45** — DECIDE ON PAGAMENTO-V.STATUS-PGTO
+  - *Condition:* `PAGAMENTO-V.STATUS-PGTO`
+  - *Severity:* WARN · *Fields:* PAGAMENTO-V.STATUS-PGTO
+- **FR-46** — Conditional
+  - *Condition:* `#FOUND`
+  - *Severity:* WARN
+- **FR-47** — Conditional
+  - *Condition:* `*NUMBER(PROGRAMA-V) = 0`
+  - *Severity:* WARN
+- **FR-48** — Conditional
+  - *Condition:* `NOT #CPF-VALIDO`
+  - *Severity:* WARN
+- **FR-49** — Conditional
+  - *Condition:* `NOT #DT-VALIDA`
+  - *Severity:* WARN
+- **FR-50** — Conditional
+  - *Condition:* `NOT #NOME-VALIDO`
+  - *Severity:* WARN
+- **FR-51** — Conditional
+  - *Condition:* `NOT #UF-OK`
+  - *Severity:* WARN
+- **FR-52** — Conditional
+  - *Condition:* `#STATUS NE 'A' AND #STATUS NE 'S' AND #STATUS NE 'C'`
+  - *Severity:* WARN
+- **FR-53** — Conditional
+  - *Condition:* `#DIG(#I) NE #DIG(1)`
+  - *Severity:* WARN
+- **FR-54** — Conditional
+  - *Condition:* `#TODOS-IGUAIS`
+  - *Severity:* WARN
+- **FR-55** — Conditional
+  - *Condition:* `#DIG(1) = 0 AND #DIG(2) = 0 AND #DIG(3) = 0`
+  - *Severity:* WARN
+- **FR-56** — Conditional
+  - *Condition:* `#RESTO < 2`
+  - *Severity:* WARN
+- **FR-57** — Conditional
+  - *Condition:* `#DV1 NE #DIG(10)`
+  - *Severity:* WARN
+- **FR-58** — Conditional
+  - *Condition:* `#RESTO < 2`
+  - *Severity:* WARN
+- **FR-59** — Conditional
+  - *Condition:* `#DV2 NE #DIG(11)`
+  - *Severity:* WARN
+- **FR-60** — Conditional
+  - *Condition:* `#POS > 1`
+  - *Severity:* WARN
+- **FR-61** — Conditional
+  - *Condition:* `NOT #TEM-ESPACO`
+  - *Severity:* WARN
+- **FR-62** — Conditional
+  - *Condition:* `NOT #FOUND`
+  - *Severity:* WARN
+- **FR-63** — Conditional
+  - *Condition:* `BENEFICIARIO-V.STATUS = 'C' OR BENEFICIARIO-V.STATUS = 'D'`
+  - *Severity:* WARN
+- **FR-64** — Conditional
+  - *Condition:* `#ERRO`
+  - *Severity:* WARN
+- **FR-65** — Conditional
+  - *Condition:* `BENEFICIARIO-V.CPF-DEP(#IDX) = #CPF-DEP AND #CPF-DEP NE 0`
+  - *Severity:* WARN · *Fields:* #CPF-DEP
+- **FR-66** — Conditional
+  - *Condition:* `#ERRO`
+  - *Severity:* WARN
+- **FR-67** — Conditional
+  - *Condition:* `NOT #CPF-OK`
+  - *Severity:* WARN
+- **FR-68** — Conditional
+  - *Condition:* `NOT #RG-OK`
+  - *Severity:* WARN
+- **FR-69** — Conditional
+  - *Condition:* `#DOC-ESP-OK`
+  - *Severity:* WARN
+- **FR-70** — Conditional
+  - *Condition:* `#RESTO < 2`
+  - *Severity:* WARN
+- **FR-71** — Conditional
+  - *Condition:* `#DV1 NE #DIG(10)`
+  - *Severity:* WARN
+- **FR-72** — Conditional
+  - *Condition:* `#RESTO < 2`
+  - *Severity:* WARN
+- **FR-73** — Conditional
+  - *Condition:* `#DV2 NE #DIG(11)`
+  - *Severity:* WARN
+- **FR-74** — Conditional
+  - *Condition:* `#RG-LEN > 0`
+  - *Severity:* WARN
+- **FR-75** — Conditional
+  - *Condition:* `#RG-LEN < 5`
+  - *Severity:* WARN
+- **FR-76** — Conditional
+  - *Condition:* `#PREF-CPF = #PREF-ESP(#I)`
+  - *Severity:* WARN
+- **FR-77** — Conditional
+  - *Condition:* `PAGAMENTO-V.COMPETENCIA > #COMP-FIM`
+  - *Severity:* WARN · *Fields:* #COMP-FIM
+- **FR-78** — Conditional
+  - *Condition:* `PAGAMENTO-V.COD-PROGRAMA NE #PROG-ANT AND #PROG-ANT NE 0`
+  - *Severity:* WARN · *Fields:* PROGRAMA-SOCIAL.COD-PROGRAMA
+- **FR-79** — DECIDE ON PAGAMENTO-V.TIPO-PGTO
+  - *Condition:* `PAGAMENTO-V.TIPO-PGTO`
+  - *Severity:* WARN · *Fields:* PAGAMENTO-V.TIPO-PGTO
+- **FR-80** — DECIDE ON PAGAMENTO-V.STATUS-PGTO
+  - *Condition:* `PAGAMENTO-V.STATUS-PGTO`
+  - *Severity:* WARN · *Fields:* PAGAMENTO-V.STATUS-PGTO
+- **FR-81** — Conditional
+  - *Condition:* `#LINHA >= (#MAX-LINHAS - 5)`
+  - *Severity:* WARN
+- **FR-82** — Derivation of #ANO-NASC — Leitura Beneficiario - Arq 150
+  - *Condition:* `BENEFICIARIO-V.DT-NASCIMENTO / 10000`
+  - *Severity:* WARN · *Fields:* #ANO-NASC, BENEFICIARIO.DT-NASCIMENTO
+- **FR-83** — Age calculation (#ANO-ATUAL - #ANO-NASC) — Leitura Beneficiario - Arq 150
+  - *Condition:* `#ANO-ATUAL - #ANO-NASC`
+  - *Severity:* WARN · *Fields:* #IDADE, #ANO-ATUAL, #ANO-NASC, BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC
+- **FR-84** — Conditional
+  - *Condition:* `NOT #FOUND-B`
+  - *Severity:* WARN
+- **FR-85** — Conditional
+  - *Condition:* `NOT #FOUND-P`
+  - *Severity:* WARN
+- **FR-86** — Conditional
+  - *Condition:* `PROGRAMA-V.STATUS-PROG NE 'A'`
+  - *Severity:* WARN
+- **FR-87** — Conditional
+  - *Condition:* `#STATUS-BENEF NE 'A'`
+  - *Severity:* WARN
+- **FR-88** — Conditional
+  - *Condition:* `#STATUS-BENEF = 'S'`
+  - *Severity:* WARN
+- **FR-89** — Conditional
+  - *Condition:* `#STATUS-BENEF = 'C' OR #STATUS-BENEF = 'D'`
+  - *Severity:* WARN
+- **FR-90** — Conditional
+  - *Condition:* `#STATUS-BENEF = 'I'`
+  - *Severity:* WARN
+- **FR-91** — Conditional
+  - *Condition:* `PROGRAMA-V.RENDA-MAX > 0`
+  - *Severity:* WARN
+- **FR-92** — Conditional
+  - *Condition:* `#RENDA > PROGRAMA-V.RENDA-MAX`
+  - *Severity:* WARN
+- **FR-93** — Conditional
+  - *Condition:* `#RENDA > 600.00`
+  - *Severity:* WARN
+- **FR-94** — Conditional
+  - *Condition:* `#DOCS-OK NE 'S'`
+  - *Severity:* WARN
+- **FR-95** — Conditional
+  - *Condition:* `#ELEGIVEL`
+  - *Severity:* WARN
+- **FR-96** — Conditional
+  - *Condition:* `BENEFICIARIO-V.NIS = 0`
+  - *Severity:* WARN
+- **FR-97** — Conditional
+  - *Condition:* `BENEFICIARIO-V.CPF = #CPF-ANT`
+  - *Severity:* WARN
+- **FR-98** — Conditional
+  - *Condition:* `BENEFICIARIO-V.STATUS NE 'A'`
+  - *Severity:* WARN
+- **FR-99** — Conditional
+  - *Condition:* `PAGAMENTO-V.COMPETENCIA = #COMPETENCIA`
+  - *Severity:* WARN · *Fields:* #COMPETENCIA
+- **FR-100** — Conditional
+  - *Condition:* `#JA-GERADO`
+  - *Severity:* WARN
+- **FR-101** — Conditional
+  - *Condition:* `PROGRAMA-V.STATUS-PROG NE 'A'`
+  - *Severity:* WARN
+- **FR-102** — Derivation of #ANO-NASC — Preparar Dados P/ Calculo
+  - *Condition:* `BENEFICIARIO-V.DT-NASCIMENTO / 10000`
+  - *Severity:* WARN · *Fields:* #ANO-NASC, BENEFICIARIO.DT-NASCIMENTO
+- **FR-103** — Conditional
+  - *Condition:* `#QTD-GERADOS MOD 1000 = 0`
+  - *Severity:* WARN
+- **FR-104** — Conditional
+  - *Condition:* `#RENDA <= #FAIXA-RENDA(#J)`
+  - *Severity:* WARN
+- **FR-105** — Conditional
+  - *Condition:* `PAGAMENTO-V.CPF-BENEF = #CPF`
+  - *Severity:* WARN · *Fields:* #CPF, PAGAMENTO.VLR-BRUTO
+- **FR-106** — Conditional
+  - *Condition:* `NOT #FOUND`
+  - *Severity:* WARN
+- **FR-107** — Conditional
+  - *Condition:* `*NUMBER(BENEFICIARIO-V) = 0`
+  - *Severity:* WARN
+- **FR-108** — Conditional
+  - *Condition:* `BENEFICIARIO-V.DT-FIM-DSCT(#IDX) NE 0`
+  - *Severity:* WARN · *Fields:* PAGAMENTO_GRP-DESCONTO.DT-FIM-DSCT
+- **FR-109** — Conditional
+  - *Condition:* `BENEFICIARIO-V.DT-INICIO-DSCT(#IDX) > #DT-HOJE`
+  - *Severity:* WARN · *Fields:* PAGAMENTO_GRP-DESCONTO.DT-INICIO-DSCT
+- **FR-110** — Conditional
+  - *Condition:* `BENEFICIARIO-V.VLR-DSCT(#IDX) > 0`
+  - *Severity:* WARN · *Fields:* PAGAMENTO.VLR-BRUTO
+- **FR-111** — Percentage calculation (PCT-DSCT% of #VLR-BRUTO) — Desconto Judicial - Valor Fixo Ou Percentual
+  - *Condition:* `#VLR-BRUTO * (BENEFICIARIO-V.PCT-DSCT(#IDX) / 100)`
+  - *Severity:* WARN · *Fields:* #VLR-DSCT-ITEM, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO
+- **FR-112** — Conditional
+  - *Condition:* `BENEFICIARIO-V.VLR-DSCT(#IDX) > 0`
+  - *Severity:* WARN · *Fields:* PAGAMENTO.VLR-BRUTO
+- **FR-113** — Percentage calculation (PCT-DSCT% of #VLR-BRUTO) — Pensao Alimenticia
+  - *Condition:* `#VLR-BRUTO * (BENEFICIARIO-V.PCT-DSCT(#IDX) / 100)`
+  - *Severity:* WARN · *Fields:* #VLR-DSCT-ITEM, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO
+- **FR-114** — Percentage calculation (PCT-DSCT% of #VLR-BRUTO) — Imposto Retido
+  - *Condition:* `#VLR-BRUTO * (BENEFICIARIO-V.PCT-DSCT(#IDX) / 100)`
+  - *Severity:* WARN · *Fields:* #VLR-DSCT-ITEM, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO
+- **FR-115** — Conditional
+  - *Condition:* `BENEFICIARIO-V.VLR-DSCT(#IDX) > 0`
+  - *Severity:* WARN · *Fields:* PAGAMENTO.VLR-BRUTO
+- **FR-116** — Percentage calculation (PCT-DSCT% of #VLR-BRUTO) — Desconto Administrativo
+  - *Condition:* `#VLR-BRUTO * (BENEFICIARIO-V.PCT-DSCT(#IDX) / 100)`
+  - *Severity:* WARN · *Fields:* #VLR-DSCT-ITEM, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO
+- **FR-117** — Conditional
+  - *Condition:* `#TIPO-DSCT NE 'J'`
+  - *Severity:* WARN
+
+### Out of scope — rules about entities not generated (reference only)
+
+These rules reference fields that exist on no generated entity — they belong to legacy modules outside this build. Kept for traceability; do NOT implement.
+
+- Conditional *(fields: #OPER)*
+- Conditional *(fields: #CPF)*
+- Conditional *(fields: #NOME)*
+- Conditional *(fields: #DT-NASC)*
+- Conditional *(fields: #SEXO)*
+- Conditional *(fields: #OPER)*
+- Conditional *(fields: #OPER)*
+- Age calculation (#ANO-ATUAL - #ANO-NASC) — Calc Idade Benef *(fields: #IDADE, #ANO-ATUAL, #ANO-NASC, BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: #OPER)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- DECIDE ON #OPER *(fields: #OPER)*
+- CPF check-digit weighted sum (#DIG × #PESO) — Primeiro Digito Verificador *(fields: #SOMA, #DIG, #PESO)*
+- CPF check-digit computation — modulo-11 remainder of #SOMA *(fields: #RESTO, #SOMA)*
+- CPF check digit from the modulo-11 remainder (11 - #RESTO) *(fields: #DV1, #RESTO)*
+- CPF check-digit weighted sum (#DIG × #PESO) — Segundo Digito Verificador *(fields: #SOMA, #DIG, #PESO)*
+- CPF check-digit computation — modulo-11 remainder of #SOMA *(fields: #RESTO, #SOMA)*
+- CPF check digit from the modulo-11 remainder (11 - #RESTO) *(fields: #DV2, #RESTO)*
+- Conditional *(fields: #TIPO-BUSCA, #CPF-BUSCA)*
+- Conditional *(fields: #TIPO-BUSCA)*
+- DECIDE ON #TIPO-BUSCA *(fields: #TIPO-BUSCA)*
+- Derivation of #ANO — Extrair Mes/Ano Da Competencia *(fields: #ANO, #COMPETENCIA, #DT-NASC)*
+- Derivation of #MES — Extrair Mes/Ano Da Competencia *(fields: #MES, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: #COD-REG)*
+- Conditional *(fields: #NUM-DEP)*
+- Conditional *(fields: #NUM-DEP)*
+- Derivation of #FATOR-FAM — Calc Fator Familiar - Adicional Por Dependente *(fields: #FATOR-FAM, #NUM-DEP)*
+- Conditional *(fields: #NUM-DEP)*
+- Derivation of #FATOR-FAM *(fields: #FATOR-FAM, #NUM-DEP)*
+- Derivation of #FATOR-FAM *(fields: #FATOR-FAM, #NUM-DEP)*
+- Age calculation (#ANO - #ANO-NASC) — Calc Fator Idade *(fields: #IDADE, #ANO, #ANO-NASC, #COMPETENCIA, #DT-NASC, BENEFICIARIO.DT-NASCIMENTO)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Derivation of #VLR-BENF — * * * * * * * * * * * * * * * * * * * * * * * * * * * * *(fields: #VLR-BENF, #VLR-BASE, #NUM-DEP, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-BENF — Aplicar Reajuste Do Programa *(fields: #VLR-BENF, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-TEMP — Truncar P/ 2 Casas Decimais - Padrao Mainframe *(fields: #VLR-TEMP, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-BENF — Truncar P/ 2 Casas Decimais - Padrao Mainframe *(fields: #VLR-BENF, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Conditional *(fields: #COMPETENCIA, #DT-NASC, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-13 — * * * * * * * * * * * * * * * * * * * * * * * * * * * * *(fields: #VLR-13, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Truncar 13o *(fields: #VLR-TEMP, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-13 — Truncar 13o *(fields: #VLR-13, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-BRUTO — Truncar 13o *(fields: #VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Conditional *(fields: #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Percentage calculation (15% of #VLR-BENF) — Abono Natalino - 15% Adicional Para Programas Tipo 'A' *(fields: #VLR-ABONO, #VLR-BENF, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-TEMP — Truncar Abono *(fields: #VLR-TEMP, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-ABONO — Truncar Abono *(fields: #VLR-ABONO, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-BRUTO — Truncar Abono *(fields: #VLR-BRUTO, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-LIQ — Calc Vlr Liquido *(fields: #VLR-LIQ, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Conditional *(fields: PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Truncar Liquido *(fields: #VLR-TEMP, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-LIQ — Truncar Liquido *(fields: #VLR-LIQ, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Conditional *(fields: #COMPETENCIA, #DT-NASC, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Conditional *(fields: PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Percentage calculation (3% of #VLR-BRUTO) — Desconto Basico - 3% Contrib Social *(fields: #VLR-DESC, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Desconto Basico - 3% Contrib Social *(fields: #VLR-TEMP, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-DESC — Desconto Basico - 3% Contrib Social *(fields: #VLR-DESC, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Conditional *(fields: #TIPO-SAIDA)*
+- Conditional *(fields: #DT-INI)*
+- Conditional *(fields: #DT-FIM)*
+- Conditional *(fields: #ACAO-FILTRO)*
+- Conditional *(fields: #USUARIO-FILTRO)*
+- Conditional *(fields: #TABELA-FILTRO)*
+- Conditional *(fields: #TIPO-SAIDA, AUDITORIA.DT-EVENTO)*
+- Conditional *(fields: #TIPO-SAIDA, #DT-INI, #DT-FIM)*
+- Derivation of #VLR-RETORNO — Converter Valor (Centavos -> Reais) *(fields: #VLR-RETORNO)*
+- Conditional *(fields: PAGAMENTO.VLR-LIQUIDO)*
+- Derivation of #DIFF — Conciliar Valores *(fields: #DIFF, PAGAMENTO.VLR-LIQUIDO)*
+- Conditional *(fields: PAGAMENTO.VLR-LIQUIDO)*
+- DECIDE ON #COD-RET *(fields: #COD-RET)*
+- Conditional *(fields: #COMP-INI, #COMP-FIM)*
+- Derivation of #VLR-CORR — Aplicar Correcao *(fields: #VLR-CORR, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Truncar *(fields: #VLR-TEMP, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-CORR — Truncar *(fields: #VLR-CORR, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-DIFF — Truncar *(fields: #VLR-DIFF, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Conditional *(fields: PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #ANO-C *(fields: #ANO-C)*
+- Derivation of #MES-C *(fields: #MES-C)*
+- Derivation of #IND-ACUM — Buscar Indice Na Tabela *(fields: #IND-ACUM)*
+- Conditional *(fields: #COD-REG)*
+- Conditional *(fields: #COD-REG)*
+- Conditional *(fields: #COD-REG)*
+- Conditional *(fields: #COD-REG)*
+- Derivation of #VLR-TEMP — Nota: Arredondamento Difere Do Calcbenf (Round Vs Truncate) *(fields: #VLR-TEMP, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-ARR — Nota: Arredondamento Difere Do Calcbenf (Round Vs Truncate) *(fields: #VLR-ARR, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Conditional *(fields: #OPER)*
+- Conditional *(fields: #OPER)*
+- Derivation of #FATOR-K — Calc Vlr Base Ajustado C/ Fator K *(fields: #FATOR-K, #FATOR-REAJ, PROGRAMA-SOCIAL.FATOR-K)*
+- Derivation of #VLR-CALC — Calc Vlr Base Ajustado C/ Fator K *(fields: #VLR-CALC, #VLR-BASE, PROGRAMA-SOCIAL.FATOR-K)*
+- Derivation of #ANO-ATUAL *(fields: #ANO-ATUAL)*
+- Conditional *(fields: #UF)*
+- Conditional *(fields: #UF)*
+- CPF check-digit weighted sum (#DIG × #PESO) — Primeiro Dv *(fields: #SOMA, #DIG, #PESO)*
+- CPF check-digit computation — modulo-11 remainder of #SOMA *(fields: #RESTO, #SOMA)*
+- CPF check digit from the modulo-11 remainder (11 - #RESTO) *(fields: #DV1, #RESTO)*
+- CPF check-digit weighted sum (#DIG × #PESO) — Segundo Dv *(fields: #SOMA, #DIG, #PESO)*
+- CPF check-digit computation — modulo-11 remainder of #SOMA *(fields: #RESTO, #SOMA)*
+- CPF check digit from the modulo-11 remainder (11 - #RESTO) *(fields: #DV2, #RESTO)*
+- Derivation of #ANO *(fields: #ANO, #DT-NASC, #COMPETENCIA)*
+- Derivation of #MES *(fields: #MES, #DT-NASC, #COMPETENCIA)*
+- Derivation of #DIA *(fields: #DIA, #DT-NASC, #COMPETENCIA)*
+- Conditional *(fields: #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: #DT-NASC, #COMPETENCIA)*
+- Conditional *(fields: #NOME)*
+- Conditional *(fields: #NUM-DEP)*
+- Conditional *(fields: #NOME-DEP)*
+- Conditional *(fields: #PARENTESCO)*
+- Conditional *(fields: #CONT)*
+- Conditional *(fields: #CPF)*
+- Weighted-sum accumulation (#DIG × #PESO) — Primeiro Dv *(fields: #SOMA, #DIG, #PESO)*
+- Check-digit computation — modulo-11 remainder of #SOMA *(fields: #RESTO, #SOMA)*
+- Check digit from the modulo-11 remainder (11 - #RESTO) *(fields: #DV1, #RESTO)*
+- Weighted-sum accumulation (#DIG × #PESO) — Segundo Dv *(fields: #SOMA, #DIG, #PESO)*
+- Check-digit computation — modulo-11 remainder of #SOMA *(fields: #RESTO, #SOMA)*
+- Check digit from the modulo-11 remainder (11 - #RESTO) *(fields: #DV2, #RESTO)*
+- Conditional *(fields: #RG)*
+- Conditional *(fields: #COD-PROG-FILTRO, PROGRAMA-SOCIAL.COD-PROGRAMA)*
+- Conditional *(fields: PROGRAMA-SOCIAL.COD-PROGRAMA)*
+- Derivation of #ANO-ATUAL *(fields: #ANO-ATUAL)*
+- Conditional *(fields: #COD-REG)*
+- Conditional *(fields: PROGRAMA-SOCIAL.IDADE-MIN)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC, PROGRAMA-SOCIAL.IDADE-MIN)*
+- Conditional *(fields: PROGRAMA-SOCIAL.IDADE-MAX)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC, PROGRAMA-SOCIAL.IDADE-MAX)*
+- DECIDE ON #TIPO-PROG *(fields: #TIPO-PROG)*
+- Conditional *(fields: #NUM-DEP)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: #COD-ELEG)*
+- Conditional *(fields: #COD-ELEG)*
+- Conditional *(fields: #COD-ELEG)*
+- Conditional *(fields: #NUM-DEP)*
+- Derivation of #ANO — Calc Competencia *(fields: #ANO, #COMPETENCIA, #DT-NASC)*
+- Derivation of #MES — Calc Competencia *(fields: #MES, #COMPETENCIA, #DT-NASC)*
+- Derivation of #COMPETENCIA — Calc Competencia *(fields: #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: PROGRAMA-SOCIAL.COD-PROGRAMA)*
+- Age calculation (#ANO - #ANO-NASC) — Preparar Dados P/ Calculo *(fields: #IDADE, #ANO, #ANO-NASC, #COMPETENCIA, #DT-NASC, BENEFICIARIO.DT-NASCIMENTO)*
+- Conditional *(fields: #COD-REG)*
+- Conditional *(fields: #NUM-DEP)*
+- Conditional *(fields: #NUM-DEP)*
+- Derivation of #FATOR-FAM — Calc Fator Familiar *(fields: #FATOR-FAM, #NUM-DEP)*
+- Conditional *(fields: #NUM-DEP)*
+- Derivation of #FATOR-FAM *(fields: #FATOR-FAM, #NUM-DEP)*
+- Derivation of #FATOR-FAM *(fields: #FATOR-FAM, #NUM-DEP)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Conditional *(fields: BENEFICIARIO.DT-NASCIMENTO, #COMPETENCIA, #DT-NASC)*
+- Derivation of #VLR-BENF — Calculo Principal *(fields: #VLR-BENF, #VLR-BASE, #NUM-DEP, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-BENF — #Fator-Rnd * #Fator-Idade *(fields: #VLR-BENF, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-TEMP — Truncar *(fields: #VLR-TEMP, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-BENF — Truncar *(fields: #VLR-BENF, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Conditional *(fields: #COMPETENCIA, #DT-NASC, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-13 — 13o Salario E Abono - Dezembro *(fields: #VLR-13, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-TEMP — 13o Salario E Abono - Dezembro *(fields: #VLR-TEMP, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-13 — 13o Salario E Abono - Dezembro *(fields: #VLR-13, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-BRUTO — 13o Salario E Abono - Dezembro *(fields: #VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Conditional *(fields: #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Percentage calculation (15% of #VLR-BENF) *(fields: #VLR-ABONO, #VLR-BENF, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-TEMP *(fields: #VLR-TEMP, #VLR-BASE, #FATOR-REAJ, #NUM-DEP, PAGAMENTO.VLR-BRUTO)*
+- Derivation of #VLR-ABONO *(fields: #VLR-ABONO, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-BRUTO *(fields: #VLR-BRUTO, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Conditional *(fields: PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Percentage calculation (3% of #VLR-BRUTO) — Calc Descontos Simplificado *(fields: #VLR-DESC, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Calc Descontos Simplificado *(fields: #VLR-TEMP, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-DESC — Calc Descontos Simplificado *(fields: #VLR-DESC, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-LIQ — Calc Liquido *(fields: #VLR-LIQ, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Conditional *(fields: PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Calc Liquido *(fields: #VLR-TEMP, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-LIQ — Calc Liquido *(fields: #VLR-LIQ, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Percentage calculation (30% of #VLR-BRUTO) — Calc Teto Maximo Desconto - 30% Do Bruto *(fields: #VLR-MAX-DSCT, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Truncar *(fields: #VLR-TEMP, PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-MAX-DSCT — Truncar *(fields: #VLR-MAX-DSCT, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- DECIDE ON #TIPO-DSCT *(fields: #TIPO-DSCT)*
+- Percentage calculation (1% of #VLR-BRUTO) — Desconto Sindical *(fields: #VLR-DSCT-ITEM, #VLR-BRUTO, PAGAMENTO.VLR-BRUTO)*
+- Conditional *(fields: #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-TEMP — Truncar Total Desconto *(fields: #VLR-TEMP, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Derivation of #VLR-TOTAL-DSCT — Truncar Total Desconto *(fields: #VLR-TOTAL-DSCT, #VLR-BASE, #FATOR-REAJ, PAGAMENTO.VLR-BRUTO, #NUM-DEP)*
+- Conditional *(fields: PAGAMENTO.VLR-BRUTO, #VLR-BASE, #FATOR-REAJ, #NUM-DEP)*
+- Derivation of #VLR-DSCT-ITEM *(fields: #VLR-DSCT-ITEM, PAGAMENTO.VLR-BRUTO)*
+
+## Non-functional requirements
+
+- Type-safe end to end; validate every input at the API boundary.
+- Consistent CRUD conventions across all managed entities.
