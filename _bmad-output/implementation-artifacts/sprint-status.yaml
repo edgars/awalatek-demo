@@ -36,7 +36,7 @@ tracking_system: file-system
 story_location: docs/stories
 development_status:
   epic-0: in-progress
-  0-1-scaffold-del-proyecto-y-esquema-de-datos: review
+  0-1-scaffold-del-proyecto-y-esquema-de-datos: done
   0-2-utilidades-de-dominio-y-auditoría: ready-for-dev
   epic-0-retrospective: optional
 
