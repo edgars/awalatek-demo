@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { FichaConsulta, Historico, TipoBusca } from "@/domain/beneficiario/consulta";
+import { tituloHistorico, type FichaConsulta, type Historico, type TipoBusca } from "@/domain/beneficiario/consulta";
 import { formatarReais } from "@/domain/money";
 import { consultarBeneficiarioAction } from "../actions";
 import type { EstadoConsulta } from "../estado";
@@ -99,13 +99,8 @@ function TabelaHistorico({ h }: { h: Historico }) {
   return (
     <Card>
       <CardHeader>
-        {h.maisRecentesPrimeiro ? (
-          // CORRECAO(D21): são de fato os 12 últimos, do mais recente ao mais antigo.
-          <CardTitle>Histórico de pagamentos (últimos 12, do mais recente ao mais antigo)</CardTitle>
-        ) : (
-          // LEGACY-QUIRK(D21): o título legado diz "últimos 12", mas são os 12 primeiros por ordem de inserção.
-          <CardTitle>Histórico de pagamentos (últimos 12)</CardTitle>
-        )}
+        {/* LEGACY-QUIRK(D21) / CORRECAO(D21): o título acompanha o modo (ver tituloHistorico). */}
+        <CardTitle>{tituloHistorico(h)}</CardTitle>
       </CardHeader>
       <CardContent>
         {h.mensagem ? (

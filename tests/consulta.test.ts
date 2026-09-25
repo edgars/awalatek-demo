@@ -231,37 +231,77 @@ describe("correções configuráveis (SIFAP_QUIRKS_CORRIGIDOS)", () => {
     expect(r?.ok && r.ficha.cpfMascarado).toBe(`***.***.${CPF_MARIA.slice(6, 9)}-${CPF_MARIA.slice(9)}`);
     expect(JSON.stringify(r)).not.toContain(CPF_MARIA);
     // Só D7: o histórico continua legado.
-    const jose = await consultarBeneficiario({ tipo: "C", valor: CPF_JOSE }, prisma);
-    expect(jose.ok && jose.historico.linhas.map((l) => l.vlrBruto)).toEqual(Array.from({ length: 12 }, (_, i) => 60001 + i));
+    const jose = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_JOSE }));
+    expect(jose?.ok && jose.historico.linhas.map((l) => l.vlrBruto)).toEqual(Array.from({ length: 12 }, (_, i) => 60001 + i));
   });
 
-  it("CORRECAO(D21): 14 pagamentos → os 12 de maior numPagamento, do mais recente ao mais antigo", async () => {
-    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D21");
-    const r = await consultarBeneficiario({ tipo: "C", valor: CPF_JOSE }, prisma);
-    expect(r.ok).toBe(true);
-    if (!r.ok) return;
-    expect(r.historico.maisRecentesPrimeiro).toBe(true);
-    expect(r.historico.linhas.map((l) => l.vlrBruto)).toEqual(Array.from({ length: 12 }, (_, i) => 60014 - i));
-    const ana = await consultarBeneficiario({ tipo: "C", valor: CPF_ANA }, prisma);
-    expect(ana.ok && ana.historico.linhas.map((l) => l.vlrBruto)).toEqual([60015]);
-    // Só D21: a máscara continua legada.
-    const maria = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }));
-    expect(maria?.ok && maria.ficha.cpfMascarado).toBe("012.***.***-**");
-    expect(maria?.ok && maria.historico).toEqual({ linhas: [], mensagem: "NENHUM PAGAMENTO ENCONTRADO", maisRecentesPrimeiro: true });
-  });
-
-  it("configuração explícita no servidor prevalece sobre o ambiente", async () => {
+  it("ALL não inclui D7: a máscara continua legada; ALL,D7 corrige", async () => {
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL");
-    const r = await consultarBeneficiario({ tipo: "C", valor: CPF_MARIA }, prisma, QUIRKS_PADRAO);
-    expect(r.ok && r.ficha.cpfMascarado).toBe("012.***.***-**");
+    const legado = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }));
+    expect(legado?.ok && legado.ficha.cpfMascarado).toBe("012.***.***-**");
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL,D7");
+    const corrigido = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }));
+    expect(corrigido?.ok && corrigido.ficha.cpfMascarado).toBe(`***.***.${CPF_MARIA.slice(6, 9)}-${CPF_MARIA.slice(9)}`);
   });
 
-  it("configuração inválida → mensagem genérica e log sem PII", async () => {
-    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D99");
+  it("CORRECAO(D21): os 12 de competência mais recente, do mais recente ao mais antigo; antigo inserido depois não entra", async () => {
+    // JOSE: numPagamento 1..14 com competências 202699..202686; o 16 é inserido depois com competência antiga.
+    await criarPagamento(16, CPF_JOSE, 201001);
+    try {
+      vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D21");
+      const r = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_JOSE }));
+      expect(r?.ok).toBe(true);
+      if (!r?.ok) return;
+      expect(r.historico.maisRecentesPrimeiro).toBe(true);
+      expect(r.historico.linhas.map((l) => l.anoMesRef)).toEqual(Array.from({ length: 12 }, (_, i) => 202699 - i));
+      expect(r.historico.linhas.map((l) => l.vlrBruto)).toEqual(Array.from({ length: 12 }, (_, i) => 60001 + i));
+      const ana = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_ANA }));
+      expect(ana?.ok && ana.historico.linhas.map((l) => l.vlrBruto)).toEqual([60015]);
+      // Só D21: a máscara continua legada; sem pagamentos → mensagem legada.
+      const maria = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }));
+      expect(maria?.ok && maria.ficha.cpfMascarado).toBe("012.***.***-**");
+      expect(maria?.ok && maria.historico).toEqual({ linhas: [], mensagem: "NENHUM PAGAMENTO ENCONTRADO", maisRecentesPrimeiro: true });
+      // Legado (mesma base): os 12 primeiros por inserção, o antigo tardio também fora.
+      vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+      const legado = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_JOSE }));
+      expect(legado?.ok && legado.historico.linhas.map((l) => l.vlrBruto)).toEqual(Array.from({ length: 12 }, (_, i) => 60001 + i));
+    } finally {
+      await prisma.pagamento.delete({ where: { numPagamento: 16 } });
+    }
+  });
+
+  it("CORRECAO(D21) com poucos pagamentos: o de competência antiga inserido depois vem por último", async () => {
+    await criarPagamento(17, CPF_MARIA, 202605);
+    await criarPagamento(18, CPF_MARIA, 202001);
+    await criarPagamento(19, CPF_MARIA, 202606);
+    try {
+      vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D21");
+      const r = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }));
+      expect(r?.ok && r.historico.linhas.map((l) => l.anoMesRef)).toEqual([202606, 202605, 202001]);
+    } finally {
+      await prisma.pagamento.deleteMany({ where: { numPagamento: { in: [17, 18, 19] } } });
+    }
+  });
+
+  it("servidor sem configuração → legado (não lê o ambiente); configuração explícita é respeitada", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL,D7");
+    const padrao = await consultarBeneficiario({ tipo: "C", valor: CPF_MARIA }, prisma);
+    expect(padrao.ok && padrao.ficha.cpfMascarado).toBe("012.***.***-**");
+    const explicito = await consultarBeneficiario({ tipo: "C", valor: CPF_MARIA }, prisma, { corrigidos: new Set(["D7"]) });
+    expect(explicito.ok && explicito.ficha.cpfMascarado).toBe(`***.***.${CPF_MARIA.slice(6, 9)}-${CPF_MARIA.slice(9)}`);
+    expect((await consultarBeneficiario({ tipo: "C", valor: CPF_MARIA }, prisma, QUIRKS_PADRAO)).ok).toBe(true);
+  });
+
+  it.each([
+    ["SIFAP_QUIRKS_CORRIGIDOS", "D99"],
+    ["LEGACY_DOC_ESPECIAL_ENABLED", "talvez"],
+  ])("configuração inválida (%s) → mensagem genérica; o log nomeia a variável e não tem CPF", async (variavel, valor) => {
+    vi.stubEnv(variavel, valor);
     const erroLog = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       expect(await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }))).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
       expect(erroLog).toHaveBeenCalledWith(expect.stringContaining("configuração LEGACY-QUIRK inválida"));
+      expect(JSON.stringify(erroLog.mock.calls)).toContain(variavel);
       expect(JSON.stringify(erroLog.mock.calls)).not.toContain(CPF_MARIA);
     } finally {
       erroLog.mockRestore();

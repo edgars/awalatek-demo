@@ -2,7 +2,16 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { lerQuirks, QUIRKS_PADRAO } from "@/domain/quirks";
-import { consolidar, INDICE_NAO_CLASSIFICADA, indiceRegiao, NOME_NAO_CLASSIFICADA, NOMES_REGIAO, type PagamentoConsolidado } from "./consolidado";
+import {
+  consolidar,
+  INDICE_NAO_CLASSIFICADA,
+  indiceRegiao,
+  NOME_NAO_CLASSIFICADA,
+  NOMES_REGIAO,
+  nomesRegiao,
+  regiaoDe,
+  type PagamentoConsolidado,
+} from "./consolidado";
 
 // Correcciones configurables del grupo C (informe consolidado): D10 (región) y D11 (bruto sin redondeo).
 
@@ -76,6 +85,17 @@ describe("D10 — agrupamento por região", () => {
     // A soma das linhas de região fecha com o total geral.
     expect(c.regioes.reduce((s, x) => s + x.bruto, 0)).toBe(c.total.bruto);
     expect(c.regioes.reduce((s, x) => s + x.qtd, 0)).toBe(c.total.qtd);
+  });
+
+  it("fonte única: toda região de regiaoDe existe em nomesRegiao e indiceRegiao aponta para ela", () => {
+    for (const q of [LEGADO, D10]) {
+      const nomes = nomesRegiao(q);
+      for (const cod of [null, -5, 0, 1, 5, 6, 10, 11, 15, 16, 20, 21, 25, 26, 99, 1000]) {
+        expect(nomes).toContain(regiaoDe(cod, q));
+        expect(nomes[indiceRegiao(cod, q)]).toBe(regiaoDe(cod, q));
+      }
+      expect(consolidar(201101, [], q).regioes.map((r) => r.nome)).toEqual([...nomes]);
+    }
   });
 
   it("D11 sozinho não cria a sexta linha", () => {

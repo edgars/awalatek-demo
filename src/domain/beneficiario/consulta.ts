@@ -87,14 +87,24 @@ export type LinhaHistorico = Pick<PagamentoConsulta, "anoMesRef" | "vlrBruto" | 
 
 /**
  * `maisRecentesPrimeiro` solo aparece con D21 corregido: las líneas son los últimos
- * 12 pagos (mayor `numPagamento`) del más reciente al más antiguo.
+ * 12 pagos (competencia más reciente primero; a igual competencia, mayor `numPagamento`).
  */
 export type Historico = { linhas: LinhaHistorico[]; mensagem: string | null; maisRecentesPrimeiro?: true };
 
+/** Orden legado: inserción (`numPagamento` ascendente ≈ ISN de Adabas). */
+function ordemInsercao(a: PagamentoConsulta, b: PagamentoConsulta): number {
+  return a.numPagamento - b.numPagamento;
+}
+
+/** Orden corregido (D21): competencia descendente y, a igual competencia, `numPagamento` descendente. */
+function ordemMaisRecente(a: PagamentoConsulta, b: PagamentoConsulta): number {
+  return b.anoMesRef - a.anoMesRef || b.numPagamento - a.numPagamento;
+}
+
 /**
- * Historial de pagos del CPF (FR-CON-03). Recorre en orden de inserción
- * (`numPagamento` ascendente como aproximación del ISN de Adabas).
- * `quirks` (default = legado) decide si se corrige D21.
+ * Historial de pagos del CPF (FR-CON-03), hasta 12 líneas. `quirks` (default = legado):
+ * - LEGACY-QUIRK(D21): orden de inserción → los PRIMEROS 12 pagos leídos.
+ * - CORRECAO(D21): los ÚLTIMOS 12, del más reciente al más antiguo (competencia, luego nº).
  */
 export function selecionarHistorico(
   numCpf: string,
@@ -103,8 +113,8 @@ export function selecionarHistorico(
 ): Historico {
   const recentes = corrige(quirks, "D21");
   // LEGACY-QUIRK(D21): orden de inserción (numPagamento ascendente).
-  // CORRECAO(D21): numPagamento DESCENDENTE → los últimos 12, del más reciente al más antiguo.
-  const ordenados = [...pagamentos].sort((a, b) => (recentes ? b.numPagamento - a.numPagamento : a.numPagamento - b.numPagamento));
+  // CORRECAO(D21): competencia descendente (y numPagamento descendente) → los últimos 12.
+  const ordenados = [...pagamentos].sort(recentes ? ordemMaisRecente : ordemInsercao);
   const linhas: LinhaHistorico[] = [];
   for (const p of ordenados) {
     // RK-e17f09d66201 (CONSBENF:152) — READ BY CPF-BENEF + IF CPF-BENEF NE BENEFICIARIO-V.CPF → ESCAPE BOTTOM:
@@ -114,13 +124,25 @@ export function selecionarHistorico(
     // RK-0550647253b2 (CONSBENF:156) — ADD 1 TO #QTD-HIST; IF #QTD-HIST > 12 → ESCAPE BOTTOM.
     // LEGACY-QUIRK(D21): se muestran los PRIMEROS 12 pagos leídos (orden de inserción),
     // no los últimos, aunque el título diga "ÚLTIMOS 12".
-    // CORRECAO(D21): con el orden descendente, el mismo corte deja los ÚLTIMOS 12.
+    // CORRECAO(D21): con el orden por competencia descendente, el mismo corte deja los ÚLTIMOS 12.
     if (linhas.length + 1 > MAX_HISTORICO) break;
     linhas.push({ anoMesRef: p.anoMesRef, vlrBruto: p.vlrBruto, vlrLiquido: p.vlrLiquido, sitPagamento: p.sitPagamento, tipoPgto: p.tipoPgto });
   }
   // RK-95a55083feb2 (CONSBENF:166) — IF #QTD-HIST = 0 → 'NENHUM PAGAMENTO ENCONTRADO'.
   const mensagem = linhas.length === 0 ? MSG_NENHUM_PAGAMENTO : null;
   return recentes ? { linhas, mensagem, maisRecentesPrimeiro: true } : { linhas, mensagem };
+}
+
+/** Título legado del historial (CONSBENF). */
+export const TITULO_HISTORICO = "Histórico de pagamentos (últimos 12)";
+/** CORRECAO(D21): título cuando las líneas son de verdad las 12 más recientes. */
+export const TITULO_HISTORICO_RECENTES = "Histórico de pagamentos (últimos 12, do mais recente ao mais antigo)";
+
+/** Título del historial coherente con el modo y con la existencia de líneas. */
+export function tituloHistorico(h: Historico): string {
+  // CORRECAO(D21): el orden solo se anuncia cuando hay líneas que ordenar.
+  // LEGACY-QUIRK(D21): el título legado dice "últimos 12", pero son los 12 primeros por inserción.
+  return h.maisRecentesPrimeiro && h.linhas.length > 0 ? TITULO_HISTORICO_RECENTES : TITULO_HISTORICO;
 }
 
 export type BeneficiarioConsulta = {

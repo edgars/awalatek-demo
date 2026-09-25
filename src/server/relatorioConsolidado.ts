@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { hoje } from "@/domain/legacyDate";
 import { consolidar, type Consolidado } from "@/domain/relatorios/consolidado";
-import { lerQuirks, type Quirks } from "@/domain/quirks";
+import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 
 // Informe consolidado mensual (BATCHREL, story 7.2). Solo lectura: lee los pagos
@@ -18,8 +18,8 @@ export async function relatorioConsolidado(
   {
     agora = new Date(),
     loteCpfs = LOTE_CPFS,
-    // Configuración LEGACY-QUIRK (D10, D11): la pasa la página; si falta, se lee aquí.
-    quirks = lerQuirks(),
+    // Configuración LEGACY-QUIRK (D10, D11): la página la lee una vez y la pasa; default = legado.
+    quirks = QUIRKS_PADRAO,
   }: { agora?: Date; loteCpfs?: number; quirks?: Pick<Quirks, "corrigidos"> } = {},
 ): Promise<RelatorioConsolidado> {
   if (!Number.isSafeInteger(loteCpfs) || loteCpfs < 1) throw new Error("tamanho de lote inválido");

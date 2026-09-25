@@ -10,9 +10,21 @@ import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import * as modulo from "@/server/relatorioConsolidado";
 import RelatorioConsolidadoPage from "@/app/relatorios/consolidado/page";
 import { ERRO_INESPERADO } from "@/app/relatorios/consolidado/falha";
+import { renderToStaticMarkup } from "react-dom/server";
+import { redondear } from "@/domain/money";
+import { consolidar } from "@/domain/relatorios/consolidado";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 // Informe consolidado mensual (story 7.2) contra una base SQLite temporal.
+
+// Espía transparente del redondeo D11 (+0,005 y trunca): permite distinguir los modos
+// aunque sobre centavos enteros el resultado sea el mismo.
+vi.mock("@/domain/money", async (importOriginal) => {
+  const m = await importOriginal<typeof import("@/domain/money")>();
+  return { ...m, redondear: vi.fn(m.redondear) };
+});
+
+const globalPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 let dir: string;
 let prisma: PrismaClient;
@@ -43,6 +55,9 @@ beforeAll(async () => {
   const url = `file:${path.join(dir, "test.db")}`;
   execFileSync("npx", ["prisma", "migrate", "deploy"], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe" });
   prisma = createPrismaClient(url);
+  // La página usa el cliente global: se apunta a esta base temporal.
+  delete globalPrisma.prisma;
+  process.env.DATABASE_URL = url;
   await seed(prisma);
   const modelo = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpfComDv(BENEFICIARIOS_SEED[0].base) } });
   const { id: _id, ...dados } = modelo;
@@ -55,6 +70,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma?.$disconnect();
+  await globalPrisma.prisma?.$disconnect();
+  delete globalPrisma.prisma;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -177,10 +194,29 @@ describe("relatorioConsolidado — correções configuráveis (SIFAP_QUIRKS_CORR
     }
   }
 
-  it("CORRECAO(D10): 22 → CENTRO-OESTE; 99 e inexistente → NAO CLASSIFICADA (6 linhas)", async () => {
+  async function paginaHtml() {
+    const el = await RelatorioConsolidadoPage({ searchParams: Promise.resolve({ competencia: "201101" }) });
+    return renderToStaticMarkup(el);
+  }
+
+  it("CORRECAO(D10): a página lê a configuração → 22 em CENTRO-OESTE; 99 e inexistente em NAO CLASSIFICADA (6 linhas)", async () => {
     await criarPorRegiao();
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D10");
-    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA });
+    const html = await paginaHtml();
+    const bloco = html.slice(html.indexOf('id="bloco-regiao"'), html.indexOf('id="bloco-situacao"'));
+    const linhas = [...bloco.matchAll(/<th[^>]*scope="row"[^>]*>([^<]*)<\/th>/g)].map((m) => m[1]);
+    expect(linhas).toEqual(["NORTE", "NORDESTE", "SUDESTE", "SUL", "CENTRO-OESTE", "NAO CLASSIFICADA"]);
+    // NAO CLASSIFICADA: 99 (R$ 100,99) + inexistente (R$ 100,00).
+    const nc = bloco.slice(bloco.indexOf("NAO CLASSIFICADA"));
+    expect(nc.slice(0, nc.indexOf("</tr>"))).toContain("R$ 200,99");
+    // Legado na mesma base: 5 linhas.
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+    expect(await paginaHtml()).not.toContain("NAO CLASSIFICADA");
+  });
+
+  it("CORRECAO(D10) no servidor com configuração explícita: totais por linha", async () => {
+    await criarPorRegiao();
+    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA, quirks: { corrigidos: new Set(["D10"]) } });
     expect(r.regioes.map((x) => [x.nome, x.qtd])).toEqual([
       ["NORTE", 1],
       ["NORDESTE", 1],
@@ -193,39 +229,53 @@ describe("relatorioConsolidado — correções configuráveis (SIFAP_QUIRKS_CORR
     expect(r.total.qtd).toBe(7);
   });
 
-  it("CORRECAO(D11): bruto de região/geral = soma do bruto cru (fecha com o total por status)", async () => {
+  it("CORRECAO(D11): a página lê a configuração → o bruto não passa pelo arredondamento (espião)", async () => {
     await criarPorRegiao();
+    const espiao = vi.mocked(redondear);
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+    espiao.mockClear();
+    const legado = await paginaHtml();
+    expect(espiao).toHaveBeenCalledTimes(7); // um por pagamento (região e geral compartilham #VLR-ARR)
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D11");
-    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA });
+    espiao.mockClear();
+    const corrigido = await paginaHtml();
+    expect(espiao).not.toHaveBeenCalled();
+    // Sobre centavos inteiros os valores exibidos coincidem (D11 sem efeito observável).
     const cru = REGIOES.reduce((s, x) => s + 10000 + x, 0) + 10000;
+    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA, quirks: { corrigidos: new Set(["D11"]) } });
     expect(r.total.bruto).toBe(cru);
-    expect(r.status.reduce((s, x) => s + x.bruto, 0)).toBe(cru);
-    // Só D11: continuam 5 linhas, com 22/99/inexistente em CENTRO-OESTE.
-    expect(r.regioes).toHaveLength(5);
-    expect(r.regioes[4]?.qtd).toBe(3);
+    expect(corrigido).toBe(legado);
   });
 
-  it("configuração explícita prevalece sobre o ambiente", async () => {
+  it("CORRECAO(D11) no domínio: bruto não inteiro em centavos é somado cru (legado exige centavos inteiros)", () => {
+    const p = { anoMesRef: 201101, codRegiao: 1, vlrBruto: 100.5, vlrDescontoTotal: 0, vlrLiquido: 0, sitPagamento: "G" };
+    expect(consolidar(201101, [p, p], { corrigidos: new Set(["D11"]) }).total.bruto).toBe(201);
+    expect(() => consolidar(201101, [p])).toThrow();
+  });
+
+  it("servidor sem configuração → legado (não lê o ambiente)", async () => {
     await criarPorRegiao();
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL");
-    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA, quirks: { corrigidos: new Set() } });
+    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA });
     expect(r.regioes).toHaveLength(5);
   });
 
-  it("página: configuração inválida → mensagem genérica e log de configuração sem dados", async () => {
-    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D99");
+  it.each([
+    ["SIFAP_QUIRKS_CORRIGIDOS", "D99"],
+    ["LEGACY_DOC_ESPECIAL_ENABLED", "talvez"],
+  ])("página: configuração inválida (%s) → mensagem genérica; o log nomeia a variável", async (variavel, valor) => {
+    await criarPorRegiao();
+    vi.stubEnv(variavel, valor);
     const erroLog = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const el = await RelatorioConsolidadoPage({ searchParams: Promise.resolve({ competencia: "201101" }) });
       expect(JSON.stringify(el)).toContain(ERRO_INESPERADO);
       expect(erroLog).toHaveBeenCalledWith(expect.stringContaining("configuração LEGACY-QUIRK inválida"));
+      const log = JSON.stringify(erroLog.mock.calls);
+      expect(log).toContain(variavel);
+      for (const r of REGIOES) expect(log).not.toContain(cpfRegiao(r));
     } finally {
       erroLog.mockRestore();
     }
-  });
-
-  it("configuração inválida → erro de configuração", async () => {
-    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D99");
-    await expect(relatorioConsolidado(201101, prisma, { agora: AGORA })).rejects.toThrow(/configuração LEGACY-QUIRK inválida/);
   });
 });

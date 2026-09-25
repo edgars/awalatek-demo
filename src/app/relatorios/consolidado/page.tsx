@@ -18,8 +18,8 @@ async function carregar(competencia: number) {
   let quirks;
   try {
     quirks = lerQuirks();
-  } catch {
-    return falhaConfiguracao();
+  } catch (e) {
+    return falhaConfiguracao(e);
   }
   try {
     return { ok: true as const, relatorio: await relatorioConsolidado(competencia, undefined, { quirks }) };

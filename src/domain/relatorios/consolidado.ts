@@ -44,31 +44,50 @@ export type LinhaStatus = { codigo: (typeof CODIGOS_STATUS)[number]; nome: (type
 export type TotalGeral = { qtd: number; bruto: number; desconto: number; liquido: number };
 export type Consolidado = { competencia: number; regioes: LinhaRegiao[]; status: LinhaStatus[]; total: TotalGeral };
 
+/** Nombre de una fila de región (las 5 del legado + "NAO CLASSIFICADA" con D10 corregido). */
+export type NomeLinhaRegiao = LinhaRegiao["nome"];
+
 /**
- * Índice del acumulador de región para `COD-REGIAO` (BATCHREL:117–133): 0..4 en el
- * legado; con D10 corregido, 0..4 o `INDICE_NAO_CLASSIFICADA` (5).
+ * Filas de región del informe, en orden. Fuente única de la lista: `consolidar` crea
+ * los acumuladores con ella e `indiceRegiao` busca en ella el nombre de `regiaoDe`.
+ * LEGACY-QUIRK(D10): 5 filas. CORRECAO(D10): + "NAO CLASSIFICADA" (6 filas).
  */
-export function indiceRegiao(codRegiao: number | null, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): number {
+export function nomesRegiao(quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): readonly NomeLinhaRegiao[] {
+  return corrige(quirks, "D10") ? [...NOMES_REGIAO, NOME_NAO_CLASSIFICADA] : NOMES_REGIAO;
+}
+
+/** Fila de región para `COD-REGIAO` (BATCHREL:117–133); `null` = beneficiario inexistente. */
+export function regiaoDe(codRegiao: number | null, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): NomeLinhaRegiao {
   // FIND sin coincidencia deja #COD-REG = 0 (BATCHREL:111–114) → cae en "resto".
   const cod = codRegiao ?? 0;
   // LEGACY-QUIRK(D10): el DDM describe COD-REGIAO como 01-05 o 99 (5 macrorregiones),
   // pero BATCHREL agrupa los códigos 1–25 de a 5 y manda todo lo demás (21–25, 99, 0,
   // beneficiario inexistente) a CENTRO-OESTE. Se replica tal cual.
   // RK-d8b1ac2e14eb (BATCHREL:117) — IF #COD-REG >= 1 AND #COD-REG <= 5 → NORTE
-  if (cod >= 1 && cod <= 5) return 0;
+  if (cod >= 1 && cod <= 5) return "NORTE";
   // RK-0cdc90e2bd81 (BATCHREL:120) — IF #COD-REG >= 6 AND #COD-REG <= 10 → NORDESTE
-  if (cod >= 6 && cod <= 10) return 1;
+  if (cod >= 6 && cod <= 10) return "NORDESTE";
   // RK-8b828d08f033 (BATCHREL:123) — IF #COD-REG >= 11 AND #COD-REG <= 15 → SUDESTE
-  if (cod >= 11 && cod <= 15) return 2;
+  if (cod >= 11 && cod <= 15) return "SUDESTE";
   // RK-893670f64c20 (BATCHREL:126) — IF #COD-REG >= 16 AND #COD-REG <= 20 → SUL; ELSE → CENTRO-OESTE
-  if (cod >= 16 && cod <= 20) return 3;
+  if (cod >= 16 && cod <= 20) return "SUL";
   if (corrige(quirks, "D10")) {
     // CORRECAO(D10): solo 21–25 son CENTRO-OESTE; 0, 99, > 25 (y negativos) y el
     // beneficiario inexistente van a la fila "NAO CLASSIFICADA".
-    return cod >= 21 && cod <= 25 ? 4 : INDICE_NAO_CLASSIFICADA;
+    return cod >= 21 && cod <= 25 ? "CENTRO-OESTE" : NOME_NAO_CLASSIFICADA;
   }
   // LEGACY-QUIRK(D10): todo lo demás → CENTRO-OESTE.
-  return 4;
+  return "CENTRO-OESTE";
+}
+
+/**
+ * Índice de la fila de región en `nomesRegiao(quirks)`: 0..4 en el legado; con D10
+ * corregido, 0..4 o `INDICE_NAO_CLASSIFICADA` (5).
+ */
+export function indiceRegiao(codRegiao: number | null, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): number {
+  const i = nomesRegiao(quirks).indexOf(regiaoDe(codRegiao, quirks));
+  if (i < 0) throw new Error("região sem linha no relatório");
+  return i;
 }
 
 /** Índice (0..4) del acumulador de status (BATCHREL:146–159). */
@@ -92,7 +111,7 @@ export function brutoRelatorio(vlrBruto: ValorDecimal): Dinheiro {
 }
 
 /**
- * `brutoRelatorio` en centavos enteros.
+ * `brutoRelatorio` en centavos enteros. Con D11 corregido `consolidar` no la usa.
  * Nota: como `vlrBruto` se persiste en centavos enteros (2 decimales exactos), el
  * redondeo D11 es la identidad sobre los datos persistidos; se mantiene por
  * fidelidad al legado. Por lo mismo, la asimetría bruto crudo (status) vs.
@@ -109,9 +128,10 @@ export function pertenceACompetencia(p: Pick<PagamentoConsolidado, "anoMesRef">,
 }
 
 /**
- * Consolida los pagos de la competencia. Las 5 regiones y los 5 status aparecen
- * siempre (en cero si no hay pagos), igual que los FOR 1 TO 5 del legado.
- * `quirks` (default = legado) decide si se corrigen D10 y D11.
+ * Consolida los pagos de la competencia. Las filas de región (`nomesRegiao`: 5 en el
+ * legado, 6 con D10 corregido) y los 5 status aparecen siempre (en cero si no hay
+ * pagos), igual que los FOR 1 TO 5 del legado. `quirks` (default = legado) decide si
+ * se corrigen D10 y D11.
  */
 export function consolidar(
   competencia: number,
@@ -120,9 +140,9 @@ export function consolidar(
 ): Consolidado {
   const corrigeD11 = corrige(quirks, "D11");
   // LEGACY-QUIRK(D10): 5 filas de región.
-  // CORRECAO(D10): se agrega la sexta fila "NAO CLASSIFICADA" (siempre visible, en cero si no hay pagos).
-  const nomes: LinhaRegiao["nome"][] = corrige(quirks, "D10") ? [...NOMES_REGIAO, NOME_NAO_CLASSIFICADA] : [...NOMES_REGIAO];
-  const regioes: LinhaRegiao[] = nomes.map((nome) => ({ nome, qtd: 0, bruto: 0, desconto: 0, liquido: 0 }));
+  // CORRECAO(D10): + la sexta fila "NAO CLASSIFICADA" (siempre visible, en cero si no hay pagos).
+  const regioes: LinhaRegiao[] = nomesRegiao(quirks).map((nome) => ({ nome, qtd: 0, bruto: 0, desconto: 0, liquido: 0 }));
+  const regiaoPorNome = new Map(regioes.map((r) => [r.nome, r] as const));
   const status: LinhaStatus[] = CODIGOS_STATUS.map((codigo, i) => ({ codigo, nome: NOMES_STATUS[i] as LinhaStatus["nome"], qtd: 0, bruto: 0 }));
   const total: TotalGeral = { qtd: 0, bruto: 0, desconto: 0, liquido: 0 };
 
@@ -130,10 +150,14 @@ export function consolidar(
     if (!pertenceACompetencia(p, competencia)) continue;
     // LEGACY-QUIRK(D11): bruto redondeado (+0,005 y trunca) en región y general.
     // CORRECAO(D11): bruto sin redondeo, igual al del cálculo (CALCBENF).
+    // Sobre centavos enteros persistidos el redondeo es la identidad: D11 no tiene efecto
+    // observable en los datos actuales (solo cambiaría con brutos de más de 2 decimales).
     const arr = corrigeD11 ? p.vlrBruto : brutoRelatorioCentavos(p.vlrBruto);
 
-    // Región (BATCHREL:140–143): bruto redondeado; descuento y líquido sin redondeo.
-    const r = regioes[indiceRegiao(p.codRegiao, quirks)] as LinhaRegiao; // índice 0..4 (0..5 con CORRECAO(D10)) — LEGACY-QUIRK(D10)
+    // Región (BATCHREL:140–143): bruto `arr` (redondeado salvo CORRECAO(D11)); descuento y líquido sin redondeo.
+    // LEGACY-QUIRK(D10) / CORRECAO(D10): la fila sale de `regiaoDe`, siempre presente en `nomesRegiao`.
+    const r = regiaoPorNome.get(regiaoDe(p.codRegiao, quirks));
+    if (!r) throw new Error("região sem linha no relatório");
     r.bruto += arr;
     r.desconto += p.vlrDescontoTotal;
     r.liquido += p.vlrLiquido;
@@ -144,7 +168,7 @@ export function consolidar(
     s.bruto += p.vlrBruto;
     s.qtd += 1;
 
-    // General (BATCHREL:164–167): bruto redondeado; descuento y líquido sin redondeo.
+    // General (BATCHREL:164–167): bruto `arr` (redondeado salvo CORRECAO(D11)); descuento y líquido sin redondeo.
     total.bruto += arr;
     total.desconto += p.vlrDescontoTotal;
     total.liquido += p.vlrLiquido;

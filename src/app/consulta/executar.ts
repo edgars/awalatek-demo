@@ -1,5 +1,5 @@
 import { entradaConsultaSchema } from "@/domain/beneficiario/consulta";
-import { lerQuirks } from "@/domain/quirks";
+import { detalheErroQuirks, lerQuirks } from "@/domain/quirks";
 import { consultarBeneficiario, type ResultadoConsulta } from "@/server/consulta";
 
 // Ejecución común de la consulta (Server Action y carga inicial por `?cpf=`).
@@ -22,9 +22,10 @@ export async function executarConsulta(tipo: string, valor: string): Promise<Res
   let quirks;
   try {
     quirks = lerQuirks();
-  } catch {
-    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
-    console.error("[consulta] configuração LEGACY-QUIRK inválida (SIFAP_QUIRKS_CORRIGIDOS)");
+  } catch (e) {
+    // Motivo (variable y valor de configuración, sin datos personales) para operaciones;
+    // al usuario, el mensaje genérico.
+    console.error(`[consulta] ${detalheErroQuirks(e)}`);
     return { ok: false, mensagem: ERRO_INESPERADO };
   }
   try {
