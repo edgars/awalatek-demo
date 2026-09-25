@@ -5,7 +5,7 @@ export type GrupoNav = { titulo: string; itens: readonly ItemNav[] };
 export const NAVEGACAO: readonly GrupoNav[] = [
   {
     titulo: "Cadastro",
-    itens: [{ titulo: "Programas sociais", href: "/programas" }, { titulo: "Beneficiários" }, { titulo: "Consulta" }],
+    itens: [{ titulo: "Programas sociais", href: "/programas" }, { titulo: "Beneficiários", href: "/beneficiarios" }, { titulo: "Consulta" }],
   },
   { titulo: "Validação", itens: [{ titulo: "Cadastral" }, { titulo: "Documentos" }, { titulo: "Elegibilidade" }] },
   {

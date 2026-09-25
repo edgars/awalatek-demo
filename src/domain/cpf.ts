@@ -59,3 +59,12 @@ export function completaDv(base9: string): string {
   const dv2 = calculaDv2([...dig, dv1]);
   return `${base9}${dv1}${dv2}`;
 }
+
+/**
+ * Máscara de CPF para listas (LGPD, NFR-04): `***.***.XXX-XX` — muestra solo los
+ * dígitos 7–11. Sin RK: la máscara legada con el quirk D7 (CONSBENF) llega en 2.6.
+ */
+export function mascaraCpfLista(cpf: string): string {
+  const d = String(cpf ?? "").replace(/\D/g, "").padStart(11, "0").slice(-11);
+  return `***.***.${d.slice(6, 9)}-${d.slice(9, 11)}`;
+}

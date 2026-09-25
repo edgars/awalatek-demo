@@ -86,3 +86,11 @@ describe("cpf — módulo 11 (FR-BEN-03)", () => {
     expect(() => completaDv("12345")).toThrow();
   });
 });
+
+describe("mascaraCpfLista", () => {
+  it("mostra só os dígitos 7–11", async () => {
+    const { mascaraCpfLista } = await import("./cpf");
+    expect(mascaraCpfLista("01234567890")).toBe("***.***.678-90");
+    expect(mascaraCpfLista("52998224725")).toBe("***.***.247-25");
+  });
+});

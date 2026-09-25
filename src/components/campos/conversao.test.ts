@@ -46,3 +46,19 @@ describe("conversão dos campos", () => {
     expect(dataIntParaIso(0)).toBe("");
   });
 });
+
+describe("máscaras de CPF e CEP", async () => {
+  const { mascararCpf, mascararCep, somenteDigitos } = await import("./conversao");
+  it("CPF progressivo", () => {
+    expect(mascararCpf("")).toBe("");
+    expect(mascararCpf("0123")).toBe("012.3");
+    expect(mascararCpf("0123456")).toBe("012.345.6");
+    expect(mascararCpf("01234567890")).toBe("012.345.678-90");
+    expect(mascararCpf("012.345.678-901")).toBe("012.345.678-90");
+  });
+  it("CEP e dígitos", () => {
+    expect(mascararCep("01310100")).toBe("01310-100");
+    expect(mascararCep("0131")).toBe("0131");
+    expect(somenteDigitos("a1b2c3", 2)).toBe("12");
+  });
+});

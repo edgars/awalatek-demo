@@ -64,3 +64,23 @@ export function isoParaDataInt(iso: string): number | null {
   if (iso === "") return 0;
   return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? Number(iso.replaceAll("-", "")) : null;
 }
+
+/** Solo dígitos, cortado a `max`. */
+export function somenteDigitos(texto: string, max: number): string {
+  return texto.replace(/\D/g, "").slice(0, max);
+}
+
+/** Dígitos de CPF (parciales o completos) → máscara `000.000.000-00` progresiva. */
+export function mascararCpf(texto: string): string {
+  const d = somenteDigitos(texto, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+/** Dígitos de CEP → máscara `00000-000` progresiva. */
+export function mascararCep(texto: string): string {
+  const d = somenteDigitos(texto, 8);
+  return d.length <= 5 ? d : `${d.slice(0, 5)}-${d.slice(5)}`;
+}
