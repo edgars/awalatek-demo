@@ -44,6 +44,12 @@ export function intParaCompetencia(comp: number): string | null {
   return `${s.slice(0, 4)}-${s.slice(4, 6)}`;
 }
 
+/** AAAAMM → `MM/AAAA` para mostrar (pt-BR). 0 → `null`. Entero fuera de formato → error. */
+export function formatarCompetencia(comp: number): string | null {
+  const iso = intParaCompetencia(comp);
+  return iso === null ? null : `${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+}
+
 /** Año de una fecha AAAAMMDD (`dt / 10000` entero, como el legado). */
 export function anoDe(dt: number): number {
   if (!Number.isInteger(dt) || dt < 0) throw new Error(`data legada inválida: ${dt}`);
