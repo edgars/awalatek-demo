@@ -7,7 +7,7 @@ export const NAVEGACAO: readonly GrupoNav[] = [
     titulo: "Cadastro",
     itens: [{ titulo: "Programas sociais", href: "/programas" }, { titulo: "Beneficiários", href: "/beneficiarios" }, { titulo: "Consulta" }],
   },
-  { titulo: "Validação", itens: [{ titulo: "Cadastral" }, { titulo: "Documentos" }, { titulo: "Elegibilidade" }] },
+  { titulo: "Validação", itens: [{ titulo: "Cadastral", href: "/validacao/cadastro" }, { titulo: "Documentos" }, { titulo: "Elegibilidade" }] },
   {
     titulo: "Cálculo e Pagamentos",
     itens: [{ titulo: "Cálculo individual" }, { titulo: "Lote mensal" }, { titulo: "Cálculo de descontos" }, { titulo: "Pagamentos" }],

@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-24-2026 18:30
-last_updated: 09-24-2026 23:30
+last_updated: 09-25-2026 00:15
 project: awalatek-demo
 project_key: NOKEY
 tracking_system: file-system
@@ -46,7 +46,7 @@ development_status:
 
   epic-2: in-progress
   2-1-inclusión-y-alteración-de-beneficiario: done
-  2-2-validación-cadastral-consolidada: ready-for-dev
+  2-2-validación-cadastral-consolidada: done
   2-3-validación-de-documentos: ready-for-dev
   2-4-dependientes-del-beneficiario: ready-for-dev
   2-5-registro-de-descuentos-del-beneficiario: ready-for-dev
