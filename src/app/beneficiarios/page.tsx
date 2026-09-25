@@ -52,7 +52,10 @@ const COLUNAS: readonly Coluna<Linha>[] = [
         </Link>
         <AcaoFutura>Dependentes</AcaoFutura>
         <AcaoFutura>Descontos</AcaoFutura>
-        <AcaoFutura>Consultar</AcaoFutura>
+        {/* LGPD: o CPF vai só no href (como em Editar), nunca no texto do link. */}
+        <Link href={`/consulta?cpf=${b.numCpf}`} className="font-medium text-primary underline-offset-4 hover:underline">
+          Consultar<span className="sr-only"> {b.nomeCompleto}</span>
+        </Link>
       </span>
     ),
   },

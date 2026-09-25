@@ -124,3 +124,19 @@ export function mascaraCpfLista(cpf: string): string {
   const d = String(cpf ?? "").replace(/\D/g, "").padStart(11, "0").slice(-11);
   return `***.***.${d.slice(6, 9)}-${d.slice(9, 11)}`;
 }
+
+/**
+ * Máscara de CPF de la consulta (CONSBENF, FR-CON-04). Recibe el CPF N11; se
+ * normaliza con ceros a la izquierda, como `#CPF-STR` (A11) tras el MOVE del N11.
+ */
+export function mascaraCpfConsulta(cpf: string): string {
+  const str = normalizaCpfNumerico(cpf).slice(-11);
+  // RK-cfd080c8d910 (CONSBENF:177) — IF BENEFICIARIO-V.CPF < 10000000000.
+  // LEGACY-QUIRK(D7): con cero a la izquierda la máscara muestra los 3 PRIMEROS dígitos
+  // (`XXX.***.***-**`) en lugar de los últimos. "NAO CORRIGIR SEM APROVACAO DA AUDITORIA".
+  if (Number(str) < 10000000000) {
+    return `${str.slice(0, 3)}.***.***-**`;
+  }
+  // Si no: `***.***.XXX-XX` con SUBSTR(#CPF-STR,7,3) y SUBSTR(#CPF-STR,10,2).
+  return `***.***.${str.slice(6, 9)}-${str.slice(9, 11)}`;
+}

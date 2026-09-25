@@ -95,6 +95,26 @@ describe("mascaraCpfLista", () => {
   });
 });
 
+describe("mascaraCpfConsulta — CONSBENF (FR-CON-04, D7)", () => {
+  it("RK-cfd080c8d910 (CONSBENF:177): CPF < 10000000000 (zero à esquerda) → 3 primeiros dígitos (LEGACY-QUIRK D7)", async () => {
+    const { mascaraCpfConsulta } = await import("./cpf");
+    expect(mascaraCpfConsulta("01234567890")).toBe("012.***.***-**");
+    expect(mascaraCpfConsulta("00012345678")).toBe("000.***.***-**");
+  });
+
+  it("RK-cfd080c8d910 (CONSBENF:177): CPF ≥ 10000000000 → ***.***.XXX-XX (dígitos 7–9 e 10–11)", async () => {
+    const { mascaraCpfConsulta } = await import("./cpf");
+    expect(mascaraCpfConsulta("12345678909")).toBe("***.***.789-09");
+    expect(mascaraCpfConsulta("10000000000")).toBe("***.***.000-00");
+  });
+
+  it("aceita CPF sem zeros à esquerda (N11) e com máscara", async () => {
+    const { mascaraCpfConsulta } = await import("./cpf");
+    expect(mascaraCpfConsulta("1234567890")).toBe("012.***.***-**");
+    expect(mascaraCpfConsulta("123.456.789-09")).toBe("***.***.789-09");
+  });
+});
+
 describe("cpf — CPF completo de VALBENEF (FR-VAL-02, D4b)", () => {
   it("CPF válido por módulo 11 (com e sem zero à esquerda)", () => {
     expect(validaCpfCompleto("11144477735")).toBe(true);
