@@ -1,6 +1,7 @@
 // FR-BEN-03 — CPF válido por módulo 11. Implementado una sola vez (E0) y
-// reutilizado en FR-VAL-02 (VALBENEF, con dígitos repetidos D4b) y FR-DOC-01 (E2).
-// VALBENEF (190–236) repite el mismo cálculo que CADBENEF (237–266): se citan ambas fuentes.
+// reutilizado en FR-VAL-02 (VALBENEF, con dígitos repetidos D4b) y FR-DOC-01 (VALDOCS).
+// VALBENEF (190–236) y VALDOCS (114–140) repiten el mismo cálculo que CADBENEF (237–266):
+// se citan todas las fuentes.
 
 // RK-bc7d67f3dad4 (CADBENEF:113) — mensaje literal cuando el CPF no es válido.
 export const MSG_CPF_INVALIDO = "CPF INVALIDO - DIGITO VERIFICADOR INCORRETO";
@@ -11,16 +12,20 @@ export function calculaDv1(dig: readonly number[]): number {
   for (const [i, n] of dig.slice(0, 9).entries()) {
     // RK-99ffed6e1d57 (CADBENEF:237) — Σ dígitos 1..9 × pesos 10..2.
     // RK-2dd4cb3c18cd (VALBENEF:209) — COMPUTE #SOMA = #SOMA + (#DIG(#I) * #PESO).
+    // RK-4187fc1c9b8e (VALDOCS:114) — mismo acumulado del DV1 en VALDOCS.
     soma = soma + n * (10 - i);
   }
   // RK-ab368e4ef3e2 (CADBENEF:240) — resto = soma − ((soma / 11) × 11).
   // RK-9f7df44b6ca1 (VALBENEF:212) — mismo cálculo del resto en VALBENEF.
+  // RK-9d67b2c9881b (VALDOCS:117) — COMPUTE #RESTO = #SOMA - ((#SOMA / 11) * 11).
   const resto = soma - Math.trunc(soma / 11) * 11;
   // RK-a04fb0c62d98 (CADBENEF:241) — resto < 2 → DV1 = 0.
   // RK-ccc5388150f7 (VALBENEF:213) — IF #RESTO < 2 THEN MOVE 0 TO #DV1.
+  // RK-1a2b8aca3fed (VALDOCS:118) — IF #RESTO < 2 THEN MOVE 0 TO #DV1.
   if (resto < 2) return 0;
   // RK-02b5279daf63 (CADBENEF:244) — si no, DV1 = 11 − resto.
   // RK-9985fab5aca5 (VALBENEF:216) — COMPUTE #DV1 = 11 - #RESTO.
+  // RK-533f71e705bc (VALDOCS:121) — COMPUTE #DV1 = 11 - #RESTO.
   return 11 - resto;
 }
 
@@ -30,16 +35,20 @@ export function calculaDv2(dig: readonly number[]): number {
   for (const [i, n] of dig.slice(0, 10).entries()) {
     // RK-98472f98558e (CADBENEF:256) — Σ dígitos 1..10 × pesos 11..2.
     // RK-cb78ba074b4e (VALBENEF:227) — COMPUTE #SOMA = #SOMA + (#DIG(#I) * #PESO).
+    // RK-4cd00622ae5a (VALDOCS:131) — mismo acumulado del DV2 en VALDOCS.
     soma = soma + n * (11 - i);
   }
   // RK-d05375bd9555 (CADBENEF:259) — resto = soma − ((soma / 11) × 11).
   // RK-23cb286f5641 (VALBENEF:230) — mismo cálculo del resto en VALBENEF.
+  // RK-bb14087b5111 (VALDOCS:134) — COMPUTE #RESTO = #SOMA - ((#SOMA / 11) * 11).
   const resto = soma - Math.trunc(soma / 11) * 11;
   // RK-8178f6bfb367 (CADBENEF:260) — resto < 2 → DV2 = 0.
   // RK-6381e8b050e1 (VALBENEF:231) — IF #RESTO < 2 THEN MOVE 0 TO #DV2.
+  // RK-e3ad9c603136 (VALDOCS:135) — IF #RESTO < 2 THEN MOVE 0 TO #DV2.
   if (resto < 2) return 0;
   // RK-a4491331af7d (CADBENEF:263) — si no, DV2 = 11 − resto.
   // RK-03e29441143e (VALBENEF:234) — COMPUTE #DV2 = 11 - #RESTO.
+  // RK-06b627574a45 (VALDOCS:138) — COMPUTE #DV2 = 11 - #RESTO.
   return 11 - resto;
 }
 
