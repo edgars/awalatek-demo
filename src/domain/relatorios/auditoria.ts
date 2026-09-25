@@ -15,7 +15,10 @@ export const CABECALHO_AUDITORIA = {
   data: "DATA:",
 } as const;
 
-/** Columnas literales de la cabecera: WRITE (T, 100 guiones) / PRINT (I, 120 guiones) — RELAUDIT:216–229. */
+/**
+ * Columnas literales de la cabecera: WRITE (T, 100 guiones) / PRINT (I, 120 guiones) — RELAUDIT:216–229.
+ * La línea de guiones va antes y después de los títulos de columna (:216/:219, :226/:229).
+ */
 export const COLUNAS_CABECALHO_AUDITORIA = {
   T: { colunas: `DATA       HORA     USUARIO  ACAO${" ".repeat(20)}TABELA          CHAVE`, guioes: 100 },
   I: { colunas: `DATA       HORA     USUARIO  ACAO${" ".repeat(20)}TABELA          CHAVE               DESCRICAO`, guioes: 120 },
@@ -291,18 +294,33 @@ const texto = z
 
 const RE_DATA = /^([1-9]\d{3})-?(0[1-9]|1[0-2])-?(0[1-9]|[12]\d|3[01])$/;
 
-/** `AAAAMMDD` o `AAAA-MM-DD` → AAAAMMDD; ausente/"0" → 0; presente pero inválida → `null`. */
+/** Fecha de calendario real (año, mes 1–12, día existente en ese mes; 29/02 solo en bisiesto). */
+export function dataCalendarioValida(ano: number, mes: number, dia: number): boolean {
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  return d.getUTCFullYear() === ano && d.getUTCMonth() === mes - 1 && d.getUTCDate() === dia;
+}
+
+/**
+ * `AAAAMMDD` o `AAAA-MM-DD` → AAAAMMDD; ausente/"0" → 0; presente pero inválida (formato o
+ * fecha inexistente, p. ej. 20110231) → `null`.
+ */
 const data = texto.transform((v): number | null => {
   const s = v.trim();
   if (s === "" || s === "0") return 0;
   const m = RE_DATA.exec(s);
-  return m ? Number(`${m[1]}${m[2]}${m[3]}`) : null;
+  if (!m || !dataCalendarioValida(Number(m[1]), Number(m[2]), Number(m[3]))) return null;
+  return Number(`${m[1]}${m[2]}${m[3]}`);
 });
 
-/** Campo alfanumérico de largo máximo `n` (A8/A15): espacios finales no cuentan; excedido → `null`. */
+/**
+ * Campo alfanumérico de largo máximo `n` (A8/A15). Solo los espacios finales no cuentan
+ * (en Natural los iniciales sí son significativos) y se pasa a mayúsculas: el mapa INPUT
+ * del legado capturaba en mayúsculas y los valores grabados (USUARIO, TABELA-REF) lo están.
+ * Excedido → `null`.
+ */
 const alfa = (n: number) =>
   texto.transform((v): string | null => {
-    const s = v.trim();
+    const s = v.trimEnd().toUpperCase();
     return s.length <= n ? s : null;
   });
 

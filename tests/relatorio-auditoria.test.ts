@@ -12,21 +12,18 @@ import { relatorioAuditoria } from "@/server/relatorioAuditoria";
 import * as modulo from "@/server/relatorioAuditoria";
 
 // Informe de la trilla de auditoría (RELAUDIT, story 7.3) contra una base SQLite temporal.
-// Los eventos se siembran solo con `registrarEvento` (único escritor, ADR-009); la fecha
-// y la hora del evento se fijan con el reloj falso de vitest.
+// Los eventos se siembran solo con `registrarEvento` (único escritor, ADR-009) con el
+// momento (fecha/hora legadas) informado por el llamador: no depende del reloj ni de TZ.
 
 let dir: string;
 let prisma: PrismaClient;
-const AGORA = new Date("2026-09-25T15:00:00Z"); // 20260925
+const AGORA = new Date("2026-09-25T12:00:00Z"); // 20260925 em qualquer TZ de UTC-11 a UTC+11
 const VAZIA = { dtIni: 0, dtFim: 0, acao: "", usuario: "", tabela: "", saida: "" };
 const ANO_2011 = { ...VAZIA, dtIni: 20110101, dtFim: 20111231 };
 
-/** Grava um evento com `registrarEvento` na data/hora (TZ=UTC no teste) indicada. */
-async function evento(dt: number, hr: number, over: Partial<EventoAuditoria> = {}) {
-  const s = String(dt);
-  const h = String(hr).padStart(6, "0");
-  vi.setSystemTime(new Date(`${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T${h.slice(0, 2)}:${h.slice(2, 4)}:${h.slice(4, 6)}Z`));
-  return registrarEvento({ acao: "IN", tabela: "BENEFICIARIO", chave: "01234567890", usuario: "BATCH", descricao: "INCLUSAO DE BENEFICIARIO", ...over }, prisma);
+/** Grava um evento com `registrarEvento` no momento (data/hora legadas) indicado. */
+async function evento(data: number, hora: number, over: Partial<EventoAuditoria> = {}) {
+  return registrarEvento({ acao: "IN", tabela: "BENEFICIARIO", chave: "01234567890", usuario: "BATCH", descricao: "INCLUSAO DE BENEFICIARIO", ...over, momento: { data, hora } }, prisma);
 }
 
 beforeAll(() => {
@@ -42,11 +39,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  vi.useRealTimers();
-  vi.unstubAllEnvs();
-  vi.stubEnv("TZ", "UTC"); // relógio do evento sem horário de verão histórico
   await prisma.auditoria.deleteMany(); // limpeza do teste, não do código de produção
-  vi.useFakeTimers({ toFake: ["Date"] });
 });
 
 describe("falhaInesperada (relatório de auditoria)", () => {
@@ -144,11 +137,12 @@ describe("FR-AUD-07 — auditoria imutável", () => {
     expect(achados).toEqual([path.join("src", "server", "auditoria.ts")]);
   });
 
-  it("nenhum Route Handler nem Server Action em src/app referencia a tabela de auditoria para gravar", () => {
+  it("nenhum Route Handler nem Server Action em src/app acessa a tabela de auditoria diretamente", () => {
     const suspeitos = arquivos(path.join(RAIZ, "src/app")).filter((f) => {
       const src = readFileSync(f, "utf8");
       const ehRotaOuAcao = /(^|[\\/])route\.(ts|js)$/.test(f) || /^\s*["']use server["']/m.test(src);
-      return ehRotaOuAcao && /\.auditoria\b/.test(src);
+      // Chamada ao delegate do Prisma (`db.auditoria.xxx(`), não um campo `auditoria` qualquer.
+      return ehRotaOuAcao && /\.auditoria\s*\.\s*[A-Za-z]+\s*\(/.test(src);
     });
     expect(suspeitos).toEqual([]);
   });

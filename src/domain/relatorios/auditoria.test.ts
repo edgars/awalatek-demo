@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aplicarPadroesAuditoria,
   COLUNAS_CABECALHO_AUDITORIA,
+  dataCalendarioValida,
   descricaoAcao,
   formatarHoraAuditoria,
   lerFiltrosRelatorioAuditoria,
@@ -259,6 +260,29 @@ describe("filtros da tela /relatorios/auditoria", () => {
   it("período invertido (após defaults) → erro na data inicial", () => {
     expect(validarFiltrosRelatorioAuditoria(lerFiltrosRelatorioAuditoria({ dtIni: "20111231", dtFim: "20110101" }), HOJE)).toEqual({ ok: false, erros: { dtIni: M.periodoInvertido } });
     expect(validarFiltrosRelatorioAuditoria(lerFiltrosRelatorioAuditoria({ dtIni: "20300101" }), HOJE)).toEqual({ ok: false, erros: { dtIni: M.periodoInvertido } });
+  });
+
+  it("data de calendário real: 20110231, 2011-04-31 e 20110229 → Data inválida; 20120229 ok", () => {
+    for (const d of ["20110231", "2011-04-31", "20110229"]) {
+      expect(validarFiltrosRelatorioAuditoria(lerFiltrosRelatorioAuditoria({ dtIni: d }), HOJE)).toEqual({ ok: false, erros: { dtIni: M.dataInvalida } });
+    }
+    expect(lerFiltrosRelatorioAuditoria({ dtFim: "20120229" }).dtFim).toBe(20120229);
+    expect(dataCalendarioValida(2000, 2, 29)).toBe(true);
+    expect(dataCalendarioValida(1900, 2, 29)).toBe(false);
+  });
+
+  it("usuário e tabela: maiúsculas e só espaços finais descartados (iniciais contam)", () => {
+    const f = lerFiltrosRelatorioAuditoria({ usuario: "batch  ", tabela: "pagamento" });
+    expect([f.usuario, f.tabela]).toEqual(["BATCH", "PAGAMENTO"]);
+    expect(lerFiltrosRelatorioAuditoria({ usuario: "  batch" }).usuario).toBe("  BATCH");
+    const v = validarFiltrosRelatorioAuditoria(f, HOJE);
+    if (!v.ok) throw new Error("esperado ok");
+    const r = montarRelatorioAuditoria([ev({ usrEvento: "BATCH", tipoEntidade: "PAGAMENTO", dtEvento: 20110101 }), ev({ usrEvento: "MARIA", dtEvento: 20110101 })], v.filtros);
+    expect(r.resumo).toMatchObject({ exibidos: 1, filtrados: 1 });
+    // Espaço inicial é significativo (semântica de campo A): não casa com "BATCH".
+    const v2 = validarFiltrosRelatorioAuditoria(lerFiltrosRelatorioAuditoria({ usuario: " batch" }), HOJE);
+    if (!v2.ok) throw new Error("esperado ok");
+    expect(montarRelatorioAuditoria([ev({ dtEvento: 20110101 })], v2.filtros).resumo.exibidos).toBe(0);
   });
 
   it("página inválida → 1", () => {

@@ -9,7 +9,9 @@ import {
   lerFiltrosRelatorioAuditoria,
   MENSAGENS_RELATORIO_AUDITORIA,
   validarFiltrosRelatorioAuditoria,
+  type ErrosFiltrosAuditoria,
   type FiltrosRelatorioAuditoria,
+  type FiltrosTelaRelatorioAuditoria,
 } from "@/domain/relatorios/auditoria";
 import { relatorioAuditoria, type ResultadoRelatorioAuditoria } from "@/server/relatorioAuditoria";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
@@ -59,24 +61,43 @@ function PaginaLink({ href, ativo, children }: { href: string; ativo: boolean; c
   );
 }
 
+/** Primer valor crudo de un parámetro de la query string. */
+function bruto(sp: SearchParams, k: string): string {
+  const v = sp[k];
+  return (Array.isArray(v) ? (v[0] ?? "") : (v ?? "")).trim();
+}
+
+/** Fecha cruda para el selector: solo si tiene forma de fecha (el navegador descarta días inexistentes). */
+function dataBruta(s: string): number {
+  const m = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(s);
+  return m ? Number(`${m[1]}${m[2]}${m[3]}`) : 0;
+}
+
+function valoresComErro(sp: SearchParams, tela: FiltrosTelaRelatorioAuditoria, erros: ErrosFiltrosAuditoria): ValoresFiltrosAuditoria {
+  const texto = (k: "acao" | "usuario" | "tabela", ok: string | null) => (erros[k] ? bruto(sp, k) : (ok ?? ""));
+  return {
+    dtIni: erros.dtIni ? dataBruta(bruto(sp, "dtIni")) : (tela.dtIni ?? 0),
+    dtFim: erros.dtFim ? dataBruta(bruto(sp, "dtFim")) : (tela.dtFim ?? 0),
+    dtIniBruta: erros.dtIni ? bruto(sp, "dtIni") : undefined,
+    dtFimBruta: erros.dtFim ? bruto(sp, "dtFim") : undefined,
+    acao: texto("acao", tela.acao),
+    usuario: texto("usuario", tela.usuario),
+    tabela: texto("tabela", tela.tabela),
+    saida: erros.saida ? bruto(sp, "saida") : tela.saida || "T",
+  };
+}
+
 /** Pantalla 4.20 — Relatório de auditoria (RELAUDIT). Solo lectura: no escribe auditoría (FR-AUD-07). */
 export default async function RelatorioAuditoriaPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const agora = new Date();
-  const tela = lerFiltrosRelatorioAuditoria(await searchParams);
+  const sp = await searchParams;
+  const tela = lerFiltrosRelatorioAuditoria(sp);
   const v = validarFiltrosRelatorioAuditoria(tela, hoje(agora).data);
   const r = v.ok ? await carregar(v.filtros, agora) : null;
 
-  // Valores del formulario: con defaults si son válidos; si no, lo que llegó (inválido → vacío).
-  const valores: ValoresFiltrosAuditoria = v.ok
-    ? { ...v.filtros }
-    : {
-        dtIni: tela.dtIni ?? 0,
-        dtFim: tela.dtFim ?? 0,
-        acao: tela.acao ?? "",
-        usuario: tela.usuario ?? "",
-        tabela: tela.tabela ?? "",
-        saida: tela.saida || "T",
-      };
+  // Valores del formulario: con defaults si son válidos; si no, cada campo inválido vuelve a
+  // mostrar lo que se envió, junto a su error.
+  const valores: ValoresFiltrosAuditoria = v.ok ? { ...v.filtros } : valoresComErro(sp, tela, v.erros);
 
   return (
     <div className="grid gap-4">
@@ -123,7 +144,7 @@ function TelaRelatorio({ f, paginaPedida, relatorio }: { f: FiltrosRelatorioAudi
         <p className="font-mono text-xs text-muted-foreground">
           {CABECALHO_AUDITORIA.titulo} · {CABECALHO_AUDITORIA.periodo} {f.dtIni} {CABECALHO_AUDITORIA.ate} {f.dtFim}
         </p>
-        <Button asChild variant="outline">
+        <Button asChild variant="outline" className="print:hidden">
           <Link href={hrefRelatorio(f, { impressao: true })}>Versão para impressão</Link>
         </Button>
       </div>
@@ -137,7 +158,7 @@ function TelaRelatorio({ f, paginaPedida, relatorio }: { f: FiltrosRelatorioAudi
       )}
 
       {totalPaginas > 0 ? (
-        <nav aria-label="Paginação" className="flex items-center justify-between text-sm text-muted-foreground">
+        <nav aria-label="Paginação" className="print:hidden flex items-center justify-between text-sm text-muted-foreground">
           <span>
             {relatorio.resumo.exibidos} evento{relatorio.resumo.exibidos === 1 ? "" : "s"} · página {pagina} de {totalPaginas}
           </span>

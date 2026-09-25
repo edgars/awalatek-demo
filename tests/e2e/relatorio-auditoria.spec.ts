@@ -6,8 +6,8 @@ import { createPrismaClient } from "@/server/db";
 // Story 7.3 — relatório de auditoria (RELAUDIT, somente leitura).
 // Outros specs gravam auditoria na mesma base em paralelo: este usa só os usuários
 // E2EAUD / E2EAUDX e datas de 1995, e filtra por eles nas asserções.
-// Os eventos são gravados pelo escritor único (`registrarEvento`), que carimba data/hora
-// de hoje; o teste então move os SEUS eventos para 1995 (ajuste só de fixture).
+// Os eventos são gravados só pelo escritor único (`registrarEvento`), com o momento de 1995
+// informado pelo chamador.
 
 test.describe.configure({ mode: "serial" });
 
@@ -18,8 +18,7 @@ const PERIODO_1995 = "dtIni=19950101&dtFim=19951231";
 let db: PrismaClient;
 
 async function evento(dt: number, hr: number, e: Partial<EventoAuditoria>) {
-  const r = await registrarEvento({ acao: "CN", tabela: "BENEFICIARIO", chave: "01234567890", usuario: "E2EAUD", descricao: "E2E CONSULTA", ...e }, db);
-  await db.auditoria.update({ where: { numAuditoria: r.numAuditoria }, data: { dtEvento: dt, hrEvento: hr } });
+  await registrarEvento({ acao: "CN", tabela: "BENEFICIARIO", chave: "01234567890", usuario: "E2EAUD", descricao: "E2E CONSULTA", ...e, momento: { data: dt, hora: hr } }, db);
 }
 
 test.beforeAll(async () => {
@@ -137,13 +136,58 @@ test("saída I: coluna descrição e versão para impressão com o cabeçalho li
     await expect(cabecalhos.nth(i)).toContainText("PERIODO: 19950101 A 19951231");
     await expect(cabecalhos.nth(i)).toContainText(/DATA: \d{8}/);
     await expect(cabecalhos.nth(i)).toContainText("DESCRICAO");
+    // IMPRIME-CAB-AUDIT: linha de guiões antes e depois dos títulos (saída I: 120).
+    await expect(cabecalhos.nth(i).locator("p", { hasText: /^-{120}$/ })).toHaveCount(2);
   }
+  // O resumo vem depois da última folha, fora do contêiner das folhas (não sai sozinho numa página extra).
+  await expect(versao.getByTestId("folhas-relatorio").locator("section.folha-relatorio")).toHaveCount(2);
+  await expect(versao.getByTestId("folhas-relatorio").getByTestId("resumo-auditoria")).toHaveCount(0);
   await expect(versao.getByTestId("resumo-auditoria")).toContainText("EXIBIDOS...........:60");
 
   await page.emulateMedia({ media: "print" });
   await expect(page.getByRole("navigation", { name: "Menu principal" })).toBeHidden();
   await expect(page.getByRole("link", { name: "Voltar ao relatório" })).toBeHidden();
   await page.emulateMedia({ media: "screen" });
+});
+
+test("filtros preservados nos links gerados; página além do fim; Limpar volta aos defaults", async ({ page }) => {
+  await page.goto(`/relatorios/auditoria?${PERIODO_1995}&acao=CN&saida=I`);
+  await expect(resumo(page)).toContainText("EXIBIDOS...........:56");
+  // Na tela, o botão da versão imprimível e a paginação não saem na impressão.
+  await page.emulateMedia({ media: "print" });
+  await expect(page.getByRole("link", { name: "Versão para impressão" })).toBeHidden();
+  await expect(page.getByRole("navigation", { name: "Paginação" })).toBeHidden();
+  await page.emulateMedia({ media: "screen" });
+
+  await page.getByRole("link", { name: "Versão para impressão" }).click();
+  await expect(page).toHaveURL(/impressao=1/);
+  await expect(page).toHaveURL(/acao=CN/);
+  await expect(page).toHaveURL(/saida=I/);
+  await expect(page.getByTestId("versao-impressao").getByTestId("resumo-auditoria")).toContainText("EXIBIDOS...........:56");
+  await page.getByRole("link", { name: "Voltar ao relatório" }).click();
+  await expect(page).not.toHaveURL(/impressao=1/);
+  await expect(page).toHaveURL(/acao=CN/);
+  await expect(page.getByLabel("Ação", { exact: true })).toHaveValue("CN");
+
+  await page.goto(`/relatorios/auditoria?${PERIODO_1995}&pagina=99`);
+  await expect(page.getByText("60 eventos · página 2 de 2")).toBeVisible();
+  await expect(tabela(page).getByRole("row")).toHaveCount(7);
+
+  await page.goto(`/relatorios/auditoria?${PERIODO_1995}&acao=IN&usuario=E2EAUD&tabela=BENEFICIARIO`);
+  await page.getByRole("link", { name: "Limpar" }).click();
+  await expect(page).toHaveURL(/\/relatorios\/auditoria$/);
+  await expect(page.getByLabel("Data inicial")).toHaveValue("1997-01-01");
+  await expect(page.getByLabel("Ação", { exact: true })).toHaveValue("");
+  await expect(page.getByLabel("Usuário")).toHaveValue("");
+  await expect(page.getByLabel("Tabela")).toHaveValue("");
+  await expect(page.getByLabel("Saída")).toHaveValue("T");
+});
+
+test("usuário e tabela em minúsculas casam com os valores gravados", async ({ page }) => {
+  await page.goto(`/relatorios/auditoria?${PERIODO_1995}&usuario=e2eaudx&tabela=beneficiario`);
+  await expect(tabela(page).getByRole("row")).toHaveCount(2);
+  await expect(tabela(page).getByRole("row").nth(1)).toContainText("ALTERACAO");
+  await expect(page.getByLabel("Usuário")).toHaveValue("E2EAUDX");
 });
 
 test("validação: período invertido e ação inválida", async ({ page }) => {
@@ -153,6 +197,16 @@ test("validação: período invertido e ação inválida", async ({ page }) => {
 
   await page.goto(`/relatorios/auditoria?${PERIODO_1995}&acao=EX`);
   await expect(page.getByText("Ação inválida.")).toBeVisible();
+  await expect(resumo(page)).toHaveCount(0);
+  // O valor enviado volta ao campo, ao lado do erro.
+  await expect(page.getByLabel("Ação", { exact: true })).toHaveValue("EX");
+
+  await page.goto("/relatorios/auditoria?dtIni=19950231&dtFim=19951231&usuario=ABCDEFGHIJ");
+  await expect(page.getByText("Data inválida.")).toBeVisible();
+  await expect(page.getByText("Informado: 19950231")).toBeVisible();
+  await expect(page.getByText("Usuário inválido (máximo 8 caracteres).")).toBeVisible();
+  await expect(page.getByLabel("Usuário")).toHaveValue("ABCDEFGHIJ");
+  await expect(page.getByLabel("Data final")).toHaveValue("1995-12-31");
   await expect(resumo(page)).toHaveCount(0);
 });
 
