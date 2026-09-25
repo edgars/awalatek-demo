@@ -10,7 +10,7 @@ export const NAVEGACAO: readonly GrupoNav[] = [
   { titulo: "Validação", itens: [{ titulo: "Cadastral", href: "/validacao/cadastro" }, { titulo: "Documentos", href: "/validacao/documentos" }, { titulo: "Elegibilidade", href: "/elegibilidade" }] },
   {
     titulo: "Cálculo e Pagamentos",
-    itens: [{ titulo: "Cálculo individual", href: "/calculo" }, { titulo: "Lote mensal" }, { titulo: "Cálculo de descontos" }, { titulo: "Pagamentos", href: "/pagamentos" }],
+    itens: [{ titulo: "Cálculo individual", href: "/calculo" }, { titulo: "Lote mensal" }, { titulo: "Cálculo de descontos", href: "/descontos" }, { titulo: "Pagamentos", href: "/pagamentos" }],
   },
   { titulo: "Processos", itens: [{ titulo: "Correção retroativa" }, { titulo: "Conciliação bancária" }] },
   { titulo: "Relatórios", itens: [{ titulo: "Pagamentos" }, { titulo: "Consolidado" }, { titulo: "Auditoria" }] },
