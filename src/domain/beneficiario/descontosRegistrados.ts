@@ -32,6 +32,7 @@ export const MENSAGENS_DESCONTOS = {
   processoObrigatorio: "Nº processo: obrigatório para desconto judicial (J)",
   valorOuPercentual: "Valor ou percentual: informe um deles maior que zero",
   datasInvertidas: "Data fim: deve ser igual ou posterior à data início",
+  impostoSemPercentual: "Percentual: obrigatório para imposto (I) — o cálculo usa só o percentual",
 } as const;
 
 export function validarLimiteDescontos(qtd: number): string | null {
@@ -54,13 +55,19 @@ const centavos = (rotulo: string) =>
     .min(0, { error: `${rotulo}: não pode ser negativo` })
     .max(MAX_CENTAVOS_INT32, { error: `${rotulo}: valor acima do limite (máx. R$ 21.474.836,47)` });
 
+/** 0 (vazio) ou data de calendário real AAAAMMDD (ida e volta via `Date`). */
 const dataValida = (n: number): boolean => {
   if (n === 0) return true;
   try {
-    return intParaData(n) !== null;
+    if (intParaData(n) === null) return false;
   } catch {
     return false;
   }
+  const a = Math.trunc(n / 10000);
+  const m = Math.trunc(n / 100) % 100;
+  const d = n % 100;
+  const dt = new Date(Date.UTC(a, m - 1, d));
+  return dt.getUTCFullYear() === a && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
 };
 
 const dataLegada = (rotulo: string) =>
@@ -92,6 +99,9 @@ export function errosDoDesconto(d: DescontoRegistrado): [CampoDesconto, string][
   // Sindical (S) se calcula sobre el bruto (1 %): no exige valor ni porcentaje.
   if (d.tipoDesconto !== "S" && d.vlrDesconto <= 0 && Number(d.pctDesconto) <= 0) {
     erros.push(["vlrDesconto", MENSAGENS_DESCONTOS.valorOuPercentual]);
+  } else if (d.tipoDesconto === "I" && Number(d.pctDesconto) <= 0) {
+    // CALCDSCT calcula o imposto (I) só pelo percentual: um valor fixo não desconta nada.
+    erros.push(["pctDesconto", MENSAGENS_DESCONTOS.impostoSemPercentual]);
   }
   if (d.dtFimDsct !== 0 && d.dtFimDsct < d.dtInicioDsct) erros.push(["dtFimDsct", MENSAGENS_DESCONTOS.datasInvertidas]);
   return erros;
@@ -103,7 +113,6 @@ export const descontoRegistradoSchema = z
       .string()
       .trim()
       .toUpperCase()
-      .transform((s) => s.slice(0, 1))
       .pipe(z.enum(TIPOS_DESCONTO, { error: "Tipo: informe C, I, J, S, P ou A" })),
     vlrDesconto: centavos("Valor"),
     pctDesconto: z
@@ -116,8 +125,8 @@ export const descontoRegistradoSchema = z
     dtFimDsct: dataLegada("Data fim"),
     numProcesso: z
       .string()
-      .trim()
-      .transform((s) => s.slice(0, TAMANHO_NUM_PROCESSO).trim() || null),
+      .nullish()
+      .transform((s) => (s ?? "").trim().slice(0, TAMANHO_NUM_PROCESSO).trim() || null),
   })
   .superRefine((d, ctx) => {
     for (const [campo, mensagem] of errosDoDesconto(d)) ctx.addIssue({ code: "custom", path: [campo], message: mensagem });

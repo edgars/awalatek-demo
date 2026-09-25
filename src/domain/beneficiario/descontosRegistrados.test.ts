@@ -79,6 +79,11 @@ describe("descontoRegistradoSchema", () => {
     expect(r.numProcesso).toBe("01234567890123456789");
   });
 
+  it("tipo com mais de 1 caractere é recusado (não truncado)", () => {
+    expect(descontoRegistradoSchema.safeParse(linha({ tipoDesconto: "JX" })).success).toBe(false);
+    expect(descontoRegistradoSchema.safeParse(linha({ tipoDesconto: "Judicial" })).success).toBe(false);
+  });
+
   it("tipo fora do domínio → erro", () => {
     const r = descontoRegistradoSchema.safeParse(linha({ tipoDesconto: "X" }));
     expect(r.success).toBe(false);
@@ -97,6 +102,25 @@ describe("descontoRegistradoSchema", () => {
     expect(r.error?.issues.map((i) => i.message)).toContain("Data início: obrigatória");
     expect(descontoRegistradoSchema.safeParse(linha({ dtFimDsct: "20261340" })).success).toBe(false);
   });
+
+  it("datas fora do calendário real são recusadas", () => {
+    expect(descontoRegistradoSchema.safeParse(linha({ dtInicioDsct: "20260231" })).success).toBe(false);
+    expect(descontoRegistradoSchema.safeParse(linha({ dtFimDsct: "20250229" })).success).toBe(false);
+    expect(descontoRegistradoSchema.safeParse(linha({ dtFimDsct: "20260431" })).success).toBe(false);
+    expect(descontoRegistradoSchema.safeParse(linha({ dtInicioDsct: "20240229" })).success).toBe(true);
+  });
+
+  it("aceita entrada já tipada (números e processo null)", () => {
+    const r = descontoRegistradoSchema.safeParse({
+      tipoDesconto: "S",
+      vlrDesconto: 0,
+      pctDesconto: "0.00",
+      dtInicioDsct: 20260101,
+      dtFimDsct: 0,
+      numProcesso: null,
+    });
+    expect(r.success && r.data.numProcesso).toBeNull();
+  });
 });
 
 describe("validações cruzadas", () => {
@@ -113,6 +137,16 @@ describe("validações cruzadas", () => {
     const r = validarDescontosRegistrados([linha({ tipoDesconto: "I", vlrDesconto: "0", pctDesconto: "0" })]);
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.erros).toEqual({ "0.vlrDesconto": MENSAGENS_DESCONTOS.valorOuPercentual });
+  });
+
+  it("I só com valor fixo → exige percentual (o cálculo ignora o valor)", () => {
+    const r = validarDescontosRegistrados([linha({ tipoDesconto: "I", vlrDesconto: "1000", pctDesconto: "0" })]);
+    expect(r).toEqual({
+      ok: false,
+      mensagens: [`Desconto 1 — ${MENSAGENS_DESCONTOS.impostoSemPercentual}`],
+      erros: { "0.pctDesconto": MENSAGENS_DESCONTOS.impostoSemPercentual },
+    });
+    expect(validarDescontosRegistrados([linha({ tipoDesconto: "I", vlrDesconto: "0", pctDesconto: "5" })]).ok).toBe(true);
   });
 
   it("percentual > 0 basta", () => {

@@ -154,7 +154,7 @@ export async function seed(prisma: PrismaClient): Promise<void> {
     create: { beneficiarioId: ativo.id, occurrence: 1, ...dependente },
     update: dependente,
   });
-  const desconto = { tipoDesconto: "J", vlrDesconto: 2500, pctDesconto: "0.00", dtInicioDsct: 20250301, dtFimDsct: 0 };
+  const desconto = { tipoDesconto: "J", vlrDesconto: 2500, pctDesconto: "0.00", dtInicioDsct: 20250301, dtFimDsct: 0, numProcesso: "0001234-56.2025" };
   await prisma.beneficiarioDesconto.upsert({
     where: { beneficiarioId_occurrence: { beneficiarioId: ativo.id, occurrence: 1 } },
     create: { beneficiarioId: ativo.id, occurrence: 1, ...desconto },

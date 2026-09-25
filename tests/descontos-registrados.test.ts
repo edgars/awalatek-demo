@@ -11,6 +11,13 @@ import { listarDescontosRegistrados, salvarDescontosRegistrados } from "@/server
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// Delega no caso de uso real; um teste força a falha inesperada com mockRejectedValueOnce.
+vi.mock("@/server/descontosRegistrados", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/server/descontosRegistrados")>();
+  return { ...real, salvarDescontosRegistrados: vi.fn(real.salvarDescontosRegistrados) };
+});
+
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 // Casos de uso dos descontos registrados (story 2.5) contra uma base SQLite temporária.
 
@@ -27,10 +34,15 @@ beforeAll(async () => {
   execFileSync("npx", ["prisma", "migrate", "deploy"], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe" });
   prisma = createPrismaClient(url);
   // O singleton de @/server/db (usado pela Server Action) aponta para a mesma base.
-  process.env.DATABASE_URL = url;
+  await globalForPrisma.prisma?.$disconnect();
+  globalForPrisma.prisma = undefined;
+  vi.stubEnv("DATABASE_URL", url);
 });
 
 afterAll(async () => {
+  await globalForPrisma.prisma?.$disconnect();
+  globalForPrisma.prisma = undefined;
+  vi.unstubAllEnvs();
   await prisma?.$disconnect();
   rmSync(dir, { recursive: true, force: true });
 });
@@ -62,7 +74,7 @@ describe("listarDescontosRegistrados", () => {
     if (!r.ok) return;
     expect(r.beneficiario).toEqual({ numCpf: CPF_S0, nomeCompleto: "MARIA APARECIDA DA SILVA", sitBeneficiario: "A" });
     expect(r.descontos).toEqual([
-      { occurrence: 1, tipoDesconto: "J", vlrDesconto: 2500, pctDesconto: "0.00", dtInicioDsct: 20250301, dtFimDsct: 0, numProcesso: null, vigenteHoje: true },
+      { occurrence: 1, tipoDesconto: "J", vlrDesconto: 2500, pctDesconto: "0.00", dtInicioDsct: 20250301, dtFimDsct: 0, numProcesso: "0001234-56.2025", vigenteHoje: true },
     ]);
   });
 
@@ -107,6 +119,18 @@ describe("salvarDescontosRegistrados", () => {
     const r = await salvarDescontosRegistrados(CPF_S1, Array.from({ length: 9 }, () => S), prisma);
     expect(r).toEqual({ ok: false, mensagem: "Limite de 8 descontos excedido (máx. 8)." });
     expect(await filasDe(CPF_S1)).toHaveLength(0);
+  });
+
+  it("fila fora do esquema (tipo, Int32, data de calendário) → nada gravado", async () => {
+    for (const ruim of [
+      { ...J, tipoDesconto: "X" as DescontoRegistrado["tipoDesconto"] },
+      { ...J, vlrDesconto: 2_147_483_648 },
+      { ...J, dtInicioDsct: 20260231 },
+      { ...J, pctDesconto: "1.234" },
+    ]) {
+      expect((await salvarDescontosRegistrados(CPF_S0, [ruim], prisma)).ok).toBe(false);
+    }
+    expect((await filasDe(CPF_S0)).map((f) => f.dtInicioDsct)).toEqual([20250301]);
   });
 
   it("fila inválida (defesa) → nada gravado", async () => {
@@ -155,6 +179,29 @@ describe("salvarDescontosRegistradosAction", () => {
   it("9 filas → limite", async () => {
     const r = await salvarDescontosRegistradosAction(CPF_S1, null, form(Array.from({ length: 9 }, () => ls)));
     expect(r).toMatchObject({ ok: false, mensagens: ["Limite de 8 descontos excedido (máx. 8)."] });
+  });
+
+  it("campos com quantidades diferentes → formulário inválido, nada gravado", async () => {
+    const fd = form([lj, ls]);
+    fd.delete("numProcesso");
+    fd.append("numProcesso", "123");
+    const r = await salvarDescontosRegistradosAction(CPF_S1, null, fd);
+    expect(r).toEqual({ ok: false, mensagens: ["Formulário inválido: campos dos descontos incompletos. Recarregue a página."] });
+    expect(await filasDe(CPF_S1)).toHaveLength(0);
+  });
+
+  it("erro inesperado → mensagem genérica; log só com nome e código", async () => {
+    const erro = Object.assign(new Error(`falha gravando CPF ${CPF_S1}`), { name: "PrismaClientKnownRequestError", code: "P2002" });
+    vi.mocked(salvarDescontosRegistrados).mockRejectedValueOnce(erro);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await salvarDescontosRegistradosAction(CPF_S1, null, form([lj]));
+      expect(r).toEqual({ ok: false, mensagens: ["Erro inesperado ao processar a solicitação. Tente novamente."] });
+      expect(log).toHaveBeenCalledWith("[descontos] gravação:", "PrismaClientKnownRequestError", "P2002");
+      expect(JSON.stringify(log.mock.calls)).not.toContain(CPF_S1);
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("CPF de rota malformado ou inexistente → BENEFICIARIO NAO ENCONTRADO", async () => {

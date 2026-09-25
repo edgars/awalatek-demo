@@ -20,6 +20,20 @@ export const metadata: Metadata = { title: "Descontos do beneficiário" };
 
 type Props = { params: Promise<{ cpf: string }> };
 
+const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+
+async function carregar(cpf: string) {
+  try {
+    return await listarDescontosRegistrados(cpf);
+  } catch (e) {
+    // Solo el tipo y el código del error: nunca datos personales en el log (NFR-04).
+    const nome = e instanceof Error ? e.name : "erro desconhecido";
+    const codigo = (e as { code?: unknown } | null)?.code;
+    console.error("[descontos] consulta:", nome, typeof codigo === "string" ? codigo : "");
+    return { ok: false as const, mensagem: ERRO_INESPERADO };
+  }
+}
+
 const TIPOS = TIPOS_DESCONTO.map((codigo) => ({ codigo, rotulo: ROTULOS_TIPO_DESCONTO[codigo] }));
 
 /** Pantalla 4.7 — descontos registrados do beneficiário (PE DESCONTOS, D14). */
@@ -31,7 +45,7 @@ export default async function DescontosBeneficiarioPage({ params }: Props) {
   } catch {
     // escape malformado → valor bruto → não encontrado
   }
-  const r = await listarDescontosRegistrados(cpf);
+  const r = await carregar(cpf);
 
   if (!r.ok) {
     return (

@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import {
-  errosDoDesconto,
+  descontoRegistradoSchema,
   MENSAGENS_DESCONTOS,
   mensagemGravados,
   validarLimiteDescontos,
@@ -64,10 +64,13 @@ export async function salvarDescontosRegistrados(
 ): Promise<ResultadoGravacao> {
   const limite = validarLimiteDescontos(filas.length);
   if (limite) return { ok: false, mensagem: limite };
-  // Defensa en profundidad: las filas ya vienen validadas por el esquema de la acción.
+  // Defensa en profundidad: el caso de uso exportado vuelve a pasar cada fila por el
+  // esquema completo (dominio del tipo, Int32, fechas de calendario, N3.2, reglas cruzadas).
+  const validas: DescontoRegistrado[] = [];
   for (const [i, f] of filas.entries()) {
-    const [erro] = errosDoDesconto(f);
-    if (erro) return { ok: false, mensagem: `Desconto ${i + 1} — ${erro[1]}` };
+    const r = descontoRegistradoSchema.safeParse(f);
+    if (!r.success) return { ok: false, mensagem: `Desconto ${i + 1} — ${r.error.issues[0]?.message ?? "dados inválidos"}` };
+    validas.push(r.data);
   }
 
   const b = await obterBeneficiario(cpf, db);
@@ -76,7 +79,7 @@ export async function salvarDescontosRegistrados(
   await db.$transaction([
     db.beneficiarioDesconto.deleteMany({ where: { beneficiarioId: b.id } }),
     db.beneficiarioDesconto.createMany({
-      data: filas.map((f, i) => ({
+      data: validas.map((f, i) => ({
         beneficiarioId: b.id,
         occurrence: i + 1,
         tipoDesconto: f.tipoDesconto,
@@ -88,5 +91,5 @@ export async function salvarDescontosRegistrados(
       })),
     }),
   ]);
-  return { ok: true, mensagem: mensagemGravados(filas.length), vigentes: filas.map((f) => descontoVigente(f, dtHoje)) };
+  return { ok: true, mensagem: mensagemGravados(validas.length), vigentes: validas.map((f) => descontoVigente(f, dtHoje)) };
 }

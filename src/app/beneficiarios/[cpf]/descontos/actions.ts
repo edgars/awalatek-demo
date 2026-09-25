@@ -21,10 +21,16 @@ export type EstadoDescontos = {
 
 const cpfRotaSchema = z.string().regex(/^\d{11}$/);
 
-/** Lee filas repetidas del formulario (`getAll` por campo, en orden de documento). */
-function lerFilas<K extends string>(dados: FormData, campos: readonly K[]): Record<K, string>[] {
+const FORMULARIO_INVALIDO = "Formulário inválido: campos dos descontos incompletos. Recarregue a página.";
+
+/**
+ * Lee filas repetidas del formulario (`getAll` por campo, en orden de documento).
+ * `null` si los campos tienen cantidades distintas: las columnas quedarían desalineadas.
+ */
+function lerFilas<K extends string>(dados: FormData, campos: readonly K[]): Record<K, string>[] | null {
   const colunas = campos.map((c) => dados.getAll(c).map((v) => (typeof v === "string" ? v : "")));
-  const n = Math.max(0, ...colunas.map((c) => c.length));
+  const n = colunas[0]?.length ?? 0;
+  if (colunas.some((c) => c.length !== n)) return null;
   return Array.from({ length: n }, (_, i) =>
     Object.fromEntries(campos.map((c, j) => [c, colunas[j]?.[i] ?? ""])) as Record<K, string>,
   );
@@ -48,7 +54,9 @@ export async function salvarDescontosRegistradosAction(
   const cpfOk = cpfRotaSchema.safeParse(cpf);
   if (!cpfOk.success) return { ok: false, mensagens: [MENSAGENS_DESCONTOS.beneficiarioNaoEncontrado] };
 
-  const v = validarDescontosRegistrados(lerFilas(dados, CAMPOS_DESCONTO));
+  const linhas = lerFilas(dados, CAMPOS_DESCONTO);
+  if (!linhas) return { ok: false, mensagens: [FORMULARIO_INVALIDO] };
+  const v = validarDescontosRegistrados(linhas);
   if (!v.ok) return { ok: false, mensagens: v.mensagens, erros: v.erros };
 
   try {

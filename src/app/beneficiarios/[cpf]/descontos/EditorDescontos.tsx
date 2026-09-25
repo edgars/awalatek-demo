@@ -30,6 +30,12 @@ const NOVA_LINHA: LinhaDesconto = {
   vigenteHoje: null,
 };
 
+/** Tipos cujos campos não têm efeito no cálculo (CALCDSCT): aviso ao operador. */
+const DICAS_TIPO: Record<string, string> = {
+  S: "calculado como 1% do bruto; valor/percentual ignorados",
+  C: "não aplicado no cálculo de descontos (legado)",
+};
+
 const COLUNAS = ["Tipo", "Valor", "Percentual", "Início", "Fim", "Nº processo", "Vigência"] as const;
 
 /**
@@ -71,6 +77,8 @@ export function EditorDescontos({
     setLinhas((ls) => ls.filter((l) => l.chave !== chave));
     setMostrarErros(false);
   };
+  const mudarTipo = (chave: number, tipoDesconto: string) =>
+    setLinhas((ls) => ls.map((l) => (l.chave === chave ? { ...l, valores: { ...l.valores, tipoDesconto } } : l)));
   const erroCampo = (i: number, campo: string) =>
     mostrarErros && estado && !estado.ok ? estado.erros?.[`${i}.${campo}`] : undefined;
 
@@ -113,17 +121,19 @@ export function EditorDescontos({
               const tipo = base("tipoDesconto", "Tipo");
               const processo = base("numProcesso", "Nº processo");
               const v = l.valores;
+              const dica = DICAS_TIPO[v.tipoDesconto];
               return (
                 <TableRow key={l.chave} data-testid={`desconto-${i + 1}`}>
                   <TableCell className="valor align-top text-muted-foreground">{i + 1}</TableCell>
                   <TableCell className="min-w-44 align-top">
-                    <Campo {...tipo}>
+                    <Campo {...tipo} descricao={dica}>
                       <Select
                         id={tipo.id}
                         name={tipo.name}
                         defaultValue={v.tipoDesconto}
                         aria-invalid={tipo.erro ? true : undefined}
-                        aria-describedby={idsCampo(tipo).describedBy}
+                        aria-describedby={idsCampo({ ...tipo, descricao: dica }).describedBy}
+                        onChange={(e) => mudarTipo(l.chave, e.target.value)}
                       >
                         <option value="">Selecione…</option>
                         {tipos.map((t) => (
@@ -170,7 +180,7 @@ export function EditorDescontos({
                     )}
                   </TableCell>
                   <TableCell className="align-top">
-                    <Button type="button" variant="ghost" size="sm" onClick={() => remover(l.chave)}>
+                    <Button type="button" variant="ghost" size="sm" onClick={() => remover(l.chave)} disabled={pendente}>
                       Remover<span className="sr-only"> desconto {i + 1}</span>
                     </Button>
                   </TableCell>
@@ -181,7 +191,7 @@ export function EditorDescontos({
         </Table>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={adicionar} disabled={linhas.length >= maximo}>
+        <Button type="button" variant="outline" size="sm" onClick={adicionar} disabled={pendente || linhas.length >= maximo}>
           Adicionar desconto
         </Button>
         <Button type="submit" size="sm" disabled={pendente}>
