@@ -15,6 +15,8 @@ async function main(): Promise<number> {
     const r = await ejecutarLotePagamentos();
     if (!r.ok) {
       console.error(r.mensagem);
+      // Interrompido por erro inesperado: imprime o resumo parcial.
+      if (r.resumo) for (const linha of linhasResumo(r.resumo)) console.log(linha);
       return 1;
     }
     for (const linha of linhasResumo(r.resumo)) console.log(linha);

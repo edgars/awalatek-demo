@@ -9,7 +9,7 @@ import { completaDv } from "@/domain/cpf";
 import { calcular } from "@/domain/calculo/motor";
 import { hoje } from "@/domain/legacyDate";
 import { createPrismaClient } from "@/server/db";
-import { ejecutarLotePagamentos, situacaoLote } from "@/server/lotePagamentos";
+import { ehColisaoNumPagamento, ejecutarLotePagamentos, situacaoLote } from "@/server/lotePagamentos";
 import { BENEFICIARIOS_SEED, cpfComDv, PROGRAMAS_SEED, seed } from "../prisma/seed";
 
 // Story 4.2 — lote mensal (BATCHPGT) contra uma base SQLite temporária. Cada
@@ -43,8 +43,21 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-function lote(dtHoje: number, extra: { log?: (l: string) => void } = {}) {
-  return ejecutarLotePagamentos({ dtHoje, agora: AGORA, db: prisma, log: extra.log ?? semLog });
+function lote(dtHoje: number, extra: { log?: (l: string) => void; db?: PrismaClient } = {}) {
+  return ejecutarLotePagamentos({ dtHoje, agora: AGORA, db: extra.db ?? prisma, log: extra.log ?? semLog });
+}
+
+/** Cliente que delega em `prisma`, mas passa cada `$transaction` por `interceptar` (n = nº da chamada). */
+function comTransacao(interceptar: (n: number, real: () => Promise<unknown>) => Promise<unknown>): PrismaClient {
+  let n = 0;
+  return new Proxy(prisma, {
+    get(alvo, prop, receptor) {
+      if (prop === "$transaction") {
+        return (fn: Parameters<PrismaClient["$transaction"]>[0]) => interceptar(++n, () => prisma.$transaction(fn as never));
+      }
+      return Reflect.get(alvo, prop, receptor);
+    },
+  });
 }
 
 function entradaMaria(competencia: number) {
@@ -119,6 +132,7 @@ describe("ejecutarLotePagamentos", () => {
     const r = await lote(20260915);
     if (!r.ok) throw new Error(r.mensagem);
     expect(r.resumo).toMatchObject({ competencia: 202609, processados: TOTAL_SEED, gerados: 0, ignorados: TOTAL_SEED, erros: 0, vlrTotalBruto: 0 });
+    expect(r.resumo.ignoradosPorMotivo).toEqual({ CPF_REPETIDO: 0, NAO_ATIVO: TOTAL_SEED - 1, JA_GERADO: 1, PROGRAMA_INATIVO: 0 });
     expect(await prisma.pagamento.count({ where: { anoMesRef: 202609 } })).toBe(1);
   });
 
@@ -209,6 +223,91 @@ describe("ejecutarLotePagamentos", () => {
     } finally {
       await prisma.beneficiario.delete({ where: { numCpf: orfao } });
     }
+  });
+});
+
+describe("falhas durante o lote", () => {
+  it("erro inesperado no 2.º calculado → interrompe com resumo parcial; o 1.º pagamento fica gravado", async () => {
+    // numDependentes negativo faz o motor lançar (dado corrompido): cai depois de MARIA na ordem de CPF.
+    const cpf = await novoBeneficiario("500000003", { renda: 50000 });
+    await prisma.beneficiario.update({ where: { numCpf: cpf }, data: { numDependentes: -1 } });
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await lote(20260401);
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.mensagem).toBe(`LOTE INTERROMPIDO: ERRO INESPERADO CPF=***.***.${cpf.slice(6, 9)}-${cpf.slice(9)}`);
+      expect(r.resumo).toMatchObject({ competencia: 202604, processados: TOTAL_SEED + 1, gerados: 1, ignorados: TOTAL_SEED - 1, erros: 0, vlrTotalBruto: 12220 });
+      expect(await prisma.pagamento.count({ where: { anoMesRef: 202604, numCpf: CPF_MARIA } })).toBe(1);
+      expect(await prisma.pagamento.count({ where: { anoMesRef: 202604, numCpf: cpf } })).toBe(0);
+      // Log só com tipo/código, sem CPF.
+      expect(JSON.stringify(erro.mock.calls)).not.toContain(cpf);
+    } finally {
+      erro.mockRestore();
+      await prisma.beneficiario.delete({ where: { numCpf: cpf } });
+    }
+  });
+
+  it("colisão de numPagamento (P2002 real) → relê o máximo e grava com máx.+1", async () => {
+    const maximo = (await prisma.pagamento.aggregate({ _max: { numPagamento: true } }))._max.numPagamento ?? 0;
+    const conflito = maximo + 1;
+    const db = comTransacao(async (n, real) => {
+      // Antes da 1.ª transação (MARIA), outro escritor toma o número que o lote vai usar.
+      if (n === 1) {
+        await prisma.pagamento.create({
+          data: { numPagamento: conflito, numCpf: CPF_MARIA, codPrograma: "PA01", anoMesRef: 199002, vlrBruto: 1, vlrLiquido: 1, sitPagamento: "G", dtGeracao: 19900201, hrGeracao: 0 },
+        });
+      }
+      return real();
+    });
+    const r = await lote(20260501, { db });
+    if (!r.ok) throw new Error(r.mensagem);
+    expect(r.resumo.gerados).toBe(1);
+    const p = await prisma.pagamento.findFirstOrThrow({ where: { anoMesRef: 202605, numCpf: CPF_MARIA } });
+    expect(p.numPagamento).toBe(conflito + 1);
+  });
+
+  it("erro de banco não P2002 → não reintenta; interrompe com resumo parcial", async () => {
+    const chamadas: number[] = [];
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const db = comTransacao((n) => {
+        chamadas.push(n);
+        return Promise.reject(Object.assign(new Error("fk"), { code: "P2003" }));
+      });
+      const r = await lote(20260601, { db });
+      expect(r).toMatchObject({ ok: false, mensagem: "LOTE INTERROMPIDO: ERRO INESPERADO CPF=***.***.678-90", resumo: { processados: 1, gerados: 0 } });
+      expect(chamadas).toEqual([1]);
+    } finally {
+      erro.mockRestore();
+    }
+  });
+
+  it("P2002 em outro campo → não reintenta", async () => {
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    let chamadas = 0;
+    try {
+      const db = comTransacao(() => {
+        chamadas++;
+        return Promise.reject({ code: "P2002", meta: { driverAdapterError: { cause: { constraint: { fields: ["nis"] } } } } });
+      });
+      const r = await lote(20260601, { db });
+      expect(r.ok).toBe(false);
+      expect(chamadas).toBe(1);
+    } finally {
+      erro.mockRestore();
+    }
+  });
+
+  it("ehColisaoNumPagamento reconhece meta do driver adapter e meta.target", () => {
+    const adapter = (fields: string[]) => ({ code: "P2002", meta: { driverAdapterError: { cause: { constraint: { fields } } } } });
+    expect(ehColisaoNumPagamento(adapter(["numPagamento"]))).toBe(true);
+    expect(ehColisaoNumPagamento({ code: "P2002", meta: { target: ["numPagamento"] } })).toBe(true);
+    expect(ehColisaoNumPagamento({ code: "P2002", meta: { target: "Pagamento_numPagamento_key" } })).toBe(true);
+    expect(ehColisaoNumPagamento(adapter(["numCpf"]))).toBe(false);
+    expect(ehColisaoNumPagamento({ code: "P2002" })).toBe(false);
+    expect(ehColisaoNumPagamento({ code: "P2003", meta: { target: ["numPagamento"] } })).toBe(false);
+    expect(ehColisaoNumPagamento(null)).toBe(false);
   });
 });
 

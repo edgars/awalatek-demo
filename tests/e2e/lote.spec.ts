@@ -12,9 +12,13 @@ import { createPrismaClient } from "@/server/db";
 test.describe.configure({ mode: "serial" });
 
 const CPF_MARIA = "01234567890"; // único A do seed
-const COMPETENCIA = competenciaDaData(hoje().data);
-const COMPETENCIA_ISO = intParaCompetencia(COMPETENCIA) ?? "";
-const COMPETENCIA_TEXTO = `${COMPETENCIA_ISO.slice(5, 7)}/${COMPETENCIA_ISO.slice(0, 4)}`;
+
+/** Competência do dia, calculada no momento do teste (não no carregamento do módulo). */
+function competenciaAtual() {
+  const competencia = competenciaDaData(hoje().data);
+  const iso = intParaCompetencia(competencia) ?? "";
+  return { competencia, iso, texto: `${iso.slice(5, 7)}/${iso.slice(0, 4)}` };
+}
 
 let db: PrismaClient;
 
@@ -26,7 +30,7 @@ test.afterAll(async () => {
   await db?.$disconnect();
 });
 
-async function executarLote(page: Page) {
+async function executarLote(page: Page, COMPETENCIA_ISO: string) {
   await page.getByRole("button", { name: "Executar lote" }).click();
   const confirmacao = page.getByRole("alertdialog");
   await expect(confirmacao).toContainText(`Gerar pagamentos da competência ${COMPETENCIA_ISO} para todos os beneficiários ativos?`);
@@ -37,14 +41,20 @@ async function executarLote(page: Page) {
 }
 
 /** Pagamentos do lote na competência do dia, agrupados por CPF. */
-async function pagamentosDoLotePorCpf(): Promise<Map<string, number>> {
+async function pagamentosDoLotePorCpf(COMPETENCIA: number): Promise<Map<string, number>> {
   const linhas = await db.pagamento.findMany({ where: { anoMesRef: COMPETENCIA, usrInclusao: "BATCH" }, select: { numCpf: true } });
   const porCpf = new Map<string, number>();
   for (const l of linhas) porCpf.set(l.numCpf, (porCpf.get(l.numCpf) ?? 0) + 1);
   return porCpf;
 }
 
+/** Valor de um item do ResumoProcesso (dt → dd seguinte). */
+function valorResumo(page: Page, rotulo: string) {
+  return page.getByTestId("resumo-processo").locator("dt", { hasText: new RegExp(`^${rotulo}$`) }).locator("xpath=following-sibling::dd[1]");
+}
+
 test("menu → competência atual; cancelar a confirmação não executa", async ({ page }) => {
+  const { iso: COMPETENCIA_ISO } = competenciaAtual();
   await page.goto("/");
   await page.getByRole("navigation", { name: "Menu principal" }).getByRole("link", { name: "Lote mensal" }).click();
   await expect(page).toHaveURL(/\/lote$/);
@@ -61,8 +71,9 @@ test("menu → competência atual; cancelar a confirmação não executa", async
 });
 
 test("executar com confirmação → resumo; segunda execução não duplica pagamentos", async ({ page }) => {
+  const { competencia: COMPETENCIA, iso: COMPETENCIA_ISO, texto: COMPETENCIA_TEXTO } = competenciaAtual();
   await page.goto("/lote");
-  const resumo = await executarLote(page);
+  const resumo = await executarLote(page, COMPETENCIA_ISO);
   await expect(resumo).toContainText(COMPETENCIA_TEXTO);
   for (const rotulo of ["TOTAL PROCESSADOS", "PAGTOS GERADOS", "IGNORADOS", "ERROS", "VLR TOTAL BRUTO", "VLR TOTAL DESC", "VLR TOTAL LIQUIDO", "VLR TOTAL ABONO"]) {
     await expect(resumo).toContainText(rotulo);
@@ -70,14 +81,30 @@ test("executar com confirmação → resumo; segunda execução não duplica pag
   // MARIA (ativa) tem pagamento na competência: do lote ou de um cálculo individual prévio.
   expect(await db.pagamento.count({ where: { numCpf: CPF_MARIA, anoMesRef: COMPETENCIA } })).toBeGreaterThanOrEqual(1);
   const mariaAntes = await db.pagamento.count({ where: { numCpf: CPF_MARIA, anoMesRef: COMPETENCIA } });
-  const antes = await pagamentosDoLotePorCpf();
-  // A contagem de existentes na tela é atualizada após a execução.
-  await expect(page.getByTestId("pagamentos-existentes")).not.toHaveText("0");
+  const antes = await pagamentosDoLotePorCpf(COMPETENCIA);
+  // A contagem de existentes na tela é atualizada após a execução (outros specs podem
+  // gravar em paralelo, então compara com a base no momento da leitura).
+  await expect
+    .poll(async () => {
+      const tela = await page.getByTestId("pagamentos-existentes").textContent();
+      return Number(tela) === (await db.pagamento.count({ where: { anoMesRef: COMPETENCIA } }));
+    })
+    .toBe(true);
 
-  await page.reload();
-  const segundo = await executarLote(page);
-  await expect(segundo).toContainText(COMPETENCIA_TEXTO);
-  const depois = await pagamentosDoLotePorCpf();
+  // Re-execução: todos ignorados. Outro spec pode criar um beneficiário ativo entre as
+  // execuções (e ele é gerado uma vez); nesse caso re-executa até nada ser gerado (máx. 3).
+  for (let tentativa = 1; ; tentativa++) {
+    await page.reload();
+    const segundo = await executarLote(page, COMPETENCIA_ISO);
+    await expect(segundo).toContainText(COMPETENCIA_TEXTO);
+    const gerados = Number(await valorResumo(page, "PAGTOS GERADOS").textContent());
+    if (gerados === 0 || tentativa === 3) break;
+  }
+  await expect(valorResumo(page, "PAGTOS GERADOS")).toHaveText("0");
+  // MARIA já tem pagamento na competência → aviso de competência já processada.
+  await expect(page.getByTestId("aviso-lote")).toBeVisible();
+  await expect(valorResumo(page, "IGNORADOS")).toHaveText((await valorResumo(page, "TOTAL PROCESSADOS").textContent()) ?? "-");
+  const depois = await pagamentosDoLotePorCpf(COMPETENCIA);
   // Nenhum CPF que já tinha pagamento do lote ganhou outro; nenhum CPF tem dois.
   for (const [cpf, n] of antes) expect(depois.get(cpf), cpf).toBe(n);
   for (const n of depois.values()) expect(n).toBe(1);

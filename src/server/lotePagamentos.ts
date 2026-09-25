@@ -3,6 +3,7 @@ import {
   acumularGerado,
   acumularSelecao,
   deveRegistrarProgresso,
+  mensagemLoteInterrompido,
   mensagemProgresso,
   novoResumo,
   selecionarBeneficiario,
@@ -31,7 +32,11 @@ type Passo =
   | { tipo: "sem-pagamento"; selecao: Exclude<Selecao, { acao: "calcular" }> }
   | { tipo: "gerado"; calc: ResultadoCalculo; numPagamento: number };
 
-export type ResultadoLote = { ok: true; resumo: ResumoLote } | { ok: false; mensagem: string };
+/**
+ * `ok: false` sin `resumo`: el lote no corrió (ya había uno en ejecución).
+ * `ok: false` con `resumo`: se interrumpió por un error inesperado; `resumo` es parcial.
+ */
+export type ResultadoLote = { ok: true; resumo: ResumoLote } | { ok: false; mensagem: string; resumo?: ResumoLote };
 
 export interface OpcoesLote {
   /** Fecha de ejecución AAAAMMDD (`*DATN`); default = `hoje().data`. Define la competencia. */
@@ -51,8 +56,26 @@ export function loteEmExecucao(): boolean {
   return estado.__sifapLoteEmExecucao === true;
 }
 
-function ehUnicoViolado(e: unknown): boolean {
-  return (e as { code?: string } | null)?.code === "P2002";
+/**
+ * P2002 sobre `numPagamento` (otro escritor tomó el número). Con el driver adapter
+ * los campos vienen en `meta.driverAdapterError.cause.constraint.fields`; sin él, en
+ * `meta.target`. Otra violación de unicidad no se reintenta.
+ */
+export function ehColisaoNumPagamento(e: unknown): boolean {
+  const err = e as {
+    code?: string;
+    meta?: { target?: unknown; driverAdapterError?: { cause?: { constraint?: { fields?: unknown } } } };
+  } | null;
+  if (err?.code !== "P2002") return false;
+  const campos = [err.meta?.target, err.meta?.driverAdapterError?.cause?.constraint?.fields].flat();
+  return campos.some((c) => typeof c === "string" && (c === "numPagamento" || c.includes("numPagamento")));
+}
+
+function registrarFalha(e: unknown): void {
+  // Solo tipo y código: nada de datos personales en el log (NFR-04).
+  const nome = e instanceof Error ? e.name : "erro desconhecido";
+  const codigo = (e as { code?: unknown } | null)?.code;
+  console.error("[lote] erro inesperado:", nome, typeof codigo === "string" ? codigo : "");
 }
 
 async function maiorNumPagamento(db: PrismaClient): Promise<number> {
@@ -64,20 +87,22 @@ async function maiorNumPagamento(db: PrismaClient): Promise<number> {
  * FR-LOT — genera los pagos de la competencia de `dtHoje` para todos los
  * beneficiarios activos, en orden de CPF. Una transacción por beneficiario.
  * Devuelve `{ ok: false, mensagem: "Lote já em execução." }` si ya hay un lote
- * corriendo en este proceso. Errores inesperados se propagan.
+ * corriendo en este proceso. Un error inesperado al procesar un beneficiario
+ * interrumpe la corrida y devuelve `{ ok: false, mensagem, resumo }` con el resumen
+ * parcial (los pagos ya grabados quedan). Errores antes del recorrido se propagan.
  */
 export async function ejecutarLotePagamentos(opcoes: OpcoesLote = {}): Promise<ResultadoLote> {
   // Verificación y toma del candado sin `await` en medio: atómicas en el event loop.
   if (loteEmExecucao()) return { ok: false, mensagem: MSG_LOTE_EM_EXECUCAO };
   estado.__sifapLoteEmExecucao = true;
   try {
-    return { ok: true, resumo: await processar(opcoes) };
+    return await processar(opcoes);
   } finally {
     estado.__sifapLoteEmExecucao = false;
   }
 }
 
-async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) => console.log(l) }: OpcoesLote): Promise<ResumoLote> {
+async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) => console.log(l) }: OpcoesLote): Promise<ResultadoLote> {
   const momento = hoje(agora);
   const dataExecucao = dtHoje ?? momento.data;
   // FR-LOT-01 — RK-275ebe83e773 / RK-af5872bb5b6c / RK-8b46847de08b (BATCHPGT:108-110, en motor.ts).
@@ -181,17 +206,26 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
         }
         break;
       } catch (e) {
+        let falha: unknown = e;
         // Otro escritor (cálculo individual, otro proceso) tomó el número: relee el máximo y reintenta.
-        if (ehUnicoViolado(e) && tentativa < TENTATIVAS_NUMERACAO) {
-          seqPgto = Math.max(seqPgto, await maiorNumPagamento(db));
-          continue;
+        if (ehColisaoNumPagamento(e) && tentativa < TENTATIVAS_NUMERACAO) {
+          try {
+            seqPgto = Math.max(seqPgto, await maiorNumPagamento(db));
+            continue;
+          } catch (e2) {
+            falha = e2;
+          }
         }
-        throw e;
+        // Error inesperado: el legado abendaría. Se interrumpe sin perder el resumen parcial.
+        registrarFalha(falha);
+        const mensagem = mensagemLoteInterrompido(b.numCpf);
+        log(mensagem);
+        return { ok: false, mensagem, resumo };
       }
     }
   }
 
-  return resumo;
+  return { ok: true, resumo };
 }
 
 /** Datos de la pantalla /lote: competencia actual y cuántos pagos ya existen en ella. */

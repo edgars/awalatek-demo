@@ -7,7 +7,7 @@ import { centavosParaTexto } from "@/components/campos/conversao";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import type { ResumoLote } from "@/domain/calculo/lote";
+import { competenciaJaProcessada, type ResumoLote } from "@/domain/calculo/lote";
 import { executarLoteAction } from "../actions";
 import type { EstadoLote } from "../estado";
 
@@ -67,8 +67,8 @@ export function ExecucaoLote({
     });
   };
 
-  const resumo = painel?.ok ? painel.resumo : null;
-  const jaProcessado = resumo !== null && resumo.processados > 0 && resumo.gerados === 0 && resumo.erros === 0;
+  const resumo = painel?.resumo ?? null;
+  const jaProcessado = painel?.ok === true && competenciaJaProcessada(painel.resumo);
 
   return (
     <div className="grid gap-4">
@@ -117,12 +117,12 @@ export function ExecucaoLote({
             <Alert role="status" data-testid="aviso-lote">
               <AlertTitle>Nenhum pagamento gerado</AlertTitle>
               <AlertDescription>
-                A competência {competenciaTexto(resumo.competencia)} já foi processada: todos os beneficiários foram ignorados e nenhum
-                pagamento foi duplicado.
+                A competência {competenciaTexto(resumo.competencia)} já foi processada: {resumo.ignoradosPorMotivo.JA_GERADO}{" "}
+                beneficiário(s) já tinham pagamento nela e nenhum pagamento foi duplicado.
               </AlertDescription>
             </Alert>
           ) : null}
-          <ResumoProcesso titulo="BATCHPGT - RESUMO PROCESSAMENTO" itens={itensResumo(resumo)} />
+          <ResumoProcesso titulo={painel?.ok ? "BATCHPGT - RESUMO PROCESSAMENTO" : "BATCHPGT - RESUMO PARCIAL"} itens={itensResumo(resumo)} />
           {resumo.mensagensErro.length > 0 ? (
             <ResultadoLegado variante="erro" titulo="Erros do lote" mensagens={resumo.mensagensErro} />
           ) : null}

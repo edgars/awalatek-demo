@@ -31,8 +31,9 @@ export interface EntradaSelecao {
 }
 
 /**
- * "ERRO: PROG NAO ENCONTRADO CPF=<cpf> PROG=<cod>". El legado usa COMPRESS con el
- * CPF completo; aquí el CPF va enmascarado (NFR-04: sin datos personales en el log).
+ * "ERRO: PROG NAO ENCONTRADO CPF=<cpf> PROG=<cod>".
+ * NFR-04: el CPF va enmascarado. El legado (BATCHPGT:221, COMPRESS) imprime el CPF
+ * completo; aquí no se registran datos personales completos.
  */
 export function mensagemProgramaNaoEncontrado(numCpf: string, codPrograma: string): string {
   return `ERRO: PROG NAO ENCONTRADO CPF=${mascaraCpfLista(numCpf)} PROG=${codPrograma}`;
@@ -66,7 +67,11 @@ export function deveRegistrarProgresso(qtdGerados: number): boolean {
   return qtdGerados > 0 && qtdGerados % INTERVALO_PROGRESSO === 0;
 }
 
-/** "PROCESSADOS: n ULTIMO CPF: …" (BATCHPGT:346), con el CPF enmascarado (NFR-04). */
+/**
+ * "PROCESSADOS: n ULTIMO CPF: …" (BATCHPGT:346), con el CPF enmascarado (NFR-04).
+ * LEGACY-QUIRK: pese al rótulo "PROCESSADOS", el legado informa #QTD-GERADOS (pagos
+ * generados), no los registros leídos (BATCHPGT:345). Se replica.
+ */
 export function mensagemProgresso(qtdGerados: number, numCpf: string): string {
   return `PROCESSADOS: ${qtdGerados} ULTIMO CPF: ${mascaraCpfLista(numCpf)}`;
 }
@@ -82,6 +87,8 @@ export interface ResumoLote {
   vlrTotalDesconto: number;
   vlrTotalLiquido: number;
   vlrTotalAbono: number;
+  /** Desglose de `ignorados` por motivo (no existe en el legado; lo usa la pantalla). */
+  ignoradosPorMotivo: Record<MotivoIgnorado, number>;
   /** Mensajes "ERRO: PROG NAO ENCONTRADO …" en el orden en que ocurrieron. */
   mensagensErro: string[];
 }
@@ -98,6 +105,7 @@ export function novoResumo(competencia: number): ResumoLote {
     vlrTotalDesconto: 0,
     vlrTotalLiquido: 0,
     vlrTotalAbono: 0,
+    ignoradosPorMotivo: { CPF_REPETIDO: 0, NAO_ATIVO: 0, JA_GERADO: 0, PROGRAMA_INATIVO: 0 },
     mensagensErro: [],
   };
 }
@@ -114,12 +122,30 @@ export function acumularGerado(r: ResumoLote, calc: Pick<ResultadoCalculo, "vlrB
 
 /** Aplica al resumen una decisión que no genera pago (ignorado o error). Muta y devuelve `r`. */
 export function acumularSelecao(r: ResumoLote, s: Exclude<Selecao, { acao: "calcular" }>): ResumoLote {
-  if (s.acao === "ignorar") r.ignorados += 1;
-  else {
+  if (s.acao === "ignorar") {
+    r.ignorados += 1;
+    r.ignoradosPorMotivo[s.motivo] += 1;
+  } else {
     r.erros += 1;
     r.mensagensErro.push(s.mensagem);
   }
   return r;
+}
+
+/**
+ * Aviso "competencia ya procesada": ningún pago generado y al menos un beneficiario
+ * ignorado por ya tener pago en la competencia (re-ejecución, FR-LOT-02).
+ */
+export function competenciaJaProcessada(r: Pick<ResumoLote, "gerados" | "ignoradosPorMotivo">): boolean {
+  return r.gerados === 0 && r.ignoradosPorMotivo.JA_GERADO > 0;
+}
+
+/**
+ * Error inesperado durante el lote: la corrida se interrumpe (el legado abendaría) y
+ * se devuelve el resumen parcial. CPF enmascarado (NFR-04).
+ */
+export function mensagemLoteInterrompido(numCpf: string): string {
+  return `LOTE INTERROMPIDO: ERRO INESPERADO CPF=${mascaraCpfLista(numCpf)}`;
 }
 
 function reais(centavos: number): string {

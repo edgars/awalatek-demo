@@ -5,8 +5,10 @@ import { competenciaDaData } from "./motor";
 import {
   acumularGerado,
   acumularSelecao,
+  competenciaJaProcessada,
   deveRegistrarProgresso,
   linhasResumo,
+  mensagemLoteInterrompido,
   mensagemProgramaNaoEncontrado,
   mensagemProgresso,
   novoResumo,
@@ -99,6 +101,36 @@ describe("progresso e resumo (FR-LOT-04)", () => {
       vlrTotalAbono: 1833,
       mensagensErro: ["ERRO: PROG NAO ENCONTRADO CPF=***.***.678-90 PROG=ZZ99"],
     });
+  });
+
+  it("desglose de ignorados por motivo", () => {
+    const r = novoResumo(202609);
+    acumularSelecao(r, { acao: "ignorar", motivo: "NAO_ATIVO" });
+    acumularSelecao(r, { acao: "ignorar", motivo: "NAO_ATIVO" });
+    acumularSelecao(r, { acao: "ignorar", motivo: "JA_GERADO" });
+    acumularSelecao(r, { acao: "ignorar", motivo: "PROGRAMA_INATIVO" });
+    expect(r.ignorados).toBe(4);
+    expect(r.ignoradosPorMotivo).toEqual({ CPF_REPETIDO: 0, NAO_ATIVO: 2, JA_GERADO: 1, PROGRAMA_INATIVO: 1 });
+  });
+
+  it("aviso de competência já processada só quando há ignorados por já gerado e nenhum gerado", () => {
+    const todosInativos = novoResumo(202609);
+    acumularSelecao(todosInativos, { acao: "ignorar", motivo: "NAO_ATIVO" });
+    acumularSelecao(todosInativos, { acao: "ignorar", motivo: "PROGRAMA_INATIVO" });
+    expect(competenciaJaProcessada(todosInativos)).toBe(false);
+
+    const reexecucao = novoResumo(202609);
+    acumularSelecao(reexecucao, { acao: "ignorar", motivo: "NAO_ATIVO" });
+    acumularSelecao(reexecucao, { acao: "ignorar", motivo: "JA_GERADO" });
+    expect(competenciaJaProcessada(reexecucao)).toBe(true);
+
+    acumularGerado(reexecucao, { vlrBruto: 1, vlrDesc: 0, vlrLiq: 1, vlrAbono: 0 });
+    expect(competenciaJaProcessada(reexecucao)).toBe(false);
+    expect(competenciaJaProcessada(novoResumo(202609))).toBe(false);
+  });
+
+  it("mensagem de lote interrompido com CPF mascarado", () => {
+    expect(mensagemLoteInterrompido(CPF)).toBe("LOTE INTERROMPIDO: ERRO INESPERADO CPF=***.***.678-90");
   });
 
   it("linhas do resumo com os rótulos literais do legado", () => {
