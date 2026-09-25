@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizaCpfNumerico } from "../cpf";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "../quirks";
 
 // Reglas del programa legado CADDEPEND (FR-DEP-01..05). TypeScript puro: sin Prisma ni Next.
 // CADDEPEND solo incluye (no edita ni borra) y no registra auditoría.
@@ -36,7 +37,7 @@ export const SITUACOES_BLOQUEADAS = ["C", "D"] as const;
 
 /**
  * LEGACY-QUIRK(D6): el legado corta con `numDependentes > 5`, así que permite llegar a 6
- * (el DDM admite 10 ocurrencias). Se replica tal cual.
+ * (el DDM admite 10 ocurrencias). Se replica por defecto; con CORRECAO(D6) el máximo es 5.
  */
 export const LIMITE_CORTE_DEPENDENTES = 5;
 
@@ -57,8 +58,13 @@ export function verificarTitular(titular: TitularDependentes | null): string | n
   return null;
 }
 
-/** FR-DEP-02: se evalúa antes de **cada** inclusión. */
-export function verificarLimite(numDependentes: number): string | null {
+/** FR-DEP-02: se evalúa antes de **cada** inclusión. `quirks` decide D6 (default = legado). */
+export function verificarLimite(numDependentes: number, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): string | null {
+  if (corrige(quirks, "D6")) {
+    // CORRECAO(D6): máximo 5 dependientes; con 5 el 6.º se rechaza con el mismo mensaje legado.
+    if (numDependentes >= LIMITE_CORTE_DEPENDENTES) return MENSAGENS_CADDEPEND.limiteAtingido;
+    return null;
+  }
   // RK-728f8d2bc779 (CADDEPEND:63): IF NUM-DEPENDENTES > 5 → "LIMITE DE DEPENDENTES ATINGIDO".
   // LEGACY-QUIRK(D6): `> 5` (no `>= 5`): con 5 dependientes todavía se incluye el 6.º.
   if (numDependentes > LIMITE_CORTE_DEPENDENTES) return MENSAGENS_CADDEPEND.limiteAtingido;
@@ -113,15 +119,17 @@ export type DecisaoInclusao = { ok: true; occurrence: number; total: number } | 
 /**
  * Secuencia completa de CADDEPEND para una inclusión: titular → límite → datos →
  * duplicado. Con cualquier error no se graba y se vuelve a pedir el dependiente.
+ * `quirks` decide D6 (default = legado).
  */
 export function decidirInclusao(
   titular: TitularDependentes | null,
   dados: DadosInclusaoDependente,
   ocorrencias: readonly OcorrenciaDependente[],
+  quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO,
 ): DecisaoInclusao {
   const erroTitular = verificarTitular(titular);
   if (erroTitular || !titular) return { ok: false, mensagens: [erroTitular ?? MENSAGENS_CADDEPEND.naoEncontrado] };
-  const erroLimite = verificarLimite(titular.numDependentes);
+  const erroLimite = verificarLimite(titular.numDependentes, quirks);
   if (erroLimite) return { ok: false, mensagens: [erroLimite] };
 
   const erros = validarDadosDependente(dados);

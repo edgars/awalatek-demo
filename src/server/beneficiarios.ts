@@ -11,6 +11,7 @@ import {
 } from "@/domain/beneficiario/cadastro";
 import { anoDe, hoje } from "@/domain/legacyDate";
 import { MENSAGENS_PROGRAMA } from "@/domain/programa";
+import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 
 // Casos de uso de beneficiarios (CADBENEF). Orquesta dominio + Prisma, sin lógica
@@ -80,7 +81,12 @@ function ehUnicoViolado(e: unknown): boolean {
   return (e as { code?: string }).code === "P2002";
 }
 
-export async function incluirBeneficiario(dados: InclusaoBeneficiario, db: PrismaClient = prisma): Promise<Resultado> {
+/** `quirks`: flags LEGACY-QUIRK (D5); por defecto, legado (QUIRKS_PADRAO); la acción/página lee el entorno y los pasa. */
+export async function incluirBeneficiario(
+  dados: InclusaoBeneficiario,
+  db: PrismaClient = prisma,
+  quirks: Quirks = QUIRKS_PADRAO,
+): Promise<Resultado> {
   const existente = dados.numCpf
     ? await db.beneficiario.findUnique({ where: { numCpf: dados.numCpf }, select: { id: true } })
     : null;
@@ -94,7 +100,7 @@ export async function incluirBeneficiario(dados: InclusaoBeneficiario, db: Prism
   }
 
   const agora = hoje();
-  const { status, suspensoPorIdade } = statusResultante("I", dados.dtNascimento, anoDe(agora.data));
+  const { status, suspensoPorIdade } = statusResultante("I", dados.dtNascimento, anoDe(agora.data), undefined, quirks);
   const usuario = usuarioOperativo();
   try {
     await db.beneficiario.create({
@@ -135,7 +141,12 @@ export async function incluirBeneficiario(dados: InclusaoBeneficiario, db: Prism
   return { ok: true, mensagem: MENSAGENS_CADBENEF.incluidoSucesso, numCpf: dados.numCpf, status, suspensoPorIdade, numVersao: 1 };
 }
 
-export async function alterarBeneficiario(dados: AlteracaoBeneficiario, db: PrismaClient = prisma): Promise<Resultado> {
+/** `quirks`: flags LEGACY-QUIRK (D5 y D18); por defecto, legado (QUIRKS_PADRAO); la acción/página lee el entorno y los pasa. */
+export async function alterarBeneficiario(
+  dados: AlteracaoBeneficiario,
+  db: PrismaClient = prisma,
+  quirks: Quirks = QUIRKS_PADRAO,
+): Promise<Resultado> {
   const registrado = dados.numCpf ? await db.beneficiario.findUnique({ where: { numCpf: dados.numCpf } }) : null;
   const decisao = decidirOperacao("A", dados, registrado !== null);
   if (!decisao.ok || !registrado) return falha(decisao.ok ? MENSAGENS_CADBENEF.naoEncontradoAlteracao : decisao.mensagem);
@@ -145,7 +156,8 @@ export async function alterarBeneficiario(dados: AlteracaoBeneficiario, db: Pris
   if (alterados.length) return falha(mensagemCampoNaoEditavel(alterados));
 
   const agora = hoje();
-  const { status, suspensoPorIdade } = statusResultante("A", registrado.dtNascimento, anoDe(agora.data), dados.sitBeneficiario);
+  // D5 (suspensión por edad) y D18 (status en blanco) los decide el dominio con `quirks`.
+  const { status, suspensoPorIdade } = statusResultante("A", registrado.dtNascimento, anoDe(agora.data), dados.sitBeneficiario, quirks);
   // Control optimista: solo graba si la versión leída sigue vigente.
   const r = await db.beneficiario.updateMany({
     where: { numCpf: registrado.numCpf, numVersao: dados.numVersao },

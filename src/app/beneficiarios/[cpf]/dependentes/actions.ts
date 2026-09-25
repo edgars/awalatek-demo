@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { CAMPOS_FORMULARIO_DEPENDENTE, campoDoErroDependente, dependenteSchema } from "@/domain/beneficiario/dependentes";
 import { incluirDependente } from "@/server/dependentes";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoDependente } from "./_componentes/estado";
 
 // Server Action de /beneficiarios/[cpf]/dependentes: zod en el borde; reglas en el dominio.
@@ -33,8 +34,11 @@ export async function incluirDependenteAction(cpf: string, _anterior: EstadoDepe
     for (const i of parsed.error.issues) erros[i.path.join(".")] ??= i.message;
     return { ok: false, mensagens: Object.values(erros), erros };
   }
+  // D6: la configuración se lee una vez por solicitud y se inyecta en el caso de uso.
+  const quirks = lerQuirksServidor("dependentes");
+  if (!quirks) return { ok: false, mensagens: [ERRO_INESPERADO] };
   try {
-    const r = await incluirDependente(cpf, parsed.data);
+    const r = await incluirDependente(cpf, parsed.data, undefined, quirks);
     if (!r.ok) {
       // Límite/concurrencia/titular bloqueado: la pantalla se refresca con el estado real.
       revalidatePath(`/beneficiarios/${cpf}/dependentes`);

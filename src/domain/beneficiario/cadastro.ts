@@ -2,6 +2,7 @@ import { z } from "zod";
 import { MSG_CPF_INVALIDO, validaModulo11 } from "../cpf";
 import { idadePorAno, intParaData } from "../legacyDate";
 import { codProgramaSchema } from "../programa";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "../quirks";
 
 // Reglas del programa legado CADBENEF (FR-BEN-01/02/04/05). TypeScript puro: sin Prisma ni Next.
 // CADBENEF no registra auditoría.
@@ -106,28 +107,42 @@ export function idadeCadastro(dtNascimento: number, anoAtual: number): number {
   return idadePorAno(dtNascimento, anoAtual);
 }
 
+/** Status en blanco del legado (#STATUS A1 sin MOVE en la alteración, D18). */
+export const STATUS_EM_BRANCO = " ";
+
 /**
- * Status grabado. Inclusión → `A`; alteración → el status informado (D18).
- * Edad > 75 → `S` en ambas operaciones (D5).
+ * Status grabado. Inclusión → `A`; alteración → el status informado (o en blanco con
+ * el flag D18). Edad > 75 → `S` en la inclusión y, en modo legado (D5), también en la
+ * alteración. `quirks` default = legado D5 y D18 desactivado (status editable).
  */
 export function statusResultante(
   op: OperacaoCadastro,
   dtNascimento: number,
   anoAtual: number,
   statusInformado?: string,
+  quirks: Pick<Quirks, "corrigidos" | "statusBrancoAlteracao"> = QUIRKS_PADRAO,
 ): { status: string; suspensoPorIdade: boolean } {
   let status: string;
   if (op === "I") {
     // RK-e4b2970fefe6 (CADBENEF:162): IF #OPER = 'I' THEN MOVE 'A' TO #STATUS.
     status = "A";
+  } else if (quirks.statusBrancoAlteracao) {
+    // LEGACY-QUIRK(D18): CADBENEF no mueve nada a #STATUS en la alteración: se graba en
+    // blanco (salvo edad > 75 → S, abajo). Solo con LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED=true.
+    status = STATUS_EM_BRANCO;
   } else {
-    // D18: el legado grababa status en blanco en la alteración — decisión PRD FR-BEN-01; confirmar con negocio.
+    // CORRECAO(D18): default (PRD FR-BEN-01) — la alteración conserva el status informado.
     // TODO(review): D18 — confirmar con negocio que la alteración conserva el status informado.
     status = statusInformado ?? "A";
   }
   // RK-9ffc13028ce4 (CADBENEF:167): IF #IDADE > 75 THEN MOVE 'S' TO #STATUS.
-  // LEGACY-QUIRK(D5): se aplica también en la alteración (reactivar a un mayor de 75 no es posible).
   if (idadeCadastro(dtNascimento, anoAtual) > IDADE_LIMITE_SUSPENSAO) {
+    if (op === "A" && corrige(quirks, "D5")) {
+      // CORRECAO(D5): la suspensión por edad solo se aplica en la inclusión; en la
+      // alteración se conserva el status elegido (se puede reactivar a un mayor de 75).
+      return { status, suspensoPorIdade: false };
+    }
+    // LEGACY-QUIRK(D5): se aplica también en la alteración (reactivar a un mayor de 75 no es posible).
     return { status: "S", suspensoPorIdade: status !== "S" };
   }
   return { status, suspensoPorIdade: false };
@@ -265,7 +280,22 @@ export const alteracaoBeneficiarioSchema = z.object({
   sitBeneficiario: z.enum(SITUACOES_BENEFICIARIO, { error: "Situação: informe A, S, C, I ou D" }),
   numVersao: z.coerce.number({ error: "Versão: valor inválido" }).int({ error: "Versão: valor inválido" }).min(1, { error: "Versão: valor inválido" }),
 });
-export type AlteracaoBeneficiario = z.output<typeof alteracaoBeneficiarioSchema>;
+/**
+ * Alteración con LEGACY-QUIRK(D18) activo: la pantalla no muestra el select de status y
+ * lo que llegue en `sitBeneficiario` se descarta (el status lo decide statusResultante).
+ */
+export const alteracaoBeneficiarioStatusBrancoSchema = alteracaoBeneficiarioSchema.extend({
+  sitBeneficiario: z.unknown().transform(() => undefined),
+});
+
+export type AlteracaoBeneficiario =
+  | z.output<typeof alteracaoBeneficiarioSchema>
+  | z.output<typeof alteracaoBeneficiarioStatusBrancoSchema>;
+
+/** Esquema de la alteración según el flag D18. */
+export function esquemaAlteracaoBeneficiario(quirks: Pick<Quirks, "statusBrancoAlteracao"> = QUIRKS_PADRAO) {
+  return quirks.statusBrancoAlteracao ? alteracaoBeneficiarioStatusBrancoSchema : alteracaoBeneficiarioSchema;
+}
 
 /** Nombres de los campos de formulario (orden de pantalla). */
 export const CAMPOS_FORMULARIO_CADASTRO = Object.keys(camposCadastro) as (keyof typeof camposCadastro)[];

@@ -3,6 +3,8 @@
 // VALBENEF (190–236) y VALDOCS (114–140) repiten el mismo cálculo que CADBENEF (237–266):
 // se citan todas las fuentes.
 
+import { corrige, QUIRKS_PADRAO, type Quirks } from "./quirks";
+
 // RK-bc7d67f3dad4 (CADBENEF:113) — mensaje literal cuando el CPF no es válido.
 export const MSG_CPF_INVALIDO = "CPF INVALIDO - DIGITO VERIFICADOR INCORRETO";
 
@@ -69,8 +71,9 @@ export function validaModulo11(cpf: string): boolean {
 /**
  * CPF completo de VALBENEF (FR-VAL-02): dígitos repetidos + módulo 11.
  * Exige string de exactamente 11 dígitos; cualquier otra entrada → `false`.
+ * `quirks` decide D4b (default = legado).
  */
-export function validaCpfCompleto(cpf: string): boolean {
+export function validaCpfCompleto(cpf: string, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): boolean {
   if (typeof cpf !== "string" || !/^\d{11}$/.test(cpf)) return false;
   const dig = Array.from(cpf, Number);
   let todosIguais = true;
@@ -83,6 +86,10 @@ export function validaCpfCompleto(cpf: string): boolean {
   }
   if (todosIguais) {
     // RK-e67e790f872a (VALBENEF:197) — IF #DIG(1) = 0 AND #DIG(2) = 0 AND #DIG(3) = 0 → válido ("teste governo").
+    if (corrige(quirks, "D4b")) {
+      // CORRECAO(D4b): todo CPF con 11 dígitos iguales es inválido (incluido 00000000000).
+      return false;
+    }
     // LEGACY-QUIRK(D4b): 11 dígitos iguales empezando por 000 (es decir, 00000000000) se acepta como válido.
     if (dig[0] === 0 && dig[1] === 0 && dig[2] === 0) return true;
     // RK-605e59b1fe7d (VALBENEF:195) — IF #TODOS-IGUAIS → #CPF-VALIDO = FALSE / ESCAPE ROUTINE.

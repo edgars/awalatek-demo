@@ -64,11 +64,14 @@ export function FormBeneficiario({
   acao,
   programas,
   inicial,
+  statusBrancoAlteracao = false,
 }: {
   acao: (estado: EstadoAcao, dados: FormData) => Promise<EstadoAcao>;
   programas: readonly OpcaoPrograma[];
   /** Presente → alteración. */
   inicial?: ValoresBeneficiario;
+  /** LEGACY-QUIRK(D18) activo: la alteración no ofrece el select de situación. */
+  statusBrancoAlteracao?: boolean;
 }) {
   const alteracao = inicial !== undefined;
   const { estado, onSubmit, pendente } = useAcaoFormulario<EstadoAcao>(acao, null);
@@ -219,7 +222,8 @@ export function FormBeneficiario({
             ) : (
               <NisInput name="nis" label="NIS" erro={erro("nis")} descricao="Opcional." />
             )}
-            {alteracao
+            {/* LEGACY-QUIRK(D18): con el flag, como CADBENEF, la situación no se informa en la alteración. */}
+            {alteracao && !statusBrancoAlteracao
               ? select(
                   "sitBeneficiario",
                   "Situação",

@@ -7,11 +7,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ROTULOS_SEXO, ROTULOS_SITUACAO_BENEFICIARIO } from "@/domain/beneficiario/cadastro";
 import { MENSAGENS_CADDEPEND, ROTULOS_PARENTESCO, verificarLimite, verificarTitular } from "@/domain/beneficiario/dependentes";
 import { mascaraCpfLista } from "@/domain/cpf";
+import { corrige } from "@/domain/quirks";
 import { listarDependentes } from "@/server/dependentes";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import { incluirDependenteAction } from "./actions";
 import { InclusaoDependentes } from "./_componentes/InclusaoDependentes";
 
 export const metadata: Metadata = { title: "Dependentes" };
+
+const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 type Props = { params: Promise<{ cpf: string }> };
 
@@ -30,6 +34,16 @@ export default async function DependentesPage({ params }: Props) {
   } catch {
     // escape malformado → valor bruto → não encontrado
   }
+  // D6: el límite de dependientes depende de la configuración (una lectura por solicitud).
+  const quirks = lerQuirksServidor("dependentes");
+  if (!quirks) {
+    return (
+      <div className="grid gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Dependentes</h1>
+        <ResultadoLegado variante="erro" mensagens={[ERRO_INESPERADO]} />
+      </div>
+    );
+  }
   const r = await listarDependentes(cpf);
 
   if (!r) {
@@ -47,7 +61,7 @@ export default async function DependentesPage({ params }: Props) {
 
   const { titular, dependentes } = r;
   // Antes de cada inclusión: titular C/D (CADDEPEND:56) y límite D6 (CADDEPEND:63). El servidor vuelve a verificar.
-  const bloqueio = verificarTitular(titular) ?? verificarLimite(titular.numDependentes);
+  const bloqueio = verificarTitular(titular) ?? verificarLimite(titular.numDependentes, quirks);
 
   return (
     <div className="grid gap-4">
@@ -123,7 +137,11 @@ export default async function DependentesPage({ params }: Props) {
         </Table>
       </div>
 
-      <InclusaoDependentes acao={incluirDependenteAction.bind(null, titular.numCpf)} bloqueio={bloqueio} />
+      <InclusaoDependentes
+        acao={incluirDependenteAction.bind(null, titular.numCpf)}
+        bloqueio={bloqueio}
+        limiteCorrigido={corrige(quirks, "D6")}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { normalizaCpfNumerico } from "./cpf";
 import { anoDe, idadePorAno } from "./legacyDate";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "./quirks";
 
 // Reglas del programa legado VALELEG (FR-ELG-01..07): elegibilidad de un beneficiario
 // para un programa social. Precondiciones que cortan, región 99 (D12) y luego
@@ -95,11 +96,13 @@ function nisZero(nis: string | null): boolean {
 /**
  * Evalúa la elegibilidad del beneficiario para el programa (VALELEG).
  * `null` = registro no encontrado. `anoAtual` se inyecta (fecha del sistema).
+ * `quirks` decide D12 (default = legado).
  */
 export function avaliarElegibilidade(
   benef: BeneficiarioElegibilidade | null,
   programa: ProgramaElegibilidade | null,
   anoAtual: number,
+  quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO,
 ): ResultadoElegibilidade {
   // RK-d1fd785bcf1c (VALELEG:81): IF NOT #FOUND-B → 'BENEFICIARIO NAO ENCONTRADO' / ESCAPE ROUTINE.
   if (!benef) return { tipo: "precondicao", mensagem: MENSAGENS_VALELEG.beneficiarioNaoEncontrado };
@@ -111,8 +114,10 @@ export function avaliarElegibilidade(
 
   // RK-86ee7c50f9f4 (VALELEG:107): IF #COD-REG = 99 → 'BENEFICIARIO ELEGIVEL - REGIAO ESPECIAL' / ESCAPE ROUTINE.
   // LEGACY-QUIRK(D12): la región 99 es elegible sin NINGUNA otra verificación (status,
-  // documentos, edad, renta). Decisión registrada: replicar, no "corregir".
-  if (benef.codRegiao === REGIAO_ESPECIAL) {
+  // documentos, edad, renta). Decisión registrada: replicar por defecto.
+  // CORRECAO(D12): con D12 corregido la región 99 no corta y pasa por todas las
+  // verificaciones normales (sigue abajo como cualquier otra región).
+  if (benef.codRegiao === REGIAO_ESPECIAL && !corrige(quirks, "D12")) {
     return { tipo: "regiaoEspecial", elegivel: true, mensagem: MENSAGENS_VALELEG.regiaoEspecial };
   }
 

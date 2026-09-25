@@ -3,10 +3,13 @@ import Link from "next/link";
 import { ResultadoLegado } from "@/components/campos";
 import { MENSAGENS_CADBENEF } from "@/domain/beneficiario/cadastro";
 import { listarOpcoesProgramas, obterBeneficiario } from "@/server/beneficiarios";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import { alterarBeneficiarioAction } from "../../actions";
 import { FormBeneficiario } from "../../_componentes/FormBeneficiario";
 
 export const metadata: Metadata = { title: "Alterar beneficiário" };
+
+const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 type Props = { params: Promise<{ cpf: string }> };
 
@@ -18,6 +21,16 @@ export default async function EditarBeneficiarioPage({ params }: Props) {
     cpf = decodeURIComponent(bruto);
   } catch {
     // escape malformado → valor bruto → não encontrado
+  }
+  // LEGACY-QUIRK(D18): el flag decide si la pantalla ofrece el select de situación.
+  const quirks = lerQuirksServidor("beneficiarios");
+  if (!quirks) {
+    return (
+      <div className="grid gap-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Alterar beneficiário</h1>
+        <ResultadoLegado variante="erro" mensagens={[ERRO_INESPERADO]} />
+      </div>
+    );
   }
   const [b, programas] = await Promise.all([obterBeneficiario(cpf), listarOpcoesProgramas()]);
 
@@ -43,6 +56,7 @@ export default async function EditarBeneficiarioPage({ params }: Props) {
       <FormBeneficiario
         acao={alterarBeneficiarioAction.bind(null, b.numCpf)}
         programas={programas}
+        statusBrancoAlteracao={quirks.statusBrancoAlteracao}
         inicial={{
           numCpf: b.numCpf,
           nomeCompleto: b.nomeCompleto,
