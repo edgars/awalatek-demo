@@ -10,6 +10,7 @@ import {
   validarFiltrosRelatorioPagamentos,
   type FiltrosRelatorioPagamentos,
 } from "@/domain/relatorios/pagamentos";
+import { MSG_LIMITE_LINHAS_RELATORIO } from "@/domain/relatorios/paginacao";
 import { listarOpcoesProgramas } from "@/server/beneficiarios";
 import { relatorioPagamentos } from "@/server/relatorios";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
@@ -87,6 +88,10 @@ export default async function RelatorioPagamentosPage({ searchParams }: { search
         ) : null
       ) : !r.ok ? (
         <ResultadoLegado variante="erro" mensagens={[r.mensagem]} />
+      ) : r.relatorio.limiteExcedido ? (
+        <div role="status" data-testid="limite-relatorio" className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
+          {MSG_LIMITE_LINHAS_RELATORIO}
+        </div>
       ) : tela.impressao ? (
         <>
           <div className="flex items-center justify-between gap-2 print:hidden">

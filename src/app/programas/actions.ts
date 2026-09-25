@@ -11,11 +11,10 @@ import {
 } from "@/domain/programa";
 import { incluirPrograma, salvarFaixas, salvarParamsRegionais } from "@/server/programas";
 import type { EstadoAcao } from "./estado";
+import { falhaInesperadaMensagens } from "@/lib/falhas";
 
 // Server Actions de /programas: validación zod en el borde; reglas en el dominio.
 // Solo inclusión y consulta (+ grupos): el legado no altera ni excluye programas.
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 const CAMPOS_INCLUSAO = [
   "codPrograma",
@@ -45,12 +44,6 @@ function falhaValidacao(erro: z.ZodError, prefixo = ""): EstadoAcao {
   return { ok: false, mensagens: erro.issues.map((i) => `${prefixo}${i.message}`), erros };
 }
 
-function falhaInesperada(contexto: string, e: unknown): EstadoAcao {
-  // Solo el tipo de error en el log: nunca datos del formulario (LGPD).
-  console.error(`[programas] ${contexto}:`, e instanceof Error ? e.message : "erro desconhecido");
-  return { ok: false, mensagens: [ERRO_INESPERADO] };
-}
-
 export async function incluirProgramaAction(_anterior: EstadoAcao, dados: FormData): Promise<EstadoAcao> {
   const op = validarOperacao("I");
   if (!op.ok) return { ok: false, mensagens: [op.mensagem] };
@@ -65,7 +58,7 @@ export async function incluirProgramaAction(_anterior: EstadoAcao, dados: FormDa
     revalidatePath("/programas");
     return { ok: true, mensagens: [r.mensagem], codPrograma: r.dados.codPrograma };
   } catch (e) {
-    return falhaInesperada("inclusão", e);
+    return falhaInesperadaMensagens("programas", "inclusão", e);
   }
 }
 
@@ -111,7 +104,7 @@ async function salvarGrupo<S extends z.ZodType>(
     revalidatePath(`/programas/${cod.data}`);
     return { ok: true, mensagens: [r.mensagem] };
   } catch (e) {
-    return falhaInesperada(`grupo ${rotuloLinha}`, e);
+    return falhaInesperadaMensagens("programas", `grupo ${rotuloLinha}`, e);
   }
 }
 

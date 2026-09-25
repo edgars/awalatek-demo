@@ -13,12 +13,11 @@ import {
 import { alterarBeneficiario, incluirBeneficiario, type Resultado } from "@/server/beneficiarios";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoAcao } from "./estado";
+import { ERRO_INESPERADO, falhaInesperadaMensagens } from "@/lib/falhas";
 
 // Server Actions de /beneficiarios: zod en el borde; reglas en el dominio.
 // La operación I/A del legado se sustituye por rutas (novo = I, editar = A).
 // Sin exclusión: el legado no borra beneficiarios.
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 function texto(dados: FormData, campo: string): string {
   const v = dados.get(campo);
@@ -44,15 +43,6 @@ function resposta(r: Resultado): EstadoAcao {
   return { ok: true, mensagens: [r.mensagem], numCpf: r.numCpf, status: r.status, suspensoPorIdade: r.suspensoPorIdade, numVersao: r.numVersao };
 }
 
-function falhaInesperada(contexto: string, e: unknown): EstadoAcao {
-  // Solo el tipo y el código del error: el mensaje de Prisma incluye los argumentos
-  // de la consulta (CPF, nombre, NIS, renda) y no puede ir al log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error(`[beneficiarios] ${contexto}:`, nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagens: [ERRO_INESPERADO] };
-}
-
 export async function incluirBeneficiarioAction(_anterior: EstadoAcao, dados: FormData): Promise<EstadoAcao> {
   const bruto = Object.fromEntries(CAMPOS_FORMULARIO_CADASTRO.map((c) => [c, texto(dados, c)]));
   const parsed = inclusaoBeneficiarioSchema.safeParse(bruto);
@@ -63,7 +53,7 @@ export async function incluirBeneficiarioAction(_anterior: EstadoAcao, dados: Fo
   try {
     return resposta(await incluirBeneficiario(parsed.data, undefined, quirks));
   } catch (e) {
-    return falhaInesperada("inclusão", e);
+    return falhaInesperadaMensagens("beneficiarios", "inclusão", e);
   }
 }
 
@@ -86,6 +76,6 @@ export async function alterarBeneficiarioAction(cpf: string, _anterior: EstadoAc
   try {
     return resposta(await alterarBeneficiario(parsed.data, undefined, quirks));
   } catch (e) {
-    return falhaInesperada("alteração", e);
+    return falhaInesperadaMensagens("beneficiarios", "alteração", e);
   }
 }

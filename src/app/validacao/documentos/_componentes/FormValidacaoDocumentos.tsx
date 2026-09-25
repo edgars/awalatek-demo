@@ -9,8 +9,7 @@ import { Input } from "@/components/ui/input";
 import { MENSAGENS_VALDOCS } from "@/domain/beneficiario/documentos";
 import { validarDocumentosAction } from "../actions";
 import type { EstadoValidacaoDocumentos } from "../estado";
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
 /**
  * Pantalla 4.10 — formulario de proceso: entrada arriba → acción → panel debajo,

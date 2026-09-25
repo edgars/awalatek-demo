@@ -13,6 +13,7 @@ import {
   type FiltrosRelatorioAuditoria,
   type FiltrosTelaRelatorioAuditoria,
 } from "@/domain/relatorios/auditoria";
+import { MSG_LIMITE_LINHAS_RELATORIO } from "@/domain/relatorios/paginacao";
 import { relatorioAuditoria, type ResultadoRelatorioAuditoria } from "@/server/relatorioAuditoria";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
 import { Filtros, type ValoresFiltrosAuditoria } from "./_componentes/Filtros";
@@ -110,6 +111,10 @@ export default async function RelatorioAuditoriaPage({ searchParams }: { searchP
 
       {!v.ok || r === null ? null : !r.ok ? (
         <ResultadoLegado variante="erro" mensagens={[r.mensagem]} />
+      ) : r.relatorio.limiteExcedido ? (
+        <div role="status" data-testid="limite-relatorio" className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
+          {MSG_LIMITE_LINHAS_RELATORIO}
+        </div>
       ) : tela.impressao ? (
         <>
           <div className="flex items-center justify-between gap-2 print:hidden">

@@ -10,8 +10,8 @@ import { mascaraCpfLista } from "@/domain/cpf";
 import type { ResumoCalculo } from "@/server/calculo";
 import { calcularBeneficioAction } from "../actions";
 import type { CampoCalculo, EstadoCalculo } from "../estado";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 const ROTULO_TIPO: Record<string, string> = { N: "Normal", D: "Dezembro (13º e abono)" };
 
 const reais = (centavos: number) => `R$ ${centavosParaTexto(centavos)}`;

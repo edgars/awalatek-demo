@@ -5,11 +5,11 @@ import { z } from "zod";
 import { corrigirPagamentos } from "@/server/correcao";
 import type { CampoCorrecao, EstadoCorrecao } from "./estado";
 import { lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
 // Server Action de /correcao (CALCCORR). Valida la forma de la entrada con zod;
 // las reglas (período, índice, aplicación) están en el dominio.
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 const RE_COMPETENCIA = /^\d{4}(0[1-9]|1[0-2])$/;
 
 const entradaCorrecaoSchema = z.object({
@@ -21,14 +21,6 @@ const entradaCorrecaoSchema = z.object({
 function texto(dados: FormData, campo: string): string {
   const v = dados.get(campo);
   return typeof v === "string" ? v.trim() : "";
-}
-
-function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[correcao] correção retroativa:", nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagem: ERRO_INESPERADO };
 }
 
 const CAMPOS: readonly CampoCorrecao[] = ["numCpf", "compIni", "compFim"];
@@ -57,6 +49,6 @@ export async function corrigirPagamentosAction(_anterior: EstadoCorrecao, dados:
     }
     return r;
   } catch (e) {
-    return falhaInesperada(e);
+    return falhaInesperada("correcao", "correção retroativa", e);
   }
 }

@@ -8,6 +8,7 @@ import {
 } from "@/domain/beneficiario/dependentes";
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
+import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 
 // Casos de uso de dependientes (CADDEPEND). Orquesta dominio + Prisma, sin lógica de
@@ -16,12 +17,6 @@ import { prisma } from "@/server/db";
 export type FalhaDependente = { ok: false; mensagens: string[] };
 export type SucessoDependente = { ok: true; mensagens: string[]; total: number; numCpf: string };
 export type ResultadoDependente = SucessoDependente | FalhaDependente;
-
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 type ErroPrisma = {
   code?: string;

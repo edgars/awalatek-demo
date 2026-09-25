@@ -8,12 +8,12 @@ import { conciliarRetorno } from "@/server/conciliacao";
 import type { CampoConciliacao, EstadoConciliacao, ResumoConciliacaoTela } from "./estado";
 import { LIMITE_ARQUIVO_BYTES, MSG_ARQUIVO_GRANDE } from "./limite";
 import { lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
 // Server Action de /conciliacao (BATCHCON). Valida la forma de la entrada con zod
 // (competencia + upload, que reemplaza la ruta #ARQ-RETORNO del legado); las reglas
 // están en el dominio. La respuesta lleva los CPF enmascarados (NFR-04).
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 const RE_COMPETENCIA = /^\d{4}(0[1-9]|1[0-2])$/;
 
 const entradaConciliacaoSchema = z.object({
@@ -24,14 +24,6 @@ const entradaConciliacaoSchema = z.object({
     .refine((f) => /\.(ret|txt)$/i.test(f.name), "O arquivo de retorno deve ter extensão .ret ou .txt.")
     .refine((f) => f.size <= LIMITE_ARQUIVO_BYTES, MSG_ARQUIVO_GRANDE),
 });
-
-function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[conciliacao] conciliação bancária:", nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagem: ERRO_INESPERADO };
-}
 
 function paraTela(r: ResumoConciliacao): ResumoConciliacaoTela {
   return {
@@ -79,6 +71,6 @@ export async function conciliarRetornoAction(_anterior: EstadoConciliacao, dados
     if (!r.ok) return r.resumo ? { ok: false, mensagem: r.mensagem, resumo: paraTela(r.resumo) } : { ok: false, mensagem: r.mensagem };
     return { ok: true, resumo: paraTela(r.resumo) };
   } catch (e) {
-    return falhaInesperada(e);
+    return falhaInesperada("conciliacao", "conciliação bancária", e);
   }
 }

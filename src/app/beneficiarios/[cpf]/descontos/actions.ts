@@ -4,10 +4,9 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { CAMPOS_DESCONTO, MENSAGENS_DESCONTOS, validarDescontosRegistrados } from "@/domain/beneficiario/descontosRegistrados";
 import { salvarDescontosRegistrados } from "@/server/descontosRegistrados";
+import { falhaInesperadaMensagens } from "@/lib/falhas";
 
 // Server Action de /beneficiarios/[cpf]/descontos: zod en el borde; reglas en el dominio.
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 /** Estado devuelto al editor de descuentos. */
 export type EstadoDescontos = {
@@ -36,15 +35,6 @@ function lerFilas<K extends string>(dados: FormData, campos: readonly K[]): Reco
   );
 }
 
-function falhaInesperada(e: unknown): EstadoDescontos {
-  // Solo el tipo y el código del error: el mensaje de Prisma incluye los argumentos
-  // de la consulta y no puede ir al log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[descontos] gravação:", nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagens: [ERRO_INESPERADO] };
-}
-
 /** `cpf` viene de la ruta (ligado con bind). Guardar reemplaza todas las filas. */
 export async function salvarDescontosRegistradosAction(
   cpf: string,
@@ -65,6 +55,6 @@ export async function salvarDescontosRegistradosAction(
     revalidatePath(`/beneficiarios/${cpfOk.data}/descontos`);
     return { ok: true, mensagens: [r.mensagem], vigentes: r.vigentes };
   } catch (e) {
-    return falhaInesperada(e);
+    return falhaInesperadaMensagens("descontos", "gravação", e);
   }
 }

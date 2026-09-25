@@ -10,8 +10,7 @@ import { Select } from "@/components/ui/select";
 import { MENSAGENS_VALELEG } from "@/domain/elegibilidade";
 import { verificarElegibilidadeAction } from "../actions";
 import type { EstadoElegibilidade } from "../estado";
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
 type OpcaoPrograma = { codPrograma: string; nomePrograma: string };
 

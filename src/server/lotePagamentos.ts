@@ -54,6 +54,8 @@ export interface OpcoesLote {
    * Default = legado. Es la misma configuración que recibe el cálculo individual.
    */
   quirks?: QuirksMotor;
+  /** Beneficiarios leídos por consulta (cursor por `numCpf`); default `LOTE_LEITURA_BENEFICIARIOS`. */
+  loteLeitura?: number;
 }
 
 // Candado en memoria: impide dos lotes simultáneos en el mismo proceso. Se guarda
@@ -86,6 +88,41 @@ function registrarFalha(e: unknown): void {
   console.error("[lote] erro inesperado:", nome, typeof codigo === "string" ? codigo : "");
 }
 
+/** Tamaño de cada lectura de beneficiarios del lote (volumen: no se cargan todos en memoria). */
+export const LOTE_LEITURA_BENEFICIARIOS = 500;
+
+const CAMPOS_BENEFICIARIO_LOTE = {
+  numCpf: true,
+  sitBeneficiario: true,
+  codPrograma: true,
+  numDependentes: true,
+  codRegiao: true,
+  vlrRendaFamiliar: true,
+  dtNascimento: true,
+} as const;
+
+/**
+ * READ BENEFICIARIO-V BY CPF en lecturas de `tamanho` filas, por cursor de clave
+ * (`numCpf > último leído`, único): mismo orden ascendente que la lectura completa.
+ * Como el READ del legado, cada lectura ve la base del momento: un beneficiario incluido
+ * durante la corrida con CPF mayor que el último leído también se procesa.
+ */
+async function* lerBeneficiariosPorCpf(db: PrismaClient, tamanho: number) {
+  if (!Number.isSafeInteger(tamanho) || tamanho < 1) throw new Error("tamanho de leitura inválido");
+  let ultimo: string | undefined;
+  for (;;) {
+    const lote = await db.beneficiario.findMany({
+      where: ultimo === undefined ? undefined : { numCpf: { gt: ultimo } },
+      orderBy: { numCpf: "asc" },
+      take: tamanho,
+      select: CAMPOS_BENEFICIARIO_LOTE,
+    });
+    yield* lote;
+    if (lote.length < tamanho) return;
+    ultimo = lote[lote.length - 1]?.numCpf;
+  }
+}
+
 async function maiorNumPagamento(db: PrismaClient): Promise<number> {
   const ultimo = await db.pagamento.aggregate({ _max: { numPagamento: true } });
   return ultimo._max.numPagamento ?? 0;
@@ -110,7 +147,14 @@ export async function ejecutarLotePagamentos(opcoes: OpcoesLote = {}): Promise<R
   }
 }
 
-async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) => console.log(l), quirks = QUIRKS_PADRAO }: OpcoesLote): Promise<ResultadoLote> {
+async function processar({
+  dtHoje,
+  agora = new Date(),
+  db = prisma,
+  log = (l) => console.log(l),
+  quirks = QUIRKS_PADRAO,
+  loteLeitura = LOTE_LEITURA_BENEFICIARIOS,
+}: OpcoesLote): Promise<ResultadoLote> {
   const momento = hoje(agora);
   const dataExecucao = dtHoje ?? momento.data;
   // FR-LOT-01 — RK-275ebe83e773 / RK-af5872bb5b6c / RK-8b46847de08b (BATCHPGT:108-110, en motor.ts).
@@ -119,20 +163,6 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
 
   // BATCHPGT:171-174 — mayor NUM-PAGTO existente; se incrementa en memoria por pago grabado.
   let seqPgto = await maiorNumPagamento(db);
-
-  // FR-LOT-02 — READ BENEFICIARIO-V BY CPF (los sistemas downstream dependen de este orden).
-  const beneficiarios = await db.beneficiario.findMany({
-    orderBy: { numCpf: "asc" },
-    select: {
-      numCpf: true,
-      sitBeneficiario: true,
-      codPrograma: true,
-      numDependentes: true,
-      codRegiao: true,
-      vlrRendaFamiliar: true,
-      dtNascimento: true,
-    },
-  });
 
   let cpfAnterior: string | null = null;
   // LEGACY-QUIRK(D17): #FATOR-RND no se reinicia por beneficiario. Si la renta supera
@@ -143,7 +173,8 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
   const arrastaFatorRenda = !corrige(quirks, "D17");
   let fatorRendaAnterior: string | undefined;
 
-  for (const b of beneficiarios) {
+  // FR-LOT-02 — READ BENEFICIARIO-V BY CPF (los sistemas downstream dependen de este orden).
+  for await (const b of lerBeneficiariosPorCpf(db, loteLeitura)) {
     resumo.processados += 1; // BATCHPGT:184
     const anterior = cpfAnterior;
     cpfAnterior = b.numCpf; // BATCHPGT:192 (solo tras pasar el control de duplicados; mismo efecto)

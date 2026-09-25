@@ -14,6 +14,7 @@ import {
 import { anoDe, hoje } from "@/domain/legacyDate";
 import { MENSAGENS_PROGRAMA } from "@/domain/programa";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
+import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 
 // Casos de uso de beneficiarios (CADBENEF). Orquesta dominio + Prisma, sin lógica
@@ -24,12 +25,6 @@ export const TAMANHO_PAGINA = 10;
 export type Falha = { ok: false; mensagem: string };
 export type Sucesso = { ok: true; mensagem: string; numCpf: string; status: string; suspensoPorIdade: boolean; numVersao: number };
 export type Resultado = Sucesso | Falha;
-
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 function falha(mensagem: string): Falha {
   return { ok: false, mensagem };

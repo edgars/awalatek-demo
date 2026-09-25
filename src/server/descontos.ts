@@ -4,6 +4,7 @@ import { calcularLiquido } from "@/domain/calculo/motor";
 import { MSG_PAGAMENTO_NAO_ENCONTRADO, verificarBeneficiario, verificarPagamento } from "@/domain/calculo/precondicoesDescontos";
 import { hoje } from "@/domain/legacyDate";
 import { corrige, QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
+import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 
 // Caso de uso del recálculo de descuentos de un pago (CALCDSCT, FR-DSC-01..06).
@@ -76,13 +77,6 @@ export interface OpcoesRecalculo {
 }
 
 export type ResultadoRecalculo = { ok: true; mensagem: string; resumo: ResumoDescontos } | { ok: false; mensagem: string };
-
-// Mismo criterio que `server/calculo.ts` (usuario operativo de 8 posiciones).
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 /**
  * FR-DSC — recalcula los descuentos del pago `numPagamento` de `numCpf` a partir

@@ -4,11 +4,11 @@ import { z } from "zod";
 import { recalcularDescontos } from "@/server/descontos";
 import type { CampoDescontos, EstadoDescontos } from "./estado";
 import { lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
 // Server Action de /descontos (CALCDSCT). Valida la forma de la entrada con zod;
 // las reglas (FR-DSC-01 y el cálculo) están en el dominio.
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 const MSG_NUM_PAGAMENTO = "Informe o número do pagamento.";
 
 const entradaDescontosSchema = z.object({
@@ -26,14 +26,6 @@ function texto(dados: FormData, campo: string): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[descontos] recálculo de descontos:", nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagem: ERRO_INESPERADO };
-}
-
 export async function recalcularDescontosAction(_anterior: EstadoDescontos, dados: FormData): Promise<EstadoDescontos> {
   const parsed = entradaDescontosSchema.safeParse({ numCpf: texto(dados, "numCpf"), numPagamento: texto(dados, "numPagamento") });
   if (!parsed.success) {
@@ -48,6 +40,6 @@ export async function recalcularDescontosAction(_anterior: EstadoDescontos, dado
   try {
     return await recalcularDescontos(parsed.data.numCpf, parsed.data.numPagamento, { quirks });
   } catch (e) {
-    return falhaInesperada(e);
+    return falhaInesperada("descontos", "recálculo de descontos", e);
   }
 }

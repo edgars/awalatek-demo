@@ -223,6 +223,17 @@ export function motivoFiltro(e: EventoAuditoriaLido, f: FiltrosRelatorioAuditori
   return null;
 }
 
+/**
+ * Valores informados de los filtros de acción/usuario/tabela tal como los compara
+ * `motivoFiltro` (campo A: sin espacios finales); "" = no informado. La lectura acotada
+ * en la base (H3) exige que el campo EMPIECE con el valor: condición necesaria de
+ * `campoA(campo) === valor`, así que la base devuelve un superconjunto y `motivoFiltro`
+ * sigue decidiendo cada evento.
+ */
+export function valoresFiltroAuditoria(f: Pick<FiltrosRelatorioAuditoria, "acao" | "usuario" | "tabela">): { acao: string; usuario: string; tabela: string } {
+  return { acao: campoA(f.acao), usuario: campoA(f.usuario), tabela: campoA(f.tabela) };
+}
+
 /** Línea de detalle según la salida (FR-AUD-06). */
 export function linhaDetalheAuditoria(e: EventoAuditoriaLido, saida: SaidaAuditoria): LinhaAuditoria {
   // RK-4e229cab081e (RELAUDIT:169) — IF #TIPO-SAIDA = 'T' → WRITE DT-EVENTO #HR-FORMAT USUARIO
@@ -248,8 +259,19 @@ export function paginarRelatorioAuditoria<T>(linhas: readonly T[]): T[][] {
   return paginar(linhas, { linhaAposCabecalho: LINHA_APOS_CABECALHO_RELAUDIT });
 }
 
-/** Arma el informe RELAUDIT a partir de los eventos leídos (cualquier orden) y los filtros ya con defaults. */
-export function montarRelatorioAuditoria(eventos: readonly EventoAuditoriaLido[], filtros: FiltrosRelatorioAuditoria): RelatorioAuditoria {
+/**
+ * Arma el informe RELAUDIT a partir de los eventos leídos (cualquier orden) y los filtros ya con defaults.
+ *
+ * `totalNoPeriodo` (opcional): cuando la base ya descartó eventos que no pasan los filtros
+ * (lectura acotada, H3), `eventos` es solo un superconjunto de los exhibidos y el total del
+ * período viene de un `count`. Como cada evento del período se exhibe o se filtra (una sola
+ * vez), `filtrados = total − exibidos`: mismos contadores que leyendo todo el período.
+ */
+export function montarRelatorioAuditoria(
+  eventos: readonly EventoAuditoriaLido[],
+  filtros: FiltrosRelatorioAuditoria,
+  totalNoPeriodo?: number,
+): RelatorioAuditoria {
   const saida = saidaEfetiva(filtros.saida);
   const linhas: LinhaAuditoria[] = [];
   const porAcao: ContagemPorAcao = { inclusao: 0, alteracao: 0, consulta: 0, conciliacao: 0, divergencia: 0, outras: 0 };
@@ -270,6 +292,12 @@ export function montarRelatorioAuditoria(eventos: readonly EventoAuditoriaLido[]
     resumo.exibidos += 1;
     porAcao[chaveContagem(e.codAcao)] += 1;
     linhas.push(linhaDetalheAuditoria(e, saida));
+  }
+
+  if (totalNoPeriodo !== undefined) {
+    if (!Number.isSafeInteger(totalNoPeriodo) || totalNoPeriodo < resumo.exibidos) throw new Error("total do período inconsistente");
+    resumo.total = totalNoPeriodo;
+    resumo.filtrados = totalNoPeriodo - resumo.exibidos;
   }
 
   return { filtros, saida, linhas, paginas: paginarRelatorioAuditoria(linhas), resumo };

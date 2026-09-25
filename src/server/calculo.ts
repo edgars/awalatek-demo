@@ -3,6 +3,7 @@ import { calcular, type QuirksMotor, type TipoPgto } from "@/domain/calculo/moto
 import { verificarPrecondicoes } from "@/domain/calculo/precondicoes";
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
+import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 
 // Caso de uso del cálculo individual (CALCBENF, FR-CAL-01..10). Orquesta dominio
@@ -38,12 +39,6 @@ export interface OpcoesCalculoIndividual {
 }
 
 export type ResultadoCalculoIndividual = { ok: true; mensagem: string; resumo: ResumoCalculo } | { ok: false; mensagem: string };
-
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 function ehUnicoViolado(e: unknown): boolean {
   return (e as { code?: string } | null)?.code === "P2002";

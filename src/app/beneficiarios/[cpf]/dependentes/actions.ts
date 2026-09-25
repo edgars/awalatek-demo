@@ -5,24 +5,14 @@ import { CAMPOS_FORMULARIO_DEPENDENTE, campoDoErroDependente, dependenteSchema }
 import { incluirDependente } from "@/server/dependentes";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoDependente } from "./_componentes/estado";
+import { ERRO_INESPERADO, falhaInesperadaMensagens } from "@/lib/falhas";
 
 // Server Action de /beneficiarios/[cpf]/dependentes: zod en el borde; reglas en el dominio.
 // Solo inclusión: el legado no edita ni borra dependientes.
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
-
 function texto(dados: FormData, campo: string): string {
   const v = dados.get(campo);
   return typeof v === "string" ? v : "";
-}
-
-function falhaInesperada(e: unknown): EstadoDependente {
-  // Solo el tipo y el código del error: el mensaje de Prisma incluye los argumentos
-  // de la consulta (CPF, nombre) y no puede ir al log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[dependentes] inclusão:", nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagens: [ERRO_INESPERADO] };
 }
 
 /** `cpf` del titular viene de la ruta (ligado con bind). */
@@ -53,6 +43,6 @@ export async function incluirDependenteAction(cpf: string, _anterior: EstadoDepe
     revalidatePath(`/beneficiarios/${r.numCpf}/dependentes`);
     return { ok: true, mensagens: r.mensagens, total: r.total };
   } catch (e) {
-    return falhaInesperada(e);
+    return falhaInesperadaMensagens("dependentes", "inclusão", e);
   }
 }

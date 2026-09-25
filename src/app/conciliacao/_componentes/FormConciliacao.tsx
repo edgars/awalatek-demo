@@ -13,8 +13,7 @@ import { formatarReais } from "@/domain/money";
 import { conciliarRetornoAction } from "../actions";
 import type { CampoConciliacao, EstadoConciliacao, ResumoConciliacaoTela } from "../estado";
 import { DESCRICAO_ARQUIVO, LIMITE_ARQUIVO_BYTES, MSG_ARQUIVO_GRANDE } from "../limite";
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
 function competenciaTexto(comp: number): string {
   const s = String(comp).padStart(6, "0");

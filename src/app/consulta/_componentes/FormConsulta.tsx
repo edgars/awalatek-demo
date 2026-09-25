@@ -10,8 +10,7 @@ import { tituloHistorico, type FichaConsulta, type Historico, type TipoBusca } f
 import { formatarReais } from "@/domain/money";
 import { consultarBeneficiarioAction } from "../actions";
 import type { EstadoConsulta } from "../estado";
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
 const VARIANTE_SITUACAO: Record<string, "success" | "warning" | "secondary" | "destructive"> = {
   A: "success",

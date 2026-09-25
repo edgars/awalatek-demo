@@ -14,6 +14,7 @@ import {
   type InclusaoPrograma,
   type ParamRegional,
 } from "@/domain/programa";
+import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 
 // Casos de uso de programas (CADPROG). Orquesta dominio + Prisma, sin lógica de
@@ -23,12 +24,6 @@ export const TAMANHO_PAGINA = 10;
 
 export type Falha = { ok: false; mensagem: string };
 export type Resultado = { ok: true; mensagem: string } | Falha;
-
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 export async function listarProgramas(
   { q = "", pagina = 1 }: { q?: string; pagina?: number } = {},
