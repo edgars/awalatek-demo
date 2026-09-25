@@ -4,18 +4,16 @@ import { ResultadoLegado } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ROTULOS_SEXO, ROTULOS_SITUACAO_BENEFICIARIO } from "@/domain/beneficiario/cadastro";
+import { descricaoSituacaoBeneficiario, ROTULOS_SEXO } from "@/domain/beneficiario/cadastro";
 import { MENSAGENS_CADDEPEND, ROTULOS_PARENTESCO, verificarLimite, verificarTitular } from "@/domain/beneficiario/dependentes";
 import { mascaraCpfLista } from "@/domain/cpf";
 import { corrige } from "@/domain/quirks";
 import { listarDependentes } from "@/server/dependentes";
-import { lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO, lerQuirksServidor } from "@/server/quirksConfig";
 import { incluirDependenteAction } from "./actions";
 import { InclusaoDependentes } from "./_componentes/InclusaoDependentes";
 
 export const metadata: Metadata = { title: "Dependentes" };
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 type Props = { params: Promise<{ cpf: string }> };
 
@@ -86,7 +84,7 @@ export default async function DependentesPage({ params }: Props) {
               <dt className="text-muted-foreground">Situação</dt>
               <dd>
                 <Badge variant={titular.sitBeneficiario === "C" || titular.sitBeneficiario === "D" ? "destructive" : "secondary"}>
-                  {titular.sitBeneficiario} — {ROTULOS_SITUACAO_BENEFICIARIO[titular.sitBeneficiario] ?? "Desconhecido"}
+                  {descricaoSituacaoBeneficiario(titular.sitBeneficiario)}
                 </Badge>
               </dd>
             </div>

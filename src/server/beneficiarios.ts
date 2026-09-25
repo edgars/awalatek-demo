@@ -5,6 +5,8 @@ import {
   MENSAGENS_CADBENEF,
   MENSAGENS_SISTEMA,
   mensagemCampoNaoEditavel,
+  MSG_SELECIONE_SITUACAO,
+  statusEmBranco,
   statusResultante,
   type AlteracaoBeneficiario,
   type InclusaoBeneficiario,
@@ -154,6 +156,9 @@ export async function alterarBeneficiario(
   // CPF, nacimiento, sexo, programa, región y NIS son inmutables: el servidor rechaza cambios.
   const alterados = camposImutaveisAlterados(registrado, dados);
   if (alterados.length) return falha(mensagemCampoNaoEditavel(alterados));
+
+  // Sin el flag D18 el status es obligatorio: nunca se asume "A" ni se graba en blanco.
+  if (!quirks.statusBrancoAlteracao && statusEmBranco(dados.sitBeneficiario)) return falha(MSG_SELECIONE_SITUACAO);
 
   const agora = hoje();
   // D5 (suspensión por edad) y D18 (status en blanco) los decide el dominio con `quirks`.

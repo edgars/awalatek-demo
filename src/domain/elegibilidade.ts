@@ -130,6 +130,9 @@ export function avaliarElegibilidade(
 
   const status = benef.sitBeneficiario;
   // RK-9a4651f7dd24 (VALELEG:116): IF #STATUS-BENEF NE 'A' (un status fuera de S/C/D/I no genera motivo).
+  // LEGACY-QUIRK(D18): un status en blanco (grabado por CADBENEF en la alteración con el flag
+  // D18) no es 'A' pero tampoco S/C/D/I: VALELEG no tiene regla para él y no genera motivo de
+  // status (el resto de verificaciones sigue). Se replica.
   if (status !== "A") {
     // RK-7c608b834e79 (VALELEG:117): IF #STATUS-BENEF = 'S' → 'BENEFICIARIO SUSPENSO'.
     if (status === "S") acumular(MENSAGENS_VALELEG.suspenso);

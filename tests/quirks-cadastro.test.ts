@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { alterarBeneficiarioAction, incluirBeneficiarioAction } from "@/app/beneficiarios/actions";
 import EditarBeneficiarioPage from "@/app/beneficiarios/[cpf]/editar/page";
 import { incluirDependenteAction } from "@/app/beneficiarios/[cpf]/dependentes/actions";
@@ -21,7 +21,7 @@ import { createPrismaClient } from "@/server/db";
 import { alterarBeneficiario } from "@/server/beneficiarios";
 import { incluirDependente } from "@/server/dependentes";
 import { verificarElegibilidade } from "@/server/elegibilidade";
-import { alteracaoBeneficiarioSchema } from "@/domain/beneficiario/cadastro";
+import { alteracaoBeneficiarioSchema, alteracaoBeneficiarioStatusBrancoSchema, MENSAGENS_SISTEMA } from "@/domain/beneficiario/cadastro";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -33,10 +33,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 let dir: string;
 let prisma: PrismaClient;
 const globalPrisma = globalThis as unknown as { prisma?: PrismaClient };
-const ORIGINAL = {
-  corrigidos: process.env.SIFAP_QUIRKS_CORRIGIDOS,
-  statusBranco: process.env.LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED,
-};
+const DATABASE_URL_ORIGINAL = process.env.DATABASE_URL;
+let versaoMaria = 1;
 const ANO = 2026;
 const CPF_MARIA = cpfComDv(BENEFICIARIOS_SEED[0].base);
 const CPF_FRANCISCO = cpfComDv(BENEFICIARIOS_SEED[3].base); // I, região 99
@@ -53,21 +51,31 @@ beforeAll(async () => {
   delete globalPrisma.prisma;
   process.env.DATABASE_URL = url;
   await seed(prisma);
+  versaoMaria = (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_MARIA } })).numVersao;
 });
 
 afterAll(async () => {
   await prisma?.$disconnect();
   await globalPrisma.prisma?.$disconnect();
   delete globalPrisma.prisma;
-  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", ORIGINAL.corrigidos);
-  vi.stubEnv("LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED", ORIGINAL.statusBranco);
+  vi.unstubAllEnvs();
+  if (DATABASE_URL_ORIGINAL === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = DATABASE_URL_ORIGINAL;
   rmSync(dir, { recursive: true, force: true });
+});
+
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  // Dependentes incluídos pelos testes (p. ex. o 6.º de D6) não sobrevivem ao teste.
+  await prisma.beneficiarioDependente.deleteMany({ where: { beneficiario: { numCpf: CPF_TITULAR } } });
 });
 
 beforeEach(async () => {
   vi.stubEnv("SIFAP_USER", "SIFAPUSR");
   vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
   vi.stubEnv("LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED", "");
+  // MARIA volta ao estado do seed (os testes de D18 alteram status e versão).
+  await prisma.beneficiario.update({ where: { numCpf: CPF_MARIA }, data: { sitBeneficiario: "A", numVersao: versaoMaria } });
   await prisma.beneficiario.deleteMany({ where: { numCpf: { in: [CPF_IDOSO, CPF_TITULAR] } } });
   const base = {
     sexo: "F",
@@ -267,7 +275,6 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
     // Mesmo se o formulário enviar um status, o legado não o grava.
     const r2 = await alterarBeneficiarioAction(cpf, null, form(await camposAlteracao(cpf, { sitBeneficiario: "C" })));
     expect(r2).toMatchObject({ ok: true, status: " " });
-    await prisma.beneficiario.update({ where: { numCpf: cpf }, data: { sitBeneficiario: "A" } });
   });
 
   it("flag ativo: idade > 75 → S", async () => {
@@ -285,7 +292,6 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
       ok: true,
       status: "I",
     });
-    await prisma.beneficiario.update({ where: { numCpf: CPF_MARIA }, data: { sitBeneficiario: "A" } });
   });
 
   function acharForm(no: ReactNode): ReactElement<Record<string, unknown>> | null {
@@ -299,6 +305,45 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
     }
     return null;
   }
+
+  it("guarda do caso de uso: status ausente sem o flag → falha, nada gravado (nunca 'A')", async () => {
+    const dados = alteracaoBeneficiarioStatusBrancoSchema.parse(await camposAlteracao(CPF_MARIA, { nomeCompleto: "OUTRO NOME" }));
+    expect(dados.sitBeneficiario).toBeUndefined();
+    expect(await alterarBeneficiario(dados, prisma)).toEqual({ ok: false, mensagem: "Selecione a situação." });
+    const b = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_MARIA } });
+    expect([b.nomeCompleto, b.sitBeneficiario, b.numVersao]).toEqual(["MARIA APARECIDA DA SILVA", "A", versaoMaria]);
+    // Com o flag, o mesmo dado grava em branco.
+    expect(await alterarBeneficiario(dados, prisma, { ...QUIRKS_PADRAO, statusBrancoAlteracao: true })).toMatchObject({ ok: true, status: " " });
+  });
+
+  it("flag desligado sobre registro em branco: opção 'Em branco (legado D18)' pré-selecionada; gravar exige escolha", async () => {
+    await prisma.beneficiario.update({ where: { numCpf: CPF_MARIA }, data: { sitBeneficiario: " " } });
+    const el = acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ cpf: CPF_MARIA }) }));
+    const html = renderToStaticMarkup(createElement(FormBeneficiario, el?.props as never));
+    expect(html).toMatch(/<option value=" " selected="">Em branco \(legado D18\)<\/option>/);
+    expect(html).not.toContain(MENSAGENS_SISTEMA.statusBrancoD18);
+
+    const r = await alterarBeneficiarioAction(CPF_MARIA, null, form(await camposAlteracao(CPF_MARIA)));
+    expect(r).toEqual({ ok: false, mensagens: ["Selecione a situação."], erros: { sitBeneficiario: "Selecione a situação." } });
+    expect((await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_MARIA } })).sitBeneficiario).toBe(" ");
+    expect(await alterarBeneficiarioAction(CPF_MARIA, null, form(await camposAlteracao(CPF_MARIA, { sitBeneficiario: "A" })))).toMatchObject({
+      ok: true,
+      status: "A",
+    });
+  });
+
+  it("flag ligado: a tela avisa o status que será gravado (em branco; S se idade > 75 com D5 legado)", async () => {
+    vi.stubEnv("LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED", "true");
+    const render = async (cpf: string) =>
+      renderToStaticMarkup(createElement(FormBeneficiario, acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ cpf }) }))?.props as never)).replaceAll(
+        "&gt;",
+        ">",
+      );
+    expect(await render(CPF_MARIA)).toContain(MENSAGENS_SISTEMA.statusBrancoD18);
+    expect(await render(CPF_IDOSO)).toContain(MENSAGENS_SISTEMA.statusSuspensoD18);
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D5");
+    expect(await render(CPF_IDOSO)).toContain(MENSAGENS_SISTEMA.statusBrancoD18);
+  });
 
   it("tela de alteração: com o flag o select de situação não é exibido", async () => {
     const pagina = async () => acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ cpf: CPF_MARIA }) }));
@@ -336,5 +381,45 @@ describe("D12 — região 99", () => {
     expect(r.tipo === "avaliado" && r.motivos[0]).toBe(M.inativo);
     const acao = await verificarElegibilidadeAction(null, form({ numCpf: CPF_FRANCISCO, codPrograma: "PP01" }));
     expect(acao).toMatchObject({ ok: true, resultado: { tipo: "avaliado", elegivel: false } });
+  });
+});
+
+describe("ALL no nível das actions", () => {
+  it("ALL ativa D5, D6, D12 e D20", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL");
+    vi.stubEnv("LEGACY_DOC_ESPECIAL_ENABLED", "false");
+    // D5: alteração do maior de 75 conserva A.
+    expect(await alterarBeneficiarioAction(CPF_IDOSO, null, form(await camposAlteracao(CPF_IDOSO, { sitBeneficiario: "A" })))).toMatchObject({
+      ok: true,
+      status: "A",
+    });
+    // D6: com 5 dependentes o 6.º é rejeitado.
+    const dep = form({ nomeDependente: "SEXTO", dtNascDepend: "", parentesco: "FI", cpfDependente: "", docDependente: "", sexoDependente: "" });
+    expect(await incluirDependenteAction(CPF_TITULAR, null, dep)).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"], erros: {} });
+    // D12: região 99 avaliada normalmente.
+    expect(await verificarElegibilidadeAction(null, form({ numCpf: CPF_FRANCISCO, codPrograma: "PP01" }))).toMatchObject({
+      ok: true,
+      resultado: { tipo: "avaliado", elegivel: false },
+    });
+    // D20: RG com espaço interno válido.
+    expect(await validarDocumentosAction(null, form({ numCpf: "01234567890", rg: "12 345678", tituloEleitor: "", ctps: "" }))).toEqual({
+      ok: true,
+      resultado: "V",
+      erros: [],
+      docEspecial: false,
+    });
+  });
+
+  it.each(["ALL,D4", "ALL,D99"])("%s é rejeitado → erro genérico, log com a variável", async (valor) => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", valor);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await verificarElegibilidadeAction(null, form({ numCpf: CPF_MARIA, codPrograma: "PT01" }))).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
+    expect(await validarDocumentosAction(null, form({ numCpf: "01234567890", rg: "123456789", tituloEleitor: "", ctps: "" }))).toEqual({
+      ok: false,
+      mensagem: ERRO_INESPERADO,
+    });
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^\[elegibilidade\] configuração LEGACY-QUIRK inválida — SIFAP_QUIRKS_CORRIGIDOS/));
+    expect(log).toHaveBeenCalledWith(expect.stringMatching(/^\[validacao-documentos\] configuração LEGACY-QUIRK inválida — SIFAP_QUIRKS_CORRIGIDOS/));
+    log.mockRestore();
   });
 });

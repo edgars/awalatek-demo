@@ -63,13 +63,14 @@ export function validarCpfDoc(numCpf: string): boolean {
 export function validarRg(rg: string, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): boolean {
   // Se simula el campo Natural A15: relleno con espacios y truncado a 15.
   const campo = String(rg ?? "").padEnd(TAMANHO_RG).slice(0, TAMANHO_RG);
-  // RK-2b0e2875eb48 (VALDOCS:148): IF #RG = ' ' THEN MOVE FALSE TO #RG-OK / ESCAPE ROUTINE.
-  if (campo.trim() === "") return false;
   if (corrige(quirks, "D20")) {
     // CORRECAO(D20): la longitud cuenta los caracteres no blancos del A15 (se ignoran los
-    // espacios, internos o iniciales): "12 345678" → 8 → válido.
-    return campo.replace(/\s/g, "").length >= RG_TAMANHO_MINIMO;
+    // espacios, internos o iniciales): "12 345678" → 8 → válido. Semántica de campo A de
+    // Natural: solo el espacio ASCII ' ' es blanco (un TAB cuenta como carácter). Vacío → 0 → inválido.
+    return campo.replaceAll(" ", "").length >= RG_TAMANHO_MINIMO;
   }
+  // RK-2b0e2875eb48 (VALDOCS:148): IF #RG = ' ' THEN MOVE FALSE TO #RG-OK / ESCAPE ROUTINE.
+  if (campo.trim() === "") return false;
   // EXAMINE #RG FOR ' ' GIVING POSITION #RG-LEN: posición 1-based del primer espacio (0 = no hay).
   let rgLen = campo.indexOf(" ") + 1;
   // RK-f018750c00d0 (VALDOCS:155): IF #RG-LEN > 0 THEN SUBTRACT 1 FROM #RG-LEN (si no, A15 lleno = 15).
@@ -107,7 +108,7 @@ export function acumularErroDoc(erros: string[], mensagem: string): void {
  */
 export function validarDocumentos(
   dados: DadosValdocs,
-  quirks: Pick<Quirks, "docEspecialHabilitado"> & Partial<Pick<Quirks, "corrigidos">>,
+  quirks: Pick<Quirks, "docEspecialHabilitado"> & Partial<Pick<Quirks, "corrigidos">> = QUIRKS_PADRAO,
 ): ResultadoValdocs {
   const erros: string[] = [];
   // RK-82c01a2ea13d (VALDOCS:69): IF NOT #CPF-OK → "CPF INVALIDO".

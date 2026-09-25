@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { statusResultante, STATUS_EM_BRANCO, esquemaAlteracaoBeneficiario, alteracaoBeneficiarioSchema, alteracaoBeneficiarioStatusBrancoSchema } from "./beneficiario/cadastro";
+import {
+  alteracaoBeneficiarioSchema,
+  alteracaoBeneficiarioStatusBrancoSchema,
+  campoDoErro,
+  descricaoSituacaoBeneficiario,
+  esquemaAlteracaoBeneficiario,
+  MSG_SELECIONE_SITUACAO,
+  STATUS_EM_BRANCO,
+  statusEmBranco,
+  statusResultante,
+} from "./beneficiario/cadastro";
 import { decidirInclusao, verificarLimite } from "./beneficiario/dependentes";
 import { validarDocumentos, validarRg } from "./beneficiario/documentos";
 import { anoBissexto, validarCadastroConsolidado, validarDataNascimento, validarNome } from "./beneficiario/validacao";
@@ -78,6 +88,10 @@ describe("D19 — nome e sobrenome", () => {
     expect(validarNome("MARIA   SILVA", q)).toBe(true);
     expect(validarNome("", q)).toBe(false);
     expect(validarNome("   ", q)).toBe(false);
+    // Só o espaço ASCII separa (campo A de Natural): TAB não é separador nem borda.
+    expect(validarNome("MARIA\tSILVA", q)).toBe(false);
+    expect(validarNome("\tMARIA", q)).toBe(false);
+    expect(validarNome("MARIA\t SILVA", q)).toBe(true);
     // Truncado a 60: o sobrenome além da posição 60 não conta.
     expect(validarNome(`${"A".repeat(60)} SILVA`, q)).toBe(false);
   });
@@ -122,6 +136,34 @@ describe("D18 — status em branco na alteração (flag legado opt-in)", () => {
   it("flag + idade > 75 → S (D5 legado); com D5 corrigido fica em branco", () => {
     expect(statusResultante("A", nasc80, ANO, "A", flag)).toEqual({ status: "S", suspensoPorIdade: true });
     expect(statusResultante("A", nasc80, ANO, "A", { ...flag, corrigidos: new Set(["D5"]) })).toEqual({ status: " ", suspensoPorIdade: false });
+  });
+
+  it("rótulo do status: em branco → 'Em branco'; conhecidos e desconhecidos", () => {
+    expect(descricaoSituacaoBeneficiario(" ")).toBe("Em branco");
+    expect(descricaoSituacaoBeneficiario("")).toBe("Em branco");
+    expect(descricaoSituacaoBeneficiario(null)).toBe("Em branco");
+    expect(descricaoSituacaoBeneficiario("A")).toBe("A — Ativo");
+    expect(descricaoSituacaoBeneficiario("S")).toBe("S — Suspenso");
+    expect(descricaoSituacaoBeneficiario("X")).toBe("X — Desconhecido");
+    expect(statusEmBranco(STATUS_EM_BRANCO)).toBe(true);
+    expect(statusEmBranco("A")).toBe(false);
+  });
+
+  it("sem o flag e sem status informado: nunca assume 'A'", () => {
+    expect(statusResultante("A", 19850412, ANO, undefined)).toEqual({ status: " ", suspensoPorIdade: false });
+  });
+
+  it("esquema padrão exige escolha explícita: em branco → 'Selecione a situação.' (campo sitBeneficiario)", () => {
+    const erro = (v: unknown) => {
+      const r = alteracaoBeneficiarioSchema.shape.sitBeneficiario.safeParse(v);
+      return r.success ? null : r.error.issues[0]?.message;
+    };
+    expect(erro(" ")).toBe(MSG_SELECIONE_SITUACAO);
+    expect(erro("")).toBe(MSG_SELECIONE_SITUACAO);
+    expect(erro(undefined)).toBe(MSG_SELECIONE_SITUACAO);
+    expect(erro("Z")).toBe("Situação: informe A, S, C, I ou D");
+    expect(erro("C")).toBeNull();
+    expect(campoDoErro(MSG_SELECIONE_SITUACAO)).toBe("sitBeneficiario");
   });
 
   it("esquema da alteração: com o flag o status não é validado", () => {
@@ -213,6 +255,12 @@ describe("D12 — região 99", () => {
     });
   });
 
+  it("LEGACY-QUIRK(D18): status em branco não gera motivo de status (em nenhum modo de D12)", () => {
+    const b = benef({ codRegiao: 1, sitBeneficiario: " " });
+    expect(avaliarElegibilidade(b, prog(), ANO)).toEqual({ tipo: "avaliado", elegivel: true, mensagem: M.elegivel, motivos: [] });
+    expect(avaliarElegibilidade({ ...b, codRegiao: 99 }, prog(), ANO, corr("D12"))).toMatchObject({ elegivel: true, motivos: [] });
+  });
+
   it("corrigido: precondições continuam antes (programa inativo)", () => {
     expect(avaliarElegibilidade(benef(), prog({ sitPrograma: "I" }), ANO, corr("D12"))).toEqual({ tipo: "precondicao", mensagem: M.programaInativo });
   });
@@ -235,6 +283,10 @@ describe("D20 — comprimento do RG", () => {
     expect(validarRg("1234", q)).toBe(false);
     expect(validarRg("", q)).toBe(false);
     expect(validarRg("     ", q)).toBe(false);
+    // Só o espaço ASCII é branco: TAB conta como caractere.
+    expect(validarRg("12\t34", q)).toBe(true);
+    expect(validarRg("\t\t\t\t", q)).toBe(false);
+    expect(validarRg("\t\t \t\t\t", q)).toBe(true);
     // A15: o que passa da posição 15 não conta.
     expect(validarRg(`${" ".repeat(12)}123456`, q)).toBe(false);
   });

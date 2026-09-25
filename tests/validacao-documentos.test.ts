@@ -79,7 +79,8 @@ describe("validarDocumentosAction", () => {
       ok: false,
       mensagem: "Erro inesperado ao processar a solicitação. Tente novamente.",
     });
-    expect(spy).toHaveBeenCalledWith("[validacao-documentos] configuração inválida: LEGACY_DOC_ESPECIAL_ENABLED");
+    expect(spy).toHaveBeenCalledWith(expect.stringMatching(/^\[validacao-documentos\] configuração LEGACY-QUIRK inválida — LEGACY_DOC_ESPECIAL_ENABLED/));
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("00100000000");
     spy.mockRestore();
   });
 

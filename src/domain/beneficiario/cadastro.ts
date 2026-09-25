@@ -27,6 +27,8 @@ export const MENSAGENS_SISTEMA = {
   versaoDesatualizada: "O beneficiário foi alterado por outra operação. Recarregue a página e tente novamente.",
   campoNaoEditavel: "Campo não editável na alteração:",
   suspensoPorIdade: "Situação ajustada para SUSPENSO (idade > 75 — regra legada)",
+  statusBrancoD18: "A situação será gravada em branco (regra legada D18).",
+  statusSuspensoD18: "A situação será gravada como S — Suspenso (idade > 75, regra legada D5/D18).",
 } as const;
 
 export const OPERACOES = ["I", "A"] as const;
@@ -44,6 +46,23 @@ export const ROTULOS_SITUACAO_BENEFICIARIO: Record<string, string> = {
   I: "Inativo",
   D: "Desligado",
 };
+
+/** Status en blanco del legado (#STATUS A1 sin MOVE en la alteración, LEGACY-QUIRK D18). */
+export const STATUS_EM_BRANCO = " ";
+
+/** true si el status es el blanco del legado (D18): vacío o solo espacios. */
+export function statusEmBranco(status: string | null | undefined): boolean {
+  return (status ?? "").trim() === "";
+}
+
+/** Descripción del status para pantallas: "A — Ativo"; en blanco (D18) → "Em branco". */
+export function descricaoSituacaoBeneficiario(status: string | null | undefined): string {
+  if (statusEmBranco(status)) return "Em branco";
+  return `${status} — ${ROTULOS_SITUACAO_BENEFICIARIO[status as string] ?? "Desconhecido"}`;
+}
+
+/** Mensaje de campo cuando la alteración no elige un status A/S/C/I/D. */
+export const MSG_SELECIONE_SITUACAO = "Selecione a situação.";
 
 export const UFS = [
   "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA", "MT", "MS", "MG", "PA",
@@ -107,9 +126,6 @@ export function idadeCadastro(dtNascimento: number, anoAtual: number): number {
   return idadePorAno(dtNascimento, anoAtual);
 }
 
-/** Status en blanco del legado (#STATUS A1 sin MOVE en la alteración, D18). */
-export const STATUS_EM_BRANCO = " ";
-
 /**
  * Status grabado. Inclusión → `A`; alteración → el status informado (o en blanco con
  * el flag D18). Edad > 75 → `S` en la inclusión y, en modo legado (D5), también en la
@@ -131,9 +147,9 @@ export function statusResultante(
     // blanco (salvo edad > 75 → S, abajo). Solo con LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED=true.
     status = STATUS_EM_BRANCO;
   } else {
-    // CORRECAO(D18): default (PRD FR-BEN-01) — la alteración conserva el status informado.
-    // TODO(review): D18 — confirmar con negocio que la alteración conserva el status informado.
-    status = statusInformado ?? "A";
+    // CORRECAO(D18): default (PRD FR-BEN-01, decisión 2026-09-25) — la alteración conserva
+    // el status informado. El servidor exige que venga (nunca se asume "A"); sin él, blanco.
+    status = statusInformado ?? STATUS_EM_BRANCO;
   }
   // RK-9ffc13028ce4 (CADBENEF:167): IF #IDADE > 75 THEN MOVE 'S' TO #STATUS.
   if (idadeCadastro(dtNascimento, anoAtual) > IDADE_LIMITE_SUSPENSAO) {
@@ -277,7 +293,11 @@ export type InclusaoBeneficiario = z.output<typeof inclusaoBeneficiarioSchema>;
 
 export const alteracaoBeneficiarioSchema = z.object({
   ...camposCadastro,
-  sitBeneficiario: z.enum(SITUACOES_BENEFICIARIO, { error: "Situação: informe A, S, C, I ou D" }),
+  // Elección explícita: vacío/blanco (p. ej. un registro grabado en blanco por D18) → "Selecione a situação.".
+  sitBeneficiario: z
+    .string({ error: MSG_SELECIONE_SITUACAO })
+    .refine((s) => !statusEmBranco(s), { error: MSG_SELECIONE_SITUACAO })
+    .pipe(z.enum(SITUACOES_BENEFICIARIO, { error: "Situação: informe A, S, C, I ou D" })),
   numVersao: z.coerce.number({ error: "Versão: valor inválido" }).int({ error: "Versão: valor inválido" }).min(1, { error: "Versão: valor inválido" }),
 });
 /**
@@ -316,6 +336,8 @@ export function campoDoErro(mensagem: string): string | undefined {
       return "sexo";
     case MENSAGENS_SISTEMA.nisDuplicado:
       return "nis";
+    case MSG_SELECIONE_SITUACAO:
+      return "sitBeneficiario";
     default:
       return undefined;
   }

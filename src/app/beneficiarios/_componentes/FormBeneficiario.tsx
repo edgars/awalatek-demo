@@ -10,11 +10,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import {
+  descricaoSituacaoBeneficiario,
   MENSAGENS_SISTEMA,
   ROTULOS_SEXO,
   ROTULOS_SITUACAO_BENEFICIARIO,
   SEXOS,
   SITUACOES_BENEFICIARIO,
+  statusEmBranco,
   UFS,
 } from "@/domain/beneficiario/cadastro";
 import type { EstadoAcao } from "../estado";
@@ -65,6 +67,7 @@ export function FormBeneficiario({
   programas,
   inicial,
   statusBrancoAlteracao = false,
+  avisoStatusAlteracao = null,
 }: {
   acao: (estado: EstadoAcao, dados: FormData) => Promise<EstadoAcao>;
   programas: readonly OpcaoPrograma[];
@@ -72,6 +75,8 @@ export function FormBeneficiario({
   inicial?: ValoresBeneficiario;
   /** LEGACY-QUIRK(D18) activo: la alteración no ofrece el select de situación. */
   statusBrancoAlteracao?: boolean;
+  /** Aviso del flag D18: qué status se grabará (en blanco, o S por edad > 75). */
+  avisoStatusAlteracao?: string | null;
 }) {
   const alteracao = inicial !== undefined;
   const { estado, onSubmit, pendente } = useAcaoFormulario<EstadoAcao>(acao, null);
@@ -227,11 +232,21 @@ export function FormBeneficiario({
               ? select(
                   "sitBeneficiario",
                   "Situação",
-                  SITUACOES_BENEFICIARIO.map((s) => [s, `${s} — ${ROTULOS_SITUACAO_BENEFICIARIO[s]}`] as const),
+                  [
+                    // Registro grabado en blanco (D18): la opción en blanco queda seleccionada para que el
+                    // navegador no elija "A" en silencio; al grabar se exige A/S/C/I/D ("Selecione a situação.").
+                    ...(statusEmBranco(gravado.status) ? [[" ", "Em branco (legado D18)"] as const] : []),
+                    ...SITUACOES_BENEFICIARIO.map((s) => [s, `${s} — ${ROTULOS_SITUACAO_BENEFICIARIO[s]}`] as const),
+                  ],
                   gravado.status,
                   true,
                 )
               : null}
+            {alteracao && statusBrancoAlteracao && avisoStatusAlteracao ? (
+              <Alert variant="warning" role="note" className="md:col-span-2">
+                <AlertDescription>{avisoStatusAlteracao}</AlertDescription>
+              </Alert>
+            ) : null}
             {alteracao ? <input type="hidden" name="numVersao" value={gravado.numVersao} /> : null}
             <div className="flex gap-2 md:col-span-2">
               <Button type="submit" disabled={pendente}>
@@ -257,9 +272,9 @@ export function FormBeneficiario({
               Ver/editar beneficiário
             </Link>
           ) : null}
-          {estado.ok && estado.status ? (
+          {estado.ok && estado.status !== undefined ? (
             <p className="text-sm">
-              Situação gravada: <strong>{estado.status} — {ROTULOS_SITUACAO_BENEFICIARIO[estado.status] ?? estado.status}</strong>
+              Situação gravada: <strong>{descricaoSituacaoBeneficiario(estado.status)}</strong>
             </p>
           ) : null}
         </ResultadoLegado>

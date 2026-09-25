@@ -3,7 +3,7 @@ import Link from "next/link";
 import { TabelaPaginada, type Coluna } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ROTULOS_SITUACAO_BENEFICIARIO } from "@/domain/beneficiario/cadastro";
+import { descricaoSituacaoBeneficiario } from "@/domain/beneficiario/cadastro";
 import { mascaraCpfLista } from "@/domain/cpf";
 import { listarBeneficiarios } from "@/server/beneficiarios";
 
@@ -28,7 +28,7 @@ const COLUNAS: readonly Coluna<Linha>[] = [
     titulo: "Situação",
     celula: (b) => (
       <Badge variant={VARIANTE_SITUACAO[b.sitBeneficiario] ?? "secondary"}>
-        {b.sitBeneficiario} — {ROTULOS_SITUACAO_BENEFICIARIO[b.sitBeneficiario] ?? "Desconhecido"}
+        {descricaoSituacaoBeneficiario(b.sitBeneficiario)}
       </Badge>
     ),
   },

@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ResultadoLegado } from "@/components/campos";
-import { MENSAGENS_CADBENEF } from "@/domain/beneficiario/cadastro";
+import { MENSAGENS_CADBENEF, MENSAGENS_SISTEMA, statusResultante } from "@/domain/beneficiario/cadastro";
+import { anoDe, hoje } from "@/domain/legacyDate";
 import { listarOpcoesProgramas, obterBeneficiario } from "@/server/beneficiarios";
-import { lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO, lerQuirksServidor } from "@/server/quirksConfig";
 import { alterarBeneficiarioAction } from "../../actions";
 import { FormBeneficiario } from "../../_componentes/FormBeneficiario";
 
 export const metadata: Metadata = { title: "Alterar beneficiário" };
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 type Props = { params: Promise<{ cpf: string }> };
 
@@ -57,6 +56,14 @@ export default async function EditarBeneficiarioPage({ params }: Props) {
         acao={alterarBeneficiarioAction.bind(null, b.numCpf)}
         programas={programas}
         statusBrancoAlteracao={quirks.statusBrancoAlteracao}
+        avisoStatusAlteracao={
+          // LEGACY-QUIRK(D18): avisa qué se grabará (en blanco, o S por edad > 75 si D5 es legado).
+          quirks.statusBrancoAlteracao
+            ? statusResultante("A", b.dtNascimento, anoDe(hoje().data), undefined, quirks).status === "S"
+              ? MENSAGENS_SISTEMA.statusSuspensoD18
+              : MENSAGENS_SISTEMA.statusBrancoD18
+            : null
+        }
         inicial={{
           numCpf: b.numCpf,
           nomeCompleto: b.nomeCompleto,

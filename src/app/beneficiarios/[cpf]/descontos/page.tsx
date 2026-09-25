@@ -4,7 +4,7 @@ import { ResultadoLegado } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { ROTULOS_SITUACAO_BENEFICIARIO } from "@/domain/beneficiario/cadastro";
+import { descricaoSituacaoBeneficiario } from "@/domain/beneficiario/cadastro";
 import {
   MAX_DESCONTOS,
   ROTULOS_TIPO_DESCONTO,
@@ -70,7 +70,7 @@ export default async function DescontosBeneficiarioPage({ params }: Props) {
             {/* LGPD (NFR-04): CPF mascarado. */}
             <span className="valor font-mono">{mascaraCpfLista(b.numCpf)}</span> · {b.nomeCompleto} ·{" "}
             <Badge variant="secondary">
-              {b.sitBeneficiario} — {ROTULOS_SITUACAO_BENEFICIARIO[b.sitBeneficiario] ?? "Desconhecido"}
+              {descricaoSituacaoBeneficiario(b.sitBeneficiario)}
             </Badge>
           </p>
         </div>

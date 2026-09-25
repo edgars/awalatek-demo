@@ -80,13 +80,15 @@ export function validarDataNascimento(dtNasc: number, anoAtual: number, quirks: 
 export function validarNome(nome: string, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): boolean {
   // Se simula el campo Natural A60: relleno con espacios y truncado a 60.
   const campo = String(nome ?? "").padEnd(TAMANHO_NOME).slice(0, TAMANHO_NOME);
+  if (corrige(quirks, "D19")) {
+    // CORRECAO(D19): quitados los espacios de los extremos, exige al menos dos palabras (un
+    // espacio entre caracteres no blancos); el relleno del A60 ya no cuenta como separador.
+    // Semántica de campo A de Natural: solo el espacio ASCII ' ' es blanco/separador (no el TAB).
+    const semBordas = campo.replace(/^ +| +$/g, "");
+    return semBordas.includes(" ");
+  }
   // RK-9c6ba0322e06 (VALBENEF:264): IF #NOME = ' ' → inválido / ESCAPE ROUTINE.
   if (campo.trim() === "") return false;
-  if (corrige(quirks, "D19")) {
-    // CORRECAO(D19): tras el trim, exige al menos dos palabras (un espacio entre caracteres
-    // no blancos); el relleno del A60 ya no cuenta como separador.
-    return /\S\s+\S/.test(campo.trim());
-  }
   // EXAMINE #NOME FOR ' ' GIVING POSITION #POS: posición 1-based del primer espacio (0 = no hay).
   const pos = campo.indexOf(" ") + 1;
   // RK-9eb88e2bb408 (VALBENEF:271): IF #POS > 1 THEN MOVE TRUE TO #TEM-ESPACO.
