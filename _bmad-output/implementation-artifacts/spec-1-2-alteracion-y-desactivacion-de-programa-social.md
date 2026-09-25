@@ -2,7 +2,7 @@
 title: 'Story 1.2 — Alteración y desactivación de programa social'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: 'e68be16'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -78,3 +78,16 @@ deferred: []
 ## Verification
 
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3247 npx playwright test` · `npm run db:check`
+
+## Review Triage Log
+
+### 2026-09-25 — Review pass (Blind + Edge)
+- `[medium]` `[patch]` ×3 — guardado sin cambios sin nueva versión ni auditoría; programa encerrado (E) no editable; formulario refrescado tras guardar (revalidación del layout, remonte por versión).
+- `[low]` `[patch]` ×9 — "Recarregar" ante conflicto; foco/Escape en la confirmación y panel pendiente hasta el resultado; resumen de auditoría escapado, normalizado y truncado (60, `TODO(review)`); "R$" solo = vacío; prefill robusto de datos raros; código de ruta validado solo por largo; tests de efectos (lote/elegibilidad), acciones inválidas y `Moeda`; e2e autocontenido; helper de ruta compartido.
+- `[reject]` documentados en PRD — estado automático por fecha de fin; guardar el valor base sin ajustar (cambiar el fator exige reinformar el valor base).
+
+## Auto Run Result
+
+- **Resumen:** extensión fuera del legado — edición de programas (`/programas/[cod]/editar`, FATOR-K recalculado solo si cambian valor base o fator), desactivar/reactivar con confirmación, control optimista por `numVersao`, auditoría AL.
+- **Verificación (main):** lint 0; `npm test` 1128/1128 (×3, incluido `ALL,D7`); build OK; e2e 87/87 (×3); `db:check` sin diferencias.
+
