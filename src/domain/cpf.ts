@@ -140,3 +140,14 @@ export function mascaraCpfConsulta(cpf: string): string {
   // Si no: `***.***.XXX-XX` con SUBSTR(#CPF-STR,7,3) y SUBSTR(#CPF-STR,10,2).
   return `***.***.${str.slice(6, 9)}-${str.slice(9, 11)}`;
 }
+
+/**
+ * Máscara de CPF del informe analítico de pagos (RELPGT:110–113, FR-REL-03):
+ * `***.XXX.XXX-XX` con SUBSTR(#CPF-STR,4,3), SUBSTR(#CPF-STR,7,3) y SUBSTR(#CPF-STR,10,2).
+ * `#CPF-STR` (A11) es el N11 con ceros a la izquierda. Distinta de D7 (CONSBENF) y de
+ * `mascaraCpfLista`: aquí se ven los dígitos 4–11.
+ */
+export function mascaraCpfRelatorio(cpf: string): string {
+  const str = normalizaCpfNumerico(cpf).slice(-11);
+  return `***.${str.slice(3, 6)}.${str.slice(6, 9)}-${str.slice(9, 11)}`;
+}
