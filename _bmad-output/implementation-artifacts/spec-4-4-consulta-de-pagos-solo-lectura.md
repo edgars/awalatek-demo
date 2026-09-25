@@ -2,14 +2,22 @@
 title: 'Story 4.4 — Consulta de pagos (solo lectura)'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '035bb2b'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      falhaInesperada/ERRO_INESPERADO duplicado en cuatro módulos (programas, beneficiarios, validacao, pagamentos) sin test del no-log de PII.
+    evidence: |-
+      Cambiar el log a e.message filtraría CPF en logs sin que ningún test falle; consolidar en un helper único con un test.
+    location: >-
+      src/app/*/actions.ts, src/app/pagamentos/falha.ts
+    severity: medium
 ---
 
 <intent-contract>
@@ -70,7 +78,26 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 39 findings — high 0, medium 3, low 22, false 14, maybe-false 0
+- findings (resumen por grupo; detalle en el historial de la sesión):
+  - `[medium]` `[patch]` (blind/verif) e2e con conteos exactos frágiles ante specs paralelos que crean pagos — datos propios en competencias 1990-01/02 y aserciones acotadas
+  - `[medium]` `[patch]` (edge) números de pago de 10 dígitos dentro de Int32 rechazados — parser 1..2147483647
+  - `[medium]` `[patch]` (verif) enlaces de paginación con filtros sin test — e2e con 12 pagos y "Próxima"
+  - `[low]` `[patch]` ×9 — estado de CPF incompleto, formato de descuentos, `Object.hasOwn`, variante de badge compartida, parámetros repetidos, opciones de programa con fallback, `count`+`findMany` en transacción, `hora()` con 0, respuesta del POST de formulario
+  - `[low]` `[reject]` ×13 — HTTP 200 en inexistente (mensaje legado visible), nombre del programa en la lista, programa inexistente en el select, etiqueta de `indCorrigido`, feedback de filtros inválidos, barra de paginación vacía, etc. (cosméticos o improbables)
+  - `[low]` `[defer]` (verif) `falhaInesperada` sin test — cuarta copia; consolidar en un helper único con un test
+  - `[false]` `[reject]` ×14 — superficie `/api` inexistente (el test prueba justamente la ausencia, ADR-009), sin evidencia de `getRule` (`rk-verification.md`), e2e fuera de `npm test` (verificación corre Playwright aparte), mensaje legado sin marca, lectura sin CPF, etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3226 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** consulta de pagos de solo lectura: `/pagamentos` (filtros CPF exacto, competencia, programa, situação; paginación de 10; orden por número desc.) y `/pagamentos/[num]` (valores, descuentos aplicados, corrección, conciliación); sin escritura (ADR-009, verificado por e2e).
+- **Implementado en paralelo** (worktree); integrado por merge (conflicto trivial en `navegacao.ts` con 4.1).
+- **Review:** 39 hallazgos — 12 patches (3 `medium`), 1 diferido, 26 rechazados.
+- **Follow-up review recomendado:** `true` — patches: high 0, medium 3, low 9.
+- **Verificación (tras merge):** lint 0; `npm test` 460/460; build OK; e2e 32/32.
