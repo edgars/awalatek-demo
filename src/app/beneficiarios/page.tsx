@@ -50,7 +50,9 @@ const COLUNAS: readonly Coluna<Linha>[] = [
         <Link href={`/beneficiarios/${b.numCpf}/editar`} className="font-medium text-primary underline-offset-4 hover:underline">
           Editar<span className="sr-only"> {b.nomeCompleto}</span>
         </Link>
-        <AcaoFutura>Dependentes</AcaoFutura>
+        <Link href={`/beneficiarios/${b.numCpf}/dependentes`} className="font-medium text-primary underline-offset-4 hover:underline">
+          Dependentes<span className="sr-only"> {b.nomeCompleto}</span>
+        </Link>
         <AcaoFutura>Descontos</AcaoFutura>
         <AcaoFutura>Consultar</AcaoFutura>
       </span>
