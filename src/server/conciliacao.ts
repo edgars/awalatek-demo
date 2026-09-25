@@ -14,10 +14,12 @@ import {
   USUARIO_BATCH,
   valorN92,
   type DecisaoConciliacao,
+  type QuirksConciliacao,
   type RegistroCnab,
   type ResumoConciliacao,
 } from "@/domain/cnab240";
 import { hoje } from "@/domain/legacyDate";
+import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { registrarEvento } from "@/server/auditoria";
 import { prisma } from "@/server/db";
 
@@ -51,6 +53,8 @@ export interface OpcoesConciliacao {
   db?: PrismaClient;
   /** Momento de la ejecución (`*DATN`/`*TIMN`, tomado una sola vez); default = ahora. */
   agora?: Date;
+  /** Correcciones activas (D23), leídas una vez por la acción; default = legado. */
+  quirks?: QuirksConciliacao;
 }
 
 // Candado en memoria: impide dos conciliaciones simultáneas en el mismo proceso. Se
@@ -85,7 +89,7 @@ export async function conciliarRetorno(entrada: EntradaConciliacao, opcoes: Opco
   }
 }
 
-async function processar({ competencia, conteudo }: EntradaConciliacao, { db = prisma, agora = new Date() }: OpcoesConciliacao): Promise<ResultadoConciliacao> {
+async function processar({ competencia, conteudo }: EntradaConciliacao, { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO }: OpcoesConciliacao): Promise<ResultadoConciliacao> {
   // BATCHCON:79-80 — *DATN / *TIMN una sola vez: todos los eventos con el mismo momento.
   const momento = hoje(agora);
   const resumo = novoResumo(competencia);
@@ -98,7 +102,7 @@ async function processar({ competencia, conteudo }: EntradaConciliacao, { db = p
 
     let decisao: DecisaoConciliacao;
     try {
-      decisao = await db.$transaction((tx) => conciliarRegistro(tx, reg, competencia, momento));
+      decisao = await db.$transaction((tx) => conciliarRegistro(tx, reg, competencia, momento, quirks));
     } catch (e) {
       // El legado abendaría: se detiene sin perder el resumen de lo ya grabado.
       registrarFalha(e);
@@ -112,14 +116,20 @@ async function processar({ competencia, conteudo }: EntradaConciliacao, { db = p
 
 
 /** Un registro de detalle dentro de su transacción: búsqueda, decisión, update y auditoría. */
-async function conciliarRegistro(tx: Prisma.TransactionClient, reg: RegistroCnab, competencia: number, momento: { data: number; hora: number }): Promise<DecisaoConciliacao> {
+async function conciliarRegistro(
+  tx: Prisma.TransactionClient,
+  reg: RegistroCnab,
+  competencia: number,
+  momento: { data: number; hora: number },
+  quirks: QuirksConciliacao,
+): Promise<DecisaoConciliacao> {
   const p = numPgtoPesquisavel(reg.numPgto)
     ? await tx.pagamento.findUnique({
         where: { numPagamento: reg.numPgto },
         select: { numPagamento: true, numCpf: true, anoMesRef: true, vlrLiquido: true },
       })
     : null;
-  const d = decidirConciliacao(reg, p, competencia);
+  const d = decidirConciliacao(reg, p, competencia, quirks);
   if (d.tipo === "nao-encontrado") return d; // sin auditoría
 
   const chave = chaveAuditoria(d.numPagamento);

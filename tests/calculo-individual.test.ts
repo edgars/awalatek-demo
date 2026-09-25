@@ -29,6 +29,8 @@ beforeAll(async () => {
   delete globalPrisma.prisma;
   vi.stubEnv("DATABASE_URL", url);
   vi.stubEnv("SIFAP_USER", "OPERADR1");
+  // Configuração explícita: modo legado (as correções D8/D17 têm testes próprios).
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
   await seed(prisma);
 });
 

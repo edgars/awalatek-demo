@@ -1,7 +1,8 @@
 import type { PrismaClient } from "@/generated/prisma/client";
-import { calcular, type TipoPgto } from "@/domain/calculo/motor";
+import { calcular, type QuirksMotor, type TipoPgto } from "@/domain/calculo/motor";
 import { verificarPrecondicoes } from "@/domain/calculo/precondicoes";
 import { hoje } from "@/domain/legacyDate";
+import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 
 // Caso de uso del cálculo individual (CALCBENF, FR-CAL-01..10). Orquesta dominio
@@ -43,12 +44,15 @@ function ehUnicoViolado(e: unknown): boolean {
 /**
  * FR-CAL — calcula el beneficio de `numCpf` en `competencia` (AAAAMM) y graba
  * el `Pagamento` (status G) en una transacción. Valores en centavos.
+ * `quirks`: correcciones activas (D8/D17) — la acción las lee una vez por solicitud;
+ * default = legado. El lote usa el mismo motor con la misma configuración.
  */
 export async function calcularBeneficioIndividual(
   numCpf: string,
   competencia: number,
   db: PrismaClient = prisma,
   agora: Date = new Date(),
+  quirks: QuirksMotor = QUIRKS_PADRAO,
 ): Promise<ResultadoCalculoIndividual> {
   for (let tentativa = 1; ; tentativa++) {
     try {
@@ -74,7 +78,7 @@ export async function calcularBeneficioIndividual(
           renda: beneficiario.vlrRendaFamiliar,
           dtNascimento: beneficiario.dtNascimento,
           competencia,
-        });
+        }, quirks);
 
         // CALCBENF no asigna NUM-PAGTO; el esquema exige número único → máx. + 1
         // (mismo criterio que BATCHPGT, FR-LOT-01).

@@ -109,6 +109,10 @@ export function FormCorrecao() {
               { rotulo: "VALOR TOTAL CORRECAO", valor: formatarReais(painel.vlrTotal) },
             ]}
           />
+          {/* CORRECAO(D9): pagos no procesados por falta de IPCA del año (solo en modo corregido). */}
+          {painel.avisos && painel.avisos.length > 0 ? (
+            <ResultadoLegado variante="info" titulo="Pagamentos sem índice IPCA" mensagens={painel.avisos} />
+          ) : null}
           {painel.corrigidos.length > 0 ? <TabelaCorrigidos corrigidos={painel.corrigidos} /> : null}
         </>
       ) : null}

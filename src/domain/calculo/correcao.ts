@@ -1,5 +1,9 @@
 import { aCentavos, dec, deCentavos, fator, truncar, truncarCasas, type Dinheiro } from "@/domain/money";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { TAB_IPCA } from "./tabelas";
+
+/** Correcciones de quirks de CALCCORR (D9, D22). Default = legado (paridad). */
+export type QuirksCorrecao = Pick<Quirks, "corrigidos">;
 
 // Corrección retroactiva por IPCA (CALCCORR, FR-COR-01..04). Lógica pura: el
 // caso de uso `src/server/correcao.ts` solo lee/graba los pagos.
@@ -32,6 +36,8 @@ export type PagamentoCorrecao = {
   numCpf: string;
   anoMesRef: number;
   indCorrigido: string | null;
+  /** Desempate del orden por competencia en modo corregido (D22). */
+  numPagamento?: number;
 };
 
 /**
@@ -40,13 +46,23 @@ export type PagamentoCorrecao = {
  * asc; el caso de uso no filtra por período). Devuelve los pagos a evaluar, en orden.
  * LEGACY-QUIRK(D22): la primera competencia > final termina el recorrido aunque
  * después vengan pagos del período (ver `src/server/correcao.ts`).
+ * CORRECAO(D22): con la corrección activa se toman los pagos del CPF en el período,
+ * ordenados por competencia (y nº de pago), sin parada anticipada.
  */
 export function selecionarPagamentos<P extends PagamentoCorrecao>(
   pagamentos: readonly P[],
   numCpf: string,
   compIni: number,
   compFim: number,
+  quirks: QuirksCorrecao = QUIRKS_PADRAO,
 ): P[] {
+  if (corrige(quirks, "D22")) {
+    // CORRECAO(D22): filtro por CPF y período + orden por competencia; sin ESCAPE BOTTOM.
+    return pagamentos
+      .filter((p) => p.numCpf === numCpf && p.anoMesRef >= compIni && p.anoMesRef <= compFim && p.indCorrigido !== IND_CORRIGIDO)
+      .toSorted((a, b) => a.anoMesRef - b.anoMesRef || (a.numPagamento ?? 0) - (b.numPagamento ?? 0));
+  }
+  // LEGACY-QUIRK(D22): recorrido en orden de lectura con parada en la primera competencia > final.
   const selecionados: P[] = [];
   for (const p of pagamentos) {
     // RK-fadeb6de594c (CALCCORR:129): otro CPF → fin del recorrido (ESCAPE BOTTOM).
@@ -68,7 +84,7 @@ export function selecionarPagamentos<P extends PagamentoCorrecao>(
  * índice en 1 (sin corrección).
  */
 export function indiceIpca(competencia: number): Dinheiro {
-  if (!Number.isSafeInteger(competencia) || competencia < 0) throw new Error(`competência inválida: ${competencia}`);
+  exigirCompetencia(competencia);
   let indAcum = dec("1.000000");
   // RK-d87bc4bc2bc4 (CALCCORR:180): año = competencia / 100 (división entera).
   const ano = Math.trunc(competencia / 100);
@@ -86,6 +102,22 @@ export function indiceIpca(competencia: number): Dinheiro {
   return indAcum;
 }
 
+function exigirCompetencia(competencia: number): void {
+  if (!Number.isSafeInteger(competencia) || competencia < 0) throw new Error(`competência inválida: ${competencia}`);
+}
+
+/** true si la tabla IPCA (CALCCORR:54-96) tiene el año de la competencia. */
+export function temIndiceIpca(competencia: number): boolean {
+  exigirCompetencia(competencia);
+  const ano = Math.trunc(competencia / 100);
+  return TAB_IPCA.some((t) => t.ano === ano);
+}
+
+/** CORRECAO(D9): aviso de pago no procesado por falta de IPCA del año. */
+export function mensagemSemIndiceIpca(competencia: number, numPagamento: number): string {
+  return `SEM INDICE IPCA: COMP=${competencia} PGTO=${numPagamento}`;
+}
+
 export type CorrecaoPagamento = {
   /** `#VLR-ORIG` en centavos. */
   vlrOriginal: number;
@@ -95,13 +127,23 @@ export type CorrecaoPagamento = {
   vlrDiferenca: number;
   /** RK-b5eb9d994cd9: `true` solo si la diferencia es > 0 (se graba y se cuenta). */
   corrigir: boolean;
+  /**
+   * CORRECAO(D9): presente (true) solo con la corrección activa y un año sin IPCA:
+   * el pago no se procesa (no se marca ni cuenta) y el llamador emite el aviso.
+   */
+  semIndiceIpca?: true;
 };
 
 /**
  * FR-COR-04 — aplica el índice al bruto de un pago (CALCCORR:145-158).
  * `vlrBruto` en centavos; resultado en centavos.
  */
-export function calcularCorrecao(vlrBruto: number, competencia: number): CorrecaoPagamento {
+export function calcularCorrecao(vlrBruto: number, competencia: number, quirks: QuirksCorrecao = QUIRKS_PADRAO): CorrecaoPagamento {
+  if (corrige(quirks, "D9") && !temIndiceIpca(competencia)) {
+    // CORRECAO(D9): año fuera de la tabla IPCA → no se corrige con índice 1: se avisa.
+    return { vlrOriginal: vlrBruto, vlrCorrigido: vlrBruto, vlrDiferenca: 0, corrigir: false, semIndiceIpca: true };
+  }
+  // LEGACY-QUIRK(D9): año fuera de la tabla → índice 1 (diferencia 0), sin aviso.
   const orig = deCentavos(vlrBruto);
   const indice = indiceIpca(competencia);
   // RK-7ac41f6abbe2 (CALCCORR:152): corr = original × índice.

@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { detalheErroQuirks, lerQuirks } from "@/domain/quirks";
 import { calcularBeneficioIndividual } from "@/server/calculo";
 import type { CampoCalculo, EstadoCalculo } from "./estado";
 
@@ -38,8 +39,17 @@ export async function calcularBeneficioAction(_anterior: EstadoCalculo, dados: F
     const campo = issue?.path[0] === "numCpf" || issue?.path[0] === "competencia" ? (issue.path[0] as CampoCalculo) : undefined;
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
+  // D8/D17: la configuración de correcciones se lee una vez por solicitud y se inyecta en el motor.
+  let quirks;
   try {
-    return await calcularBeneficioIndividual(parsed.data.numCpf, parsed.data.competencia);
+    quirks = lerQuirks();
+  } catch (e) {
+    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
+    console.error("[calculo]", detalheErroQuirks(e));
+    return { ok: false, mensagem: ERRO_INESPERADO };
+  }
+  try {
+    return await calcularBeneficioIndividual(parsed.data.numCpf, parsed.data.competencia, undefined, undefined, quirks);
   } catch (e) {
     return falhaInesperada(e);
   }
