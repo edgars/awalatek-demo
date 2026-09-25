@@ -218,9 +218,9 @@ Solo `src/server/auditoria.ts` escribe en esta tabla (append-only; sin update/de
 | Ruta | Pantalla legado | Épica |
 |---|---|---|
 | `/programas`, `/programas/novo`, `/programas/[cod]` | CADASTRO PROGRAMAS SOCIAIS / DADOS DO PROGRAMA | E1 |
-| `/beneficiarios`, `/beneficiarios/novo`, `/beneficiarios/[cpf]/editar` | CADASTRO DE BENEFICIARIO | E2 |
-| `/beneficiarios/[cpf]/dependentes` | CADASTRO DE DEPENDENTES / DADOS DO DEPENDENTE | E2 |
-| `/beneficiarios/[cpf]/descontos` | (registro de descuentos — PE DESCONTOS) | E2/E4 |
+| `/beneficiarios`, `/beneficiarios/novo`, `/beneficiarios/[chave]/editar` | CADASTRO DE BENEFICIARIO | E2 |
+| `/beneficiarios/[chave]/dependentes` | CADASTRO DE DEPENDENTES / DADOS DO DEPENDENTE | E2 |
+| `/beneficiarios/[chave]/descontos` | (registro de descuentos — PE DESCONTOS) | E2/E4 |
 | `/consulta` | CONSULTA BENEFICIARIO | E2 |
 | `/validacao/cadastro`, `/validacao/documentos` | VALBENEF / VALIDACAO DE DOCUMENTOS | E2 |
 | `/elegibilidade` | VALIDACAO ELEGIBILIDADE | E3 |
@@ -229,6 +229,11 @@ Solo `src/server/auditoria.ts` escribe en esta tabla (append-only; sin update/de
 | `/conciliacao` | CONCILIACAO BANCARIA | E6 |
 | `/relatorios/pagamentos`, `/relatorios/consolidado`, `/relatorios/auditoria` | RELATORIO PAGAMENTOS / COMPETENCIA RELATORIO / RELATORIO AUDITORIA | E7 |
 | `/pagamentos`, `/pagamentos/[num]` | (solo lectura) | E4 |
+
+LGPD (H2): ninguna URL lleva el CPF. `[chave]` es `Beneficiario.chavePublica` (UUID opaco,
+estable, único); los atajos usan `?benef=<chave>` (`/consulta`, `/elegibilidade`, `/pagamentos`,
+`/beneficiarios`) y las búsquedas por CPF se envían por POST (Server Action) que redirige con la
+clave. Guarda: `tests/lgpd-urls.test.ts`.
 
 ## 7. Deployment — docker-compose (ADR-007)
 

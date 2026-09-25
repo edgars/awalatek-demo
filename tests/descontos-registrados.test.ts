@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { salvarDescontosRegistradosAction } from "@/app/beneficiarios/[cpf]/descontos/actions";
+import { salvarDescontosRegistradosAction } from "@/app/beneficiarios/[chave]/descontos/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
 import type { DescontoRegistrado } from "@/domain/beneficiario/descontosRegistrados";
 import { createPrismaClient } from "@/server/db";
@@ -27,6 +27,10 @@ const CPF_S0 = cpfComDv(BENEFICIARIOS_SEED[0].base); // seed: 1 desconto J
 const CPF_S1 = cpfComDv(BENEFICIARIOS_SEED[1].base); // seed: sem descontos
 const CPF_INEXISTENTE = "15975348625";
 const HOJE = 20260924;
+
+/** H2 (LGPD): as rotas/ações recebem a chave opaca do beneficiário, nunca o CPF. */
+const chaveDe = async (cpf: string) =>
+  (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "sifap-dsct-"));
@@ -160,14 +164,14 @@ describe("salvarDescontosRegistradosAction", () => {
   const ls = { tipoDesconto: "S", vlrDesconto: "0", pctDesconto: "0.00", dtInicioDsct: "20260101", dtFimDsct: "0", numProcesso: "" };
 
   it("grava duas filas", async () => {
-    const r = await salvarDescontosRegistradosAction(CPF_S1, null, form([lj, ls]));
+    const r = await salvarDescontosRegistradosAction(await chaveDe(CPF_S1), null, form([lj, ls]));
     expect(r).toMatchObject({ ok: true, mensagens: ["Descontos gravados (2)."] });
     expect(r?.vigentes).toHaveLength(2);
     expect(await filasDe(CPF_S1)).toHaveLength(2);
   });
 
   it("J sem processo → erro na fila, nada gravado", async () => {
-    const r = await salvarDescontosRegistradosAction(CPF_S1, null, form([ls, { ...lj, numProcesso: "" }]));
+    const r = await salvarDescontosRegistradosAction(await chaveDe(CPF_S1), null, form([ls, { ...lj, numProcesso: "" }]));
     expect(r).toEqual({
       ok: false,
       mensagens: ["Desconto 2 — Nº processo: obrigatório para desconto judicial (J)"],
@@ -177,7 +181,7 @@ describe("salvarDescontosRegistradosAction", () => {
   });
 
   it("9 filas → limite", async () => {
-    const r = await salvarDescontosRegistradosAction(CPF_S1, null, form(Array.from({ length: 9 }, () => ls)));
+    const r = await salvarDescontosRegistradosAction(await chaveDe(CPF_S1), null, form(Array.from({ length: 9 }, () => ls)));
     expect(r).toMatchObject({ ok: false, mensagens: ["Limite de 8 descontos excedido (máx. 8)."] });
   });
 
@@ -185,7 +189,7 @@ describe("salvarDescontosRegistradosAction", () => {
     const fd = form([lj, ls]);
     fd.delete("numProcesso");
     fd.append("numProcesso", "123");
-    const r = await salvarDescontosRegistradosAction(CPF_S1, null, fd);
+    const r = await salvarDescontosRegistradosAction(await chaveDe(CPF_S1), null, fd);
     expect(r).toEqual({ ok: false, mensagens: ["Formulário inválido: campos dos descontos incompletos. Recarregue a página."] });
     expect(await filasDe(CPF_S1)).toHaveLength(0);
   });
@@ -195,7 +199,7 @@ describe("salvarDescontosRegistradosAction", () => {
     vi.mocked(salvarDescontosRegistrados).mockRejectedValueOnce(erro);
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      const r = await salvarDescontosRegistradosAction(CPF_S1, null, form([lj]));
+      const r = await salvarDescontosRegistradosAction(await chaveDe(CPF_S1), null, form([lj]));
       expect(r).toEqual({ ok: false, mensagens: ["Erro inesperado ao processar a solicitação. Tente novamente."] });
       expect(log).toHaveBeenCalledWith("[descontos] gravação:", "PrismaClientKnownRequestError", "P2002");
       expect(JSON.stringify(log.mock.calls)).not.toContain(CPF_S1);
@@ -204,9 +208,15 @@ describe("salvarDescontosRegistradosAction", () => {
     }
   });
 
-  it("CPF de rota malformado ou inexistente → BENEFICIARIO NAO ENCONTRADO", async () => {
+  it("chave de rota malformada ou inexistente (ou um CPF no lugar da chave) → BENEFICIARIO NAO ENCONTRADO", async () => {
     expect(await salvarDescontosRegistradosAction("123", null, form([lj]))).toEqual({ ok: false, mensagens: ["BENEFICIARIO NAO ENCONTRADO"] });
     expect(await salvarDescontosRegistradosAction(CPF_INEXISTENTE, null, form([lj]))).toEqual({
+      ok: false,
+      mensagens: ["BENEFICIARIO NAO ENCONTRADO"],
+    });
+    // H2: a rota não aceita mais o CPF, nem de um beneficiário existente.
+    expect(await salvarDescontosRegistradosAction(CPF_S1, null, form([lj]))).toEqual({ ok: false, mensagens: ["BENEFICIARIO NAO ENCONTRADO"] });
+    expect(await salvarDescontosRegistradosAction("00000000-0000-4000-8000-000000000000", null, form([lj]))).toEqual({
       ok: false,
       mensagens: ["BENEFICIARIO NAO ENCONTRADO"],
     });

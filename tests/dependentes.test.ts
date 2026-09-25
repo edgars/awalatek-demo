@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { incluirDependenteAction } from "@/app/beneficiarios/[cpf]/dependentes/actions";
+import { incluirDependenteAction } from "@/app/beneficiarios/[chave]/dependentes/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { dependenteSchema, type DadosDependente } from "@/domain/beneficiario/dependentes";
 import { completaDv } from "@/domain/cpf";
@@ -24,6 +24,10 @@ const CPF_MARIA = cpfComDv(BENEFICIARIOS_SEED[0].base);
 const CPF_CANCELADO = cpfComDv(BENEFICIARIOS_SEED[2].base);
 const CPF_DESLIGADO = cpfComDv(BENEFICIARIOS_SEED[4].base);
 const CPF_DEP = completaDv("111222333");
+
+/** H2 (LGPD): as rotas/ações recebem a chave opaca do beneficiário, nunca o CPF. */
+const chaveDe = async (cpf: string) =>
+  (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "sifap-depend-"));
@@ -318,7 +322,7 @@ describe("incluirDependenteAction", () => {
   };
 
   it("sucesso: mensagem com o total", async () => {
-    expect(await incluirDependenteAction(CPF_TITULAR, null, form({}))).toEqual({
+    expect(await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, form({}))).toEqual({
       ok: true,
       mensagens: ["DEPENDENTE INCLUIDO - TOTAL: 1"],
       total: 1,
@@ -327,7 +331,7 @@ describe("incluirDependenteAction", () => {
   });
 
   it("erros do legado ligados aos campos", async () => {
-    const r = await incluirDependenteAction(CPF_TITULAR, null, form({ nomeDependente: "", parentesco: "XX" }));
+    const r = await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, form({ nomeDependente: "", parentesco: "XX" }));
     expect(r).toEqual({
       ok: false,
       mensagens: ["NOME DO DEPENDENTE OBRIGATORIO", "PARENTESCO INVALIDO"],
@@ -338,13 +342,14 @@ describe("incluirDependenteAction", () => {
   it("falha de inclusão (limite) também revalida a página de dependentes", async () => {
     await prisma.beneficiario.update({ where: { numCpf: CPF_TITULAR }, data: { numDependentes: 6 } });
     vi.mocked(revalidatePath).mockClear();
-    const r = await incluirDependenteAction(CPF_TITULAR, null, form({}));
+    const r = await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, form({}));
     expect(r).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"], erros: {} });
-    expect(revalidatePath).toHaveBeenCalledWith(`/beneficiarios/${CPF_TITULAR}/dependentes`);
+    expect(revalidatePath).toHaveBeenCalledWith(`/beneficiarios/${await chaveDe(CPF_TITULAR)}/dependentes`);
+    expect(JSON.stringify(vi.mocked(revalidatePath).mock.calls)).not.toContain(CPF_TITULAR);
   });
 
   it("zod: formato inválido não chega ao caso de uso", async () => {
-    const r = await incluirDependenteAction(CPF_TITULAR, null, form({ sexoDependente: "X" }));
+    const r = await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, form({ sexoDependente: "X" }));
     expect(r).toEqual({ ok: false, mensagens: ["Sexo: informe M ou F"], erros: { sexoDependente: "Sexo: informe M ou F" } });
     expect((await titular()).numDependentes).toBe(0);
   });
@@ -352,7 +357,7 @@ describe("incluirDependenteAction", () => {
   it("erro inesperado: mensagem genérica e log sem dados pessoais", async () => {
     vi.stubEnv("SIFAP_USER", "");
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    const r = await incluirDependenteAction(CPF_TITULAR, null, form({}));
+    const r = await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, form({}));
     expect(r).toEqual({ ok: false, mensagens: ["Erro inesperado ao processar a solicitação. Tente novamente."] });
     expect(log).toHaveBeenCalledWith("[dependentes] inclusão:", "Error", "");
     expect(JSON.stringify(log.mock.calls)).not.toContain(CPF_TITULAR);

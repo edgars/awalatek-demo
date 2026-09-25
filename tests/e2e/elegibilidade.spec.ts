@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { chaveDe } from "./chave";
 import { createPrismaClient } from "../../src/server/db";
 
 // Story 3.1 contra a base dedicada do e2e (seed):
@@ -81,8 +82,9 @@ test("DOCUMENTACAO INCOMPLETA (programa A) → link para Validação de document
   await expect(link).toHaveAttribute("href", "/validacao/documentos");
 });
 
-test("região 99 → BENEFICIARIO ELEGIVEL - REGIAO ESPECIAL (CPF pré-preenchido por query string)", async ({ page }) => {
-  await page.goto("/elegibilidade?cpf=34567890256&programa=PP01");
+test("região 99 → BENEFICIARIO ELEGIVEL - REGIAO ESPECIAL (CPF pré-preenchido pela chave opaca na query string)", async ({ page }) => {
+  // H2: o atalho leva a chave opaca do beneficiário, nunca o CPF.
+  await page.goto(`/elegibilidade?benef=${await chaveDe("34567890256")}&programa=PP01`);
   await expect(page.getByLabel("CPF do beneficiário")).toHaveValue("345.678.902-56");
   await expect(page.getByLabel("Programa")).toHaveValue("PP01");
   await page.getByRole("button", { name: "Verificar" }).click();

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CHAVE_INEXISTENTE, RE_CHAVE, buscarNaLista, chaveDe, esperarUrlSemCpf } from "./chave";
 
 // Story 2.4 contra a base dedicada do e2e (seed: JOSE CARLOS PEREIRA, situação S, sem
 // dependentes; ANA PAULA SOUZA, situação C).
@@ -16,9 +17,14 @@ async function preencher(page: Page, d: { nome: string; parentesco: string; cpf?
 }
 
 test("incluir dois dependentes em série a partir da lista e rejeitar CPF duplicado", async ({ page }) => {
-  await page.goto(`/beneficiarios?q=${CPF_JOSE}`);
+  // H2: a busca por CPF é enviada por POST e a URL leva só a chave opaca.
+  await buscarNaLista(page, CPF_JOSE);
+  await esperarUrlSemCpf(page, CPF_JOSE);
+  await expect(page.getByLabel("Buscar por CPF ou nome")).toHaveValue("123.456.780-62");
   await page.getByRole("link", { name: /Dependentes JOSE CARLOS PEREIRA/ }).click();
-  await expect(page).toHaveURL(new RegExp(`/beneficiarios/${CPF_JOSE}/dependentes$`));
+  await expect(page).toHaveURL(new RegExp(`/beneficiarios/${RE_CHAVE}/dependentes$`));
+  await expect(page).toHaveURL(new RegExp(`/beneficiarios/${await chaveDe(CPF_JOSE)}/dependentes$`));
+  await esperarUrlSemCpf(page, CPF_JOSE);
   await expect(page.getByRole("heading", { level: 1, name: "Dependentes" })).toBeVisible();
   const titular = page.getByLabel("Titular", { exact: true });
   await expect(titular).toContainText("***.***.780-62");
@@ -65,13 +71,13 @@ test("incluir dois dependentes em série a partir da lista e rejeitar CPF duplic
   await expect(resultado).toContainText("DEPENDENTE INCLUIDO - TOTAL: 3");
   await page.getByRole("button", { name: "Concluir" }).click();
   await expect(page).toHaveURL(/\/beneficiarios$/);
-  await page.goto(`/beneficiarios?q=${CPF_JOSE}`);
+  await buscarNaLista(page, CPF_JOSE);
   await expect(page.getByRole("table").getByRole("row", { name: /JOSE CARLOS PEREIRA/ })).toContainText("3");
 });
 
 test("D6: após o 6.º dependente não oferece incluir outro", async ({ page }) => {
   // Seed: MARIA APARECIDA DA SILVA, situação A, 1 dependente.
-  await page.goto("/beneficiarios/01234567890/dependentes");
+  await page.goto(`/beneficiarios/${await chaveDe("01234567890")}/dependentes`);
   await expect(page.getByTestId("total-dependentes")).toHaveText("1");
   const resultado = page.getByTestId("resultado-legado");
   for (let n = 2; n <= 6; n++) {
@@ -87,13 +93,16 @@ test("D6: após o 6.º dependente não oferece incluir outro", async ({ page }) 
 });
 
 test("titular cancelado: formulário bloqueado com a mensagem literal", async ({ page }) => {
-  await page.goto(`/beneficiarios/${CPF_ANA_CANCELADA}/dependentes`);
+  await page.goto(`/beneficiarios/${await chaveDe(CPF_ANA_CANCELADA)}/dependentes`);
   await expect(page.getByTestId("resultado-legado")).toContainText("BENEFICIARIO CANCELADO/DESLIGADO - NAO PERMITE INCLUSAO");
   await expect(page.getByLabel("Nome")).toBeDisabled();
   await expect(page.getByRole("button", { name: "Gravar" })).toBeDisabled();
 });
 
 test("titular inexistente: mensagem literal", async ({ page }) => {
-  await page.goto("/beneficiarios/98765432100/dependentes");
+  await page.goto(`/beneficiarios/${CHAVE_INEXISTENTE}/dependentes`);
+  await expect(page.getByTestId("resultado-legado")).toContainText("BENEFICIARIO NAO ENCONTRADO");
+  // H2: a rota não aceita mais o CPF (nem de um titular existente).
+  await page.goto(`/beneficiarios/${CPF_JOSE}/dependentes`);
   await expect(page.getByTestId("resultado-legado")).toContainText("BENEFICIARIO NAO ENCONTRADO");
 });

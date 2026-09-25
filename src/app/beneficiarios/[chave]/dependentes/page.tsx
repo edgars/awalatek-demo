@@ -8,6 +8,7 @@ import { descricaoSituacaoBeneficiario, ROTULOS_SEXO } from "@/domain/beneficiar
 import { MENSAGENS_CADDEPEND, ROTULOS_PARENTESCO, verificarLimite, verificarTitular } from "@/domain/beneficiario/dependentes";
 import { mascaraCpfLista } from "@/domain/cpf";
 import { corrige } from "@/domain/quirks";
+import { cpfPorChave } from "@/server/beneficiarios";
 import { listarDependentes } from "@/server/dependentes";
 import { ERRO_INESPERADO, lerQuirksServidor } from "@/server/quirksConfig";
 import { incluirDependenteAction } from "./actions";
@@ -15,7 +16,7 @@ import { InclusaoDependentes } from "./_componentes/InclusaoDependentes";
 
 export const metadata: Metadata = { title: "Dependentes" };
 
-type Props = { params: Promise<{ cpf: string }> };
+type Props = { params: Promise<{ chave: string }> };
 
 function dataBr(dt: number): string {
   if (!dt) return "—";
@@ -25,13 +26,9 @@ function dataBr(dt: number): string {
 
 /** Pantalla 4.6 — CADASTRO DE DEPENDENTES (CADDEPEND): lista + inclusión en serie. */
 export default async function DependentesPage({ params }: Props) {
-  const { cpf: bruto } = await params;
-  let cpf = bruto;
-  try {
-    cpf = decodeURIComponent(bruto);
-  } catch {
-    // escape malformado → valor bruto → não encontrado
-  }
+  // H2 (LGPD): a URL traz a chave opaca; o CPF é resolvido no servidor (chave inválida → não encontrado).
+  const { chave } = await params;
+  const cpf = (await cpfPorChave(chave)) ?? "";
   // D6: el límite de dependientes depende de la configuración (una lectura por solicitud).
   const quirks = lerQuirksServidor("dependentes");
   if (!quirks) {
@@ -136,7 +133,7 @@ export default async function DependentesPage({ params }: Props) {
       </div>
 
       <InclusaoDependentes
-        acao={incluirDependenteAction.bind(null, titular.numCpf)}
+        acao={incluirDependenteAction.bind(null, chave)}
         bloqueio={bloqueio}
         limiteCorrigido={corrige(quirks, "D6")}
       />

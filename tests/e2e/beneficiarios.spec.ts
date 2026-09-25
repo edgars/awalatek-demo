@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { CHAVE_INEXISTENTE, RE_CHAVE, chaveDe, esperarUrlSemCpf } from "./chave";
 
 // Story 2.1 contra a base dedicada do e2e (seed: 5 beneficiários, programas PA01, PP01, PT01).
 
@@ -65,7 +66,12 @@ test("maior de 75: inclusão com status S e alteração mantém S (D5)", async (
   await expect(resultado).toContainText("S — Suspenso");
   await expect(page.getByText("Situação ajustada para SUSPENSO (idade > 75 — regra legada)")).toBeVisible();
 
-  await page.goto("/beneficiarios/74185296355/editar");
+  // H2: o link "Ver/editar" leva a chave opaca, não o CPF.
+  const chave = await chaveDe("74185296355");
+  await expect(page.getByRole("link", { name: "Ver/editar beneficiário" })).toHaveAttribute("href", `/beneficiarios/${chave}/editar`);
+  await page.getByRole("link", { name: "Ver/editar beneficiário" }).click();
+  await expect(page).toHaveURL(new RegExp(`/beneficiarios/${RE_CHAVE}/editar$`));
+  await esperarUrlSemCpf(page, "74185296355");
   await expect(page.getByRole("heading", { level: 1, name: "Alterar beneficiário" })).toBeVisible();
   await expect(page.getByLabel("CPF")).toHaveAttribute("readonly", "");
   await expect(page.getByLabel("Data de nascimento")).toHaveValue("01/01/1940");
@@ -89,14 +95,17 @@ test("maior de 75: inclusão com status S e alteração mantém S (D5)", async (
   await expect(page.getByLabel("Situação")).toHaveValue("S");
 });
 
-test("alteração de CPF inexistente mostra mensagem literal", async ({ page }) => {
-  await page.goto("/beneficiarios/15975348625/editar");
+test("alteração de beneficiário inexistente mostra mensagem literal", async ({ page }) => {
+  await page.goto(`/beneficiarios/${CHAVE_INEXISTENTE}/editar`);
+  await expect(page.getByTestId("resultado-legado")).toContainText("BENEFICIARIO NAO ENCONTRADO PARA ALTERACAO");
+  // H2: a rota não aceita mais o CPF (nem de um beneficiário existente).
+  await page.goto("/beneficiarios/34567890256/editar");
   await expect(page.getByTestId("resultado-legado")).toContainText("BENEFICIARIO NAO ENCONTRADO PARA ALTERACAO");
 });
 
 test("alteração preserva campos não modificados (CEP, endereço, renda)", async ({ page }) => {
   // Beneficiário do seed (FRANCISCO DAS CHAGAS LIMA), sem CEP/endereço no seed: primeiro são definidos.
-  const url = "/beneficiarios/34567890256/editar";
+  const url = `/beneficiarios/${await chaveDe("34567890256")}/editar`;
   const resultado = page.getByTestId("resultado-legado");
   await page.goto(url);
   await page.getByLabel("CEP").fill("01310100");

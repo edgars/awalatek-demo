@@ -96,10 +96,29 @@ describe("esquema e seed", () => {
 
   it("rejeita segundo beneficiário com o mesmo numCpf (P2002)", async () => {
     const existente = await prisma.beneficiario.findFirstOrThrow();
-    const { id: _id, numCpf, nis: _nis, ...resto } = existente;
+    const { id: _id, numCpf, nis: _nis, chavePublica: _chave, ...resto } = existente;
     void _id;
     void _nis;
+    void _chave;
     await expect(prisma.beneficiario.create({ data: { ...resto, numCpf } })).rejects.toMatchObject({
+      code: "P2002",
+    });
+  });
+
+  it("H2: chavePublica é gerada na inclusão (UUID), única e diferente do CPF", async () => {
+    const todos = await prisma.beneficiario.findMany({ select: { numCpf: true, chavePublica: true } });
+    expect(todos.length).toBeGreaterThan(0);
+    for (const b of todos) {
+      expect(b.chavePublica).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(b.chavePublica).not.toContain(b.numCpf);
+    }
+    expect(new Set(todos.map((b) => b.chavePublica)).size).toBe(todos.length);
+    const existente = await prisma.beneficiario.findFirstOrThrow();
+    const { id: _id, numCpf: _cpf, nis: _nis, ...resto } = existente;
+    void _id;
+    void _cpf;
+    void _nis;
+    await expect(prisma.beneficiario.create({ data: { ...resto, numCpf: "99999999999" } })).rejects.toMatchObject({
       code: "P2002",
     });
   });

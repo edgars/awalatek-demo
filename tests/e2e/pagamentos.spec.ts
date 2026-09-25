@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/server/db";
+import { chaveDe } from "./chave";
 
 // Story 4.4 — consulta de pagamentos (somente leitura, ADR-009). O seed não tem
 // pagamentos: o spec os grava direto na base do e2e antes de navegar.
@@ -102,7 +103,11 @@ test("lista ordenada por Nº desc com CPF mascarado e filtro por CPF", async ({ 
 
   await page.getByLabel("CPF").fill("123.456.780-62");
   await page.getByRole("button", { name: "Filtrar" }).click();
-  await expect(page).toHaveURL(/cpf=.*competencia=1990-01|competencia=1990-01.*cpf=/);
+  // H2: o filtro por CPF vai por POST e a URL leva a chave opaca, nunca o CPF.
+  await expect(page).toHaveURL(new RegExp(`benef=${await chaveDe(CPF_JOSE)}.*competencia=1990-01`));
+  expect(page.url()).not.toContain(CPF_JOSE);
+  expect(page.url()).not.toMatch(/\d{11}/);
+  await expect(page.getByLabel("CPF")).toHaveValue("123.456.780-62");
   await expect(linhas).toHaveCount(2);
   await expect(linhas.nth(1)).toContainText("9002");
 });
@@ -120,9 +125,24 @@ test("filtro competência + situação; vazio; CPF incompleto", async ({ page })
   await expect(page.getByText("Nenhum pagamento")).toBeVisible();
   await expect(page.getByRole("table")).toHaveCount(0);
 
-  await page.goto("/pagamentos?cpf=012345");
+  await page.goto("/pagamentos");
+  await page.getByLabel("CPF").fill("012345");
+  await page.getByRole("button", { name: "Filtrar" }).click();
+  await expect(page).toHaveURL(/benef=cpf-incompleto/);
   await expect(page.getByText("Informe o CPF completo (11 dígitos).")).toBeVisible();
   await expect(page.getByRole("table")).toHaveCount(0);
+
+  // CPF completo sem beneficiário: nenhuma coincidência (e o CPF não vai para a URL).
+  await page.goto("/pagamentos");
+  await page.getByLabel("CPF").fill("529.982.247-25");
+  await page.getByRole("button", { name: "Filtrar" }).click();
+  await expect(page).toHaveURL(/benef=nao-encontrado/);
+  expect(page.url()).not.toMatch(/\d{11}/);
+  await expect(page.getByText("Nenhum pagamento")).toBeVisible();
+
+  // H2: o parâmetro antigo ?cpf= é ignorado (o CPF não é lido da URL).
+  await page.goto(`/pagamentos?cpf=${CPF_JOSE}&competencia=1990-01`);
+  await expect(page.getByRole("table").getByRole("row")).toHaveCount(4); // cabeçalho + 3 (sem filtro de CPF)
 });
 
 test("paginação mantém os filtros", async ({ page }) => {
@@ -175,14 +195,19 @@ test("pagamento inexistente → PAGAMENTO NAO ENCONTRADO", async ({ page }) => {
   await expect(page.getByTestId("resultado-legado")).toContainText("PAGAMENTO NAO ENCONTRADO");
 });
 
-test("ADR-009: sem formulários nem ações de escrita", async ({ page, request }) => {
+test("ADR-009: sem formulários nem ações de escrita (filtro só de leitura)", async ({ page, request }) => {
   for (const url of ["/pagamentos", "/pagamentos/9001"]) {
     await page.goto(url);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    // Só o formulário de filtro (GET) na lista; nenhum POST / Server Action.
-    await expect(page.locator('form:not([method="get"])')).toHaveCount(0);
-    await expect(page.locator("form[action^='javascript']")).toHaveCount(0);
-    await expect(page.locator('input[name^="$ACTION"]')).toHaveCount(0);
+    // H2 (LGPD): o filtro da lista é enviado por POST (Server Action só de leitura que troca o
+    // CPF pela chave opaca e redireciona). Fora dele, nenhum POST / Server Action; no detalhe, nenhum.
+    const FILTRO = '[aria-label="Filtros de pagamentos"]';
+    await expect(page.locator(`form${FILTRO}`)).toHaveCount(url === "/pagamentos" ? 1 : 0);
+    await expect(page.locator(`form:not([method="get"]):not(${FILTRO})`)).toHaveCount(0);
+    await expect(page.locator(`form[action^='javascript']:not(${FILTRO})`)).toHaveCount(0);
+    await expect(page.locator(`form:not(${FILTRO}) input[name^="$ACTION"]`)).toHaveCount(0);
+    await expect(page.locator(`input[name^="$ACTION"]:not(form${FILTRO} *)`)).toHaveCount(0);
+    if (url === "/pagamentos") await expect(page.locator(`form${FILTRO}`).getByRole("button")).toHaveText(["Filtrar"]);
     const escrita = /alterar|editar|excluir|incluir|novo|gravar|cancelar|estornar|salvar/i;
     await expect(page.getByRole("button", { name: escrita })).toHaveCount(0);
     await expect(page.getByRole("link", { name: escrita })).toHaveCount(0);
@@ -191,6 +216,14 @@ test("ADR-009: sem formulários nem ações de escrita", async ({ page, request 
   // POST sem ação registrada: nenhuma escrita executada nos pagamentos deste spec.
   const antes = await nossosPagamentos();
   expect(antes).toHaveLength(NUMS.length);
+  // O filtro (POST) só lê: filtrar por CPF/competência/situação não altera nenhum pagamento.
+  await page.goto("/pagamentos");
+  await page.getByLabel("CPF").fill(CPF_MARIA);
+  await page.getByLabel("Competência").fill("1990-01");
+  await page.getByLabel("Situação").selectOption("G");
+  await page.getByRole("button", { name: "Filtrar" }).click();
+  await expect(page.getByRole("table").getByRole("row")).toHaveCount(2);
+  expect(await nossosPagamentos()).toEqual(antes);
   for (const url of ["/pagamentos", "/pagamentos/9001"]) {
     const r = await request.post(url, { headers: { "Next-Action": "0000000000000000000000000000000000000000" }, data: "[]" });
     expect(r.status()).toBeGreaterThanOrEqual(400);

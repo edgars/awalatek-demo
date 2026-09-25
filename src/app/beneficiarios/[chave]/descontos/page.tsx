@@ -12,13 +12,14 @@ import {
   TIPOS_DESCONTO,
 } from "@/domain/beneficiario/descontosRegistrados";
 import { mascaraCpfLista } from "@/domain/cpf";
+import { cpfPorChave } from "@/server/beneficiarios";
 import { listarDescontosRegistrados } from "@/server/descontosRegistrados";
 import { salvarDescontosRegistradosAction } from "./actions";
 import { EditorDescontos } from "./EditorDescontos";
 
 export const metadata: Metadata = { title: "Descontos do beneficiário" };
 
-type Props = { params: Promise<{ cpf: string }> };
+type Props = { params: Promise<{ chave: string }> };
 
 const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
@@ -38,13 +39,9 @@ const TIPOS = TIPOS_DESCONTO.map((codigo) => ({ codigo, rotulo: ROTULOS_TIPO_DES
 
 /** Pantalla 4.7 — descontos registrados do beneficiário (PE DESCONTOS, D14). */
 export default async function DescontosBeneficiarioPage({ params }: Props) {
-  const { cpf: bruto } = await params;
-  let cpf = bruto;
-  try {
-    cpf = decodeURIComponent(bruto);
-  } catch {
-    // escape malformado → valor bruto → não encontrado
-  }
+  // H2 (LGPD): a URL traz a chave opaca; o CPF é resolvido no servidor (chave inválida → não encontrado).
+  const { chave } = await params;
+  const cpf = (await cpfPorChave(chave)) ?? "";
   const r = await carregar(cpf);
 
   if (!r.ok) {
@@ -91,7 +88,7 @@ export default async function DescontosBeneficiarioPage({ params }: Props) {
         </CardHeader>
         <CardContent>
           <EditorDescontos
-            acao={salvarDescontosRegistradosAction.bind(null, b.numCpf)}
+            acao={salvarDescontosRegistradosAction.bind(null, chave)}
             maximo={MAX_DESCONTOS}
             tipos={TIPOS}
             tamanhoProcesso={TAMANHO_NUM_PROCESSO}

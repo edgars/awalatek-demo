@@ -7,9 +7,9 @@
 | Grupo | Pantalla | Ruta | Historia |
 |---|---|---|---|
 | Cadastro | Programas | `/programas`, `/programas/novo`, `/programas/[cod]` | 1.1 |
-| Cadastro | Beneficiários | `/beneficiarios`, `/beneficiarios/novo`, `/beneficiarios/[cpf]/editar` | 2.1 |
-| Cadastro | Dependentes | `/beneficiarios/[cpf]/dependentes` | 2.4 |
-| Cadastro | Descontos do beneficiário | `/beneficiarios/[cpf]/descontos` | 2.5 |
+| Cadastro | Beneficiários | `/beneficiarios`, `/beneficiarios/novo`, `/beneficiarios/[chave]/editar` | 2.1 |
+| Cadastro | Dependentes | `/beneficiarios/[chave]/dependentes` | 2.4 |
+| Cadastro | Descontos do beneficiário | `/beneficiarios/[chave]/descontos` | 2.5 |
 | Cadastro | Consulta | `/consulta` | 2.6 |
 | Validação | Cadastral | `/validacao/cadastro` | 2.2 |
 | Validação | Documentos | `/validacao/documentos` | 2.3 |

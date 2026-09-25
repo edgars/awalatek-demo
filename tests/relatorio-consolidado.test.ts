@@ -28,7 +28,7 @@ const globalPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
 let dir: string;
 let prisma: PrismaClient;
-let modeloBenef: Omit<Beneficiario, "id">;
+let modeloBenef: Omit<Beneficiario, "id" | "chavePublica">;
 const REGIOES = [3, 7, 12, 18, 22, 99] as const;
 const cpfRegiao = (r: number) => completaDv(`7720000${String(r).padStart(2, "0")}`);
 const AGORA = new Date("2026-09-25T15:00:00Z");
@@ -60,8 +60,9 @@ beforeAll(async () => {
   process.env.DATABASE_URL = url;
   await seed(prisma);
   const modelo = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpfComDv(BENEFICIARIOS_SEED[0].base) } });
-  const { id: _id, ...dados } = modelo;
+  const { id: _id, chavePublica: _chave, ...dados } = modelo;
   void _id;
+  void _chave;
   modeloBenef = { ...dados, nis: null };
   for (const r of REGIOES) {
     await prisma.beneficiario.create({ data: { ...dados, nis: null, numCpf: cpfRegiao(r), codRegiao: r } });

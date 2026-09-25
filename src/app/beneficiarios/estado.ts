@@ -5,8 +5,12 @@ export type EstadoAcao = {
   mensagens: string[];
   /** Error por campo (nombre del campo → mensaje), para mostrarlo junto al control. */
   erros?: Record<string, string>;
-  numCpf?: string;
+  /** Clave opaca del beneficiario grabado (H2: los enlaces nunca llevan el CPF). */
+  chavePublica?: string;
   status?: string;
   suspensoPorIdade?: boolean;
   numVersao?: number;
 } | null;
+
+/** Valor de `?benef=` cuando el CPF buscado en la lista no existe (no es una clave válida; H2). */
+export const BENEF_NAO_ENCONTRADO = "nao-encontrado";

@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { alterarBeneficiarioAction } from "@/app/beneficiarios/actions";
+import { alterarBeneficiarioAction, buscarBeneficiariosAction } from "@/app/beneficiarios/actions";
+import { filtrarPagamentosAction } from "@/app/pagamentos/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { alteracaoBeneficiarioSchema, inclusaoBeneficiarioSchema } from "@/domain/beneficiario/cadastro";
 import { completaDv } from "@/domain/cpf";
@@ -13,6 +14,12 @@ import { alterarBeneficiario, incluirBeneficiario, listarBeneficiarios } from "@
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// redirect() do Next lança um erro de controle; aqui só registra o destino.
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn((url: string) => {
+    throw Object.assign(new Error("NEXT_REDIRECT"), { url });
+  }),
+}));
 
 // Casos de uso de beneficiários (story 2.1) contra uma base SQLite temporária.
 
@@ -257,7 +264,7 @@ describe("listarBeneficiarios", () => {
 });
 
 describe("alterarBeneficiarioAction", () => {
-  it("CPF do formulário diferente do CPF da rota → recusado, nada gravado", async () => {
+  it("CPF do formulário diferente do beneficiário da rota → recusado, nada gravado", async () => {
     const antesA = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } });
     const antesB = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S1 } });
     const fd = new FormData();
@@ -275,10 +282,71 @@ describe("alterarBeneficiarioAction", () => {
       numVersao: String(antesB.numVersao),
     };
     for (const [k, v] of Object.entries(campos)) fd.set(k, v);
-    const r = await alterarBeneficiarioAction(CPF_S0, null, fd);
+    // H2: a rota leva a chave opaca de S0; o formulário tenta trocar para o CPF de S1.
+    const chaveS0 = (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 }, select: { chavePublica: true } })).chavePublica;
+    const r = await alterarBeneficiarioAction(chaveS0, null, fd);
     expect(r?.ok).toBe(false);
     expect(r?.erros?.numCpf).toBeTruthy();
     expect(await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } })).toEqual(antesA);
     expect(await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S1 } })).toEqual(antesB);
+  });
+});
+
+// H2 (LGPD): o CPF nunca vai para a URL — rotas e filtros usam a chave opaca.
+describe("H2 — chave opaca nas URLs", () => {
+  const chaveDe = async (cpf: string) =>
+    (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
+  const destino = async (p: Promise<void>) => {
+    const e = await p.then(
+      () => null,
+      (err: unknown) => err as { url?: string },
+    );
+    return e?.url ?? null;
+  };
+  const dados = (campos: Record<string, string>) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(campos)) fd.set(k, v);
+    return fd;
+  };
+  const semCpf = (url: string | null, cpf: string) => {
+    expect(url).not.toBeNull();
+    expect(url).not.toContain(cpf);
+    expect(url).not.toMatch(/\d{11}/);
+  };
+
+  it("busca da lista por CPF (com ou sem máscara) → ?benef=<chave>", async () => {
+    const chave = await chaveDe(CPF_S1);
+    for (const q of [CPF_S1, `${CPF_S1.slice(0, 3)}.${CPF_S1.slice(3, 6)}.${CPF_S1.slice(6, 9)}-${CPF_S1.slice(9)}`]) {
+      const url = await destino(buscarBeneficiariosAction(dados({ q })));
+      semCpf(url, CPF_S1);
+      expect(url).toBe(`/beneficiarios?benef=${chave}`);
+    }
+  });
+
+  it("busca por CPF inexistente → ?benef=nao-encontrado; por nome → ?q=; vazia → lista", async () => {
+    const url = await destino(buscarBeneficiariosAction(dados({ q: CPF_NOVO })));
+    semCpf(url, CPF_NOVO);
+    expect(url).toBe("/beneficiarios?benef=nao-encontrado");
+    expect(await destino(buscarBeneficiariosAction(dados({ q: " maria " })))).toBe("/beneficiarios?q=maria");
+    expect(await destino(buscarBeneficiariosAction(dados({ q: "" })))).toBe("/beneficiarios");
+  });
+
+  it("filtro de pagamentos: CPF → ?benef=<chave>; incompleto/inexistente → marcadores; demais filtros mantidos", async () => {
+    const chave = await chaveDe(CPF_S0);
+    const url = await destino(filtrarPagamentosAction(dados({ cpf: CPF_S0, competencia: "1990-01", programa: "", situacao: "G" })));
+    semCpf(url, CPF_S0);
+    expect(url).toBe(`/pagamentos?benef=${chave}&competencia=1990-01&situacao=G`);
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: "012345" })))).toBe("/pagamentos?benef=cpf-incompleto");
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: CPF_NOVO })))).toBe("/pagamentos?benef=nao-encontrado");
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: "", competencia: "" })))).toBe("/pagamentos");
+  });
+
+  it("alteração com chave inexistente ou com o CPF no lugar da chave → não encontrado, nada gravado", async () => {
+    const antes = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } });
+    for (const chave of [CPF_S0, "00000000-0000-4000-8000-000000000000"]) {
+      const r = await alterarBeneficiarioAction(chave, null, dados({ numCpf: CPF_S0, nomeCompleto: "OUTRO NOME" }));
+      expect(r).toMatchObject({ ok: false, mensagens: ["BENEFICIARIO NAO ENCONTRADO PARA ALTERACAO"] });
+    }
+    expect(await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } })).toEqual(antes);
   });
 });

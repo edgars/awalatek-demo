@@ -2,7 +2,7 @@ import { entradaConsultaSchema } from "@/domain/beneficiario/consulta";
 import { consultarBeneficiario, type ResultadoConsulta } from "@/server/consulta";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 
-// Ejecución común de la consulta (Server Action y carga inicial por `?cpf=`).
+// Ejecución común de la consulta (Server Action y carga inicial por `?benef=`, clave opaca).
 // Solo lectura: CONSBENF no graba ni audita.
 
 export const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";

@@ -267,8 +267,8 @@ export function FormBeneficiario({
       ) : null}
       {estado ? (
         <ResultadoLegado variante={estado.ok ? "sucesso" : "erro"} mensagens={estado.mensagens}>
-          {estado.ok && estado.numCpf && !alteracao ? (
-            <Link href={`/beneficiarios/${estado.numCpf}/editar`} className="font-medium text-primary underline underline-offset-4">
+          {estado.ok && estado.chavePublica && !alteracao ? (
+            <Link href={`/beneficiarios/${estado.chavePublica}/editar`} className="font-medium text-primary underline underline-offset-4">
               Ver/editar beneficiário
             </Link>
           ) : null}

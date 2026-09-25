@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ResultadoLegado } from "@/components/campos";
-import { listarOpcoesProgramas } from "@/server/beneficiarios";
+import { cpfPorChave, listarOpcoesProgramas } from "@/server/beneficiarios";
 import { FormElegibilidade } from "./_componentes/FormElegibilidade";
 
 export const metadata: Metadata = { title: "Elegibilidade" };
@@ -31,8 +31,10 @@ export default async function ElegibilidadePage({
 }) {
   const sp = await searchParams;
   const { programas, falhou } = await carregarProgramas();
-  // Atalho de /consulta: CPF (e programa) pré-preenchidos por query string.
-  const cpf = param(sp.cpf).replace(/\D/g, "").slice(0, 11);
+  // Atalho: beneficiário (e programa) pré-preenchidos por query string. H2 (LGPD): o
+  // beneficiário vem pela chave opaca (`?benef=`), nunca pelo CPF; o CPF é resolvido aqui.
+  const benef = param(sp.benef);
+  const cpf = benef ? ((await cpfPorChave(benef)) ?? "") : "";
   const programa = param(sp.programa).trim().toUpperCase();
   return (
     <div className="grid gap-4">

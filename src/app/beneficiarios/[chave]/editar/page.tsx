@@ -3,24 +3,20 @@ import Link from "next/link";
 import { ResultadoLegado } from "@/components/campos";
 import { MENSAGENS_CADBENEF, MENSAGENS_SISTEMA, statusResultante } from "@/domain/beneficiario/cadastro";
 import { anoDe, hoje } from "@/domain/legacyDate";
-import { listarOpcoesProgramas, obterBeneficiario } from "@/server/beneficiarios";
+import { cpfPorChave, listarOpcoesProgramas, obterBeneficiario } from "@/server/beneficiarios";
 import { ERRO_INESPERADO, lerQuirksServidor } from "@/server/quirksConfig";
 import { alterarBeneficiarioAction } from "../../actions";
 import { FormBeneficiario } from "../../_componentes/FormBeneficiario";
 
 export const metadata: Metadata = { title: "Alterar beneficiário" };
 
-type Props = { params: Promise<{ cpf: string }> };
+type Props = { params: Promise<{ chave: string }> };
 
 /** Pantalla 4.5 — alteração de beneficiário (operação A do legado). */
 export default async function EditarBeneficiarioPage({ params }: Props) {
-  const { cpf: bruto } = await params;
-  let cpf = bruto;
-  try {
-    cpf = decodeURIComponent(bruto);
-  } catch {
-    // escape malformado → valor bruto → não encontrado
-  }
+  // H2 (LGPD): a URL traz a chave opaca; o CPF é resolvido no servidor (chave inválida → não encontrado).
+  const { chave } = await params;
+  const cpf = (await cpfPorChave(chave)) ?? "";
   // LEGACY-QUIRK(D18): el flag decide si la pantalla ofrece el select de situación.
   const quirks = lerQuirksServidor("beneficiarios");
   if (!quirks) {
@@ -53,7 +49,7 @@ export default async function EditarBeneficiarioPage({ params }: Props) {
         <p className="text-sm text-muted-foreground">Cadastro de beneficiário — alteração.</p>
       </div>
       <FormBeneficiario
-        acao={alterarBeneficiarioAction.bind(null, b.numCpf)}
+        acao={alterarBeneficiarioAction.bind(null, b.chavePublica)}
         programas={programas}
         statusBrancoAlteracao={quirks.statusBrancoAlteracao}
         avisoStatusAlteracao={

@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { descricaoSituacaoBeneficiario } from "@/domain/beneficiario/cadastro";
 import { mascaraCpfLista } from "@/domain/cpf";
-import { listarBeneficiarios } from "@/server/beneficiarios";
+import { cpfPorChave, listarBeneficiarios } from "@/server/beneficiarios";
+import { buscarBeneficiariosAction } from "./actions";
 
 export const metadata: Metadata = { title: "Beneficiários" };
 
@@ -39,17 +40,17 @@ const COLUNAS: readonly Coluna<Linha>[] = [
     // Sem ação de excluir: o legado não exclui beneficiários.
     celula: (b) => (
       <span className="flex flex-wrap gap-3 text-sm">
-        <Link href={`/beneficiarios/${b.numCpf}/editar`} className="font-medium text-primary underline-offset-4 hover:underline">
+        {/* LGPD (H2): os links levam a chave opaca, nunca o CPF. */}
+        <Link href={`/beneficiarios/${b.chavePublica}/editar`} className="font-medium text-primary underline-offset-4 hover:underline">
           Editar<span className="sr-only"> {b.nomeCompleto}</span>
         </Link>
-        <Link href={`/beneficiarios/${b.numCpf}/dependentes`} className="font-medium text-primary underline-offset-4 hover:underline">
+        <Link href={`/beneficiarios/${b.chavePublica}/dependentes`} className="font-medium text-primary underline-offset-4 hover:underline">
           Dependentes<span className="sr-only"> {b.nomeCompleto}</span>
         </Link>
-        <Link href={`/beneficiarios/${b.numCpf}/descontos`} className="font-medium text-primary underline-offset-4 hover:underline">
+        <Link href={`/beneficiarios/${b.chavePublica}/descontos`} className="font-medium text-primary underline-offset-4 hover:underline">
           Descontos<span className="sr-only"> {b.nomeCompleto}</span>
         </Link>
-        {/* LGPD: o CPF vai só no href (como em Editar), nunca no texto do link. */}
-        <Link href={`/consulta?cpf=${b.numCpf}`} className="font-medium text-primary underline-offset-4 hover:underline">
+        <Link href={`/consulta?benef=${b.chavePublica}`} className="font-medium text-primary underline-offset-4 hover:underline">
           Consultar<span className="sr-only"> {b.nomeCompleto}</span>
         </Link>
       </span>
@@ -57,12 +58,23 @@ const COLUNAS: readonly Coluna<Linha>[] = [
   },
 ];
 
+function cpfFormatado(cpf: string): string {
+  return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
+}
+
 /** Pantalla 4.4 — lista de beneficiários. */
 export default async function BeneficiariosPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q : "";
   const pagina = Number(typeof sp.pagina === "string" ? sp.pagina : 1) || 1;
-  const r = await listarBeneficiarios({ q, pagina });
+  // H2 (LGPD): a busca por CPF chega como chave opaca (`?benef=`), nunca como CPF na URL.
+  const benef = typeof sp.benef === "string" ? sp.benef : "";
+  const cpfBusca = benef ? await cpfPorChave(benef) : null;
+  const r = benef
+    ? cpfBusca
+      ? await listarBeneficiarios({ q: cpfBusca, pagina })
+      : { itens: [], total: 0, pagina: 1, totalPaginas: 1 }
+    : await listarBeneficiarios({ q, pagina });
 
   return (
     <div className="grid gap-4">
@@ -77,14 +89,23 @@ export default async function BeneficiariosPage({ searchParams }: { searchParams
         colunas={COLUNAS}
         linhas={r.itens}
         chave={(b) => b.numCpf}
-        q={q}
+        q={benef ? "" : q}
+        acaoBusca={buscarBeneficiariosAction}
+        parametros={benef ? { benef } : {}}
+        valorBusca={cpfBusca ? cpfFormatado(cpfBusca) : undefined}
         pagina={r.pagina}
         totalPaginas={r.totalPaginas}
         total={r.total}
         rotuloBusca="Buscar por CPF ou nome"
         vazio={
           <div className="grid justify-items-center gap-3">
-            <p>{q ? `Nenhum beneficiário encontrado para “${q}”.` : "Nenhum beneficiário"}</p>
+            <p>
+              {benef
+                ? "Nenhum beneficiário encontrado para o CPF informado."
+                : q
+                  ? `Nenhum beneficiário encontrado para “${q}”.`
+                  : "Nenhum beneficiário"}
+            </p>
             <Button asChild size="sm">
               <Link href="/beneficiarios/novo">Novo beneficiário</Link>
             </Button>

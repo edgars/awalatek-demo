@@ -148,9 +148,9 @@ export function FormConsulta({ cpfInicial, inicial }: { cpfInicial: string; inic
     iniciar(async () => {
       try {
         setPainel(await consultarBeneficiarioAction(null, dados));
-        // Busca manual: tira o `?cpf=` da chegada pela lista (um reload não deve mostrar o CPF anterior).
+        // Busca manual: tira o `?benef=` da chegada pela lista (um reload não deve mostrar o beneficiário anterior).
         // History API nativa (integrada ao router do Next): router.replace re-renderizaria a página
-        // no servidor e remontaria este formulário (key = cpf), apagando o resultado recém-obtido.
+        // no servidor e remontaria este formulário (key = benef), apagando o resultado recém-obtido.
         if (window.location.search) window.history.replaceState(null, "", "/consulta");
       } catch {
         setPainel({ ok: false, mensagem: ERRO_INESPERADO });

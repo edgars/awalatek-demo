@@ -35,17 +35,25 @@ function falha(mensagem: string): Falha {
   return { ok: false, mensagem };
 }
 
+/**
+ * CPF (11 dígitos) si el término de búsqueda es un CPF exacto (admite máscara); si no, `null`.
+ * CPF solo por coincidencia exacta: una búsqueda parcial, junto con la máscara de la lista,
+ * permitiría enumerar CPFs (LGPD).
+ */
+export function cpfExatoDaBusca(termo: string): string | null {
+  const t = termo.trim();
+  const digitos = t.replace(/\D/g, "");
+  return digitos.length === 11 && /^[\d.\-\s]+$/.test(t) ? digitos : null;
+}
+
 export async function listarBeneficiarios(
   { q = "", pagina = 1 }: { q?: string; pagina?: number } = {},
   db: PrismaClient = prisma,
 ) {
   const termo = q.trim();
-  const digitos = termo.replace(/\D/g, "");
-  // CPF solo por coincidencia exacta de 11 dígitos (admite máscara): una búsqueda
-  // parcial, junto con la máscara de la lista, permitiría enumerar CPFs (LGPD).
-  // Si no, por nombre: en SQLite `contains` = LIKE, que no distingue mayúsculas en ASCII.
-  const cpfExato = digitos.length === 11 && /^[\d.\-\s]+$/.test(termo);
-  const where = !termo ? {} : cpfExato ? { numCpf: { equals: digitos } } : { nomeCompleto: { contains: termo.toUpperCase() } };
+  const cpfExato = cpfExatoDaBusca(termo);
+  // Si no es un CPF exacto, por nombre: en SQLite `contains` = LIKE, que no distingue mayúsculas en ASCII.
+  const where = !termo ? {} : cpfExato ? { numCpf: { equals: cpfExato } } : { nomeCompleto: { contains: termo.toUpperCase() } };
   const total = await db.beneficiario.count({ where });
   const totalPaginas = Math.max(1, Math.ceil(total / TAMANHO_PAGINA));
   const atual = Math.min(Math.max(1, Math.trunc(pagina) || 1), totalPaginas);
@@ -56,6 +64,7 @@ export async function listarBeneficiarios(
     take: TAMANHO_PAGINA,
     select: {
       numCpf: true,
+      chavePublica: true,
       nomeCompleto: true,
       codPrograma: true,
       sitBeneficiario: true,
@@ -72,6 +81,24 @@ export async function listarOpcoesProgramas(db: PrismaClient = prisma) {
     orderBy: { codPrograma: "asc" },
     select: { codPrograma: true, nomePrograma: true },
   });
+}
+
+// H2 (LGPD): las URLs identifican al beneficiario por `chavePublica` (UUID opaco y estable),
+// nunca por el CPF. Estas funciones traducen entre la clave de la URL y el CPF (clave de negocio).
+const FORMATO_CHAVE_PUBLICA = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** CPF del beneficiario de la clave opaca; `null` si el formato es inválido o no existe. */
+export async function cpfPorChave(chave: string, db: PrismaClient = prisma): Promise<string | null> {
+  if (!FORMATO_CHAVE_PUBLICA.test(chave)) return null;
+  const b = await db.beneficiario.findUnique({ where: { chavePublica: chave }, select: { numCpf: true } });
+  return b?.numCpf ?? null;
+}
+
+/** Clave opaca del beneficiario con ese CPF (11 dígitos); `null` si no existe. */
+export async function chavePorCpf(numCpf: string, db: PrismaClient = prisma): Promise<string | null> {
+  if (!/^\d{11}$/.test(numCpf)) return null;
+  const b = await db.beneficiario.findUnique({ where: { numCpf }, select: { chavePublica: true } });
+  return b?.chavePublica ?? null;
 }
 
 export async function obterBeneficiario(numCpf: string, db: PrismaClient = prisma) {
