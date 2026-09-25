@@ -178,7 +178,33 @@ describe("recalcularDescontos", () => {
     expect(r.resumo.vlrTeto).toBe(24000);
     expect(r.resumo.vlrDesconto).toBe(24000);
     expect(r.resumo.descontos.map((d) => d.tetoAplicado)).toEqual([false, true]);
-    expect((await prisma.pagamento.findUniqueOrThrow({ where: { numPagamento: PGTO_MARIA } })).vlrDescontoTotal).toBe(24000);
+    const p = await prisma.pagamento.findUniqueOrThrow({
+      where: { numPagamento: PGTO_MARIA },
+      include: { descontos: { orderBy: { occurrence: "asc" } } },
+    });
+    expect(p.vlrDescontoTotal).toBe(24000);
+    expect(p.vlrLiquido).toBe(LIQUIDO_ORIGINAL);
+    // D14: as linhas guardam o valor próprio de cada item aplicado; com o teto (D2)
+    // a soma delas (310,00) supera o total gravado (240,00).
+    expect(p.descontos.map((d) => [d.occurrence, d.tipoDesconto, d.vlrDesconto])).toEqual([
+      [1, "J", 30000],
+      [2, "A", 1000],
+    ]);
+    expect(p.descontos.reduce((t, d) => t + d.vlrDesconto, 0)).toBeGreaterThan(p.vlrDescontoTotal);
+  });
+
+  it("total acima do limite Int32 → VALOR DE DESCONTO EXCEDE O LIMITE e nada gravado", async () => {
+    await registrar(CPF_MARIA, [
+      { tipoDesconto: "J", vlrDesconto: 2_000_000_000 },
+      { tipoDesconto: "J", vlrDesconto: 2_000_000_000 },
+    ]);
+    expect(await recalcularDescontos(CPF_MARIA, PGTO_MARIA, prisma, AGORA)).toEqual({
+      ok: false,
+      mensagem: "VALOR DE DESCONTO EXCEDE O LIMITE",
+    });
+    const p = await prisma.pagamento.findUniqueOrThrow({ where: { numPagamento: PGTO_MARIA }, include: { descontos: true } });
+    expect(p).toMatchObject({ vlrDescontoTotal: 2400, usrUltAlteracao: "" });
+    expect(p.descontos).toEqual([]);
   });
 
   it("fora de vigência e tipo desconhecido: não aplicados nem gravados, mas listados", async () => {
@@ -222,6 +248,10 @@ describe("recalcularDescontos", () => {
   it("RK-8b1376b9c23d — pagamento inexistente → PAGAMENTO NAO ENCONTRADO", async () => {
     expect(await recalcularDescontos(CPF_MARIA, 999999, prisma, AGORA)).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
     expect(await recalcularDescontos("123", PGTO_MARIA, prisma, AGORA)).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
+    // Fora do Int32: "não encontrado" sem erro do Prisma.
+    for (const n of [0, -1, 2_147_483_648, 1.5, Number.NaN]) {
+      expect(await recalcularDescontos(CPF_MARIA, n, prisma, AGORA)).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
+    }
   });
 });
 

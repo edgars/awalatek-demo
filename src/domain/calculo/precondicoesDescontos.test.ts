@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   MSG_BENEFICIARIO_NAO_ENCONTRADO,
   MSG_PAGAMENTO_NAO_ENCONTRADO,
+  verificarBeneficiario,
+  verificarPagamento,
   verificarPrecondicoesDescontos,
 } from "./precondicoesDescontos";
 
@@ -44,6 +46,13 @@ describe("FR-DSC-01 — precondições do recálculo de descontos", () => {
       mensagem: "BENEFICIARIO NAO ENCONTRADO",
     });
     expect(MSG_BENEFICIARIO_NAO_ENCONTRADO).toBe("BENEFICIARIO NAO ENCONTRADO");
+  });
+
+  it("verificações isoladas (usadas pelo caso de uso na ordem do legado)", () => {
+    expect(verificarPagamento(CPF, { numCpf: CPF })).toEqual({ ok: true });
+    expect(verificarPagamento(CPF, { numCpf: OUTRO })).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
+    expect(verificarBeneficiario(BENEF)).toEqual({ ok: true });
+    expect(verificarBeneficiario(null)).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ENCONTRADO" });
   });
 
   it("rastreabilidade: cita as 3 regras RK com PROG:linha", () => {

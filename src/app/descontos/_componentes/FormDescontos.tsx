@@ -46,6 +46,17 @@ function dataTexto(dt: number): string {
   return `${s.slice(6, 8)}/${s.slice(4, 6)}/${s.slice(0, 4)}`;
 }
 
+/**
+ * Porcentaje que efectivamente usa la regla del tipo (FR-DSC-05): I siempre; J/P/A
+ * solo sin valor fijo; S es 1 % fijo. Valor fijo o tipo desconocido → "—".
+ */
+function pctUsado(d: DescontoResumo): string {
+  if (d.tipoDesconto === "S") return "1,00";
+  if (d.tipoDesconto === "I") return fatorParaTexto(d.pctDesconto);
+  if (["J", "P", "A"].includes(d.tipoDesconto) && d.vlrDesconto <= 0) return fatorParaTexto(d.pctDesconto);
+  return "—";
+}
+
 /** Rótulos del WRITE final de CALCDSCT (literales, sin el relleno de puntos) + contexto del pago. */
 function itensResumo(r: ResumoDescontos): ItemResumo[] {
   return [
@@ -85,7 +96,7 @@ function TabelaDescontos({ descontos }: { descontos: readonly DescontoResumo[] }
                 <span className="font-mono">{d.tipoDesconto}</span> — {ROTULO_TIPO[d.tipoDesconto] ?? "Desconhecido"}
               </TableCell>
               <TableCell className="valor text-right">{d.situacao === "aplicado" ? reais(d.vlrItem) : "—"}</TableCell>
-              <TableCell className="valor text-right">{fatorParaTexto(d.pctDesconto)}</TableCell>
+              <TableCell className="valor text-right">{pctUsado(d)}</TableCell>
               <TableCell className="valor">{dataTexto(d.dtInicioDsct)}</TableCell>
               <TableCell className="valor">{dataTexto(d.dtFimDsct)}</TableCell>
               <TableCell className="font-mono">{d.numProcesso || "—"}</TableCell>
@@ -149,7 +160,8 @@ export function FormDescontos() {
         </CardContent>
       </Card>
 
-      {painel && !painel.ok ? <ResultadoLegado variante="erro" mensagens={[painel.mensagem]} /> : null}
+      {/* Errores de forma ya se muestran junto al campo: el panel solo para los demás. */}
+      {painel && !painel.ok && !painel.campo ? <ResultadoLegado variante="erro" mensagens={[painel.mensagem]} /> : null}
       {painel?.ok ? (
         <>
           <ResumoProcesso titulo={painel.mensagem} itens={itensResumo(painel.resumo)}>

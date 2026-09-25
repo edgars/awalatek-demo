@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { calcularDescontos, type DescontoCadastrado } from "@/domain/calculo/descontos";
-import { verificarPrecondicoesDescontos } from "@/domain/calculo/precondicoesDescontos";
+import { MSG_PAGAMENTO_NAO_ENCONTRADO, verificarBeneficiario, verificarPagamento } from "@/domain/calculo/precondicoesDescontos";
 import { hoje } from "@/domain/legacyDate";
 import { prisma } from "@/server/db";
 
@@ -10,6 +10,14 @@ import { prisma } from "@/server/db";
 // `domain/calculo/descontos.ts`. CALCDSCT no registra auditoría.
 
 export const MSG_DESCONTOS_CALCULADOS = "DESCONTOS CALCULADOS";
+/**
+ * El total no cabe en la columna Int (centavos) del pago. En el legado VLR-DESCONTO
+ * es N9.2 y tampoco cabría; no se graba nada y se informa en claro.
+ */
+export const MSG_DESCONTO_EXCEDE_LIMITE = "VALOR DE DESCONTO EXCEDE O LIMITE";
+
+/** Mayor valor de una columna Int de la base (Int32). */
+const INT32_MAX = 2_147_483_647;
 
 /** Situación de cada descuento registrado del beneficiario en el recálculo. */
 export type SituacaoDesconto = "aplicado" | "ignorado" | "foraDeVigencia";
@@ -20,6 +28,8 @@ export type DescontoResumo = {
   tipoDesconto: string;
   /** Valor sumado al total, en centavos (0 si no se aplicó). */
   vlrItem: number;
+  /** VLR-DSCT registrado (valor fijo), en centavos; 0 = usa el porcentaje. */
+  vlrDesconto: number;
   pctDesconto: string;
   dtInicioDsct: number;
   dtFimDsct: number;
@@ -64,10 +74,17 @@ export async function recalcularDescontos(
   agora: Date = new Date(),
 ): Promise<ResultadoRecalculo> {
   return db.$transaction(async (tx) => {
-    const pagamento = Number.isSafeInteger(numPagamento) ? await tx.pagamento.findUnique({ where: { numPagamento } }) : null;
-    const beneficiario = /^\d{11}$/.test(numCpf) ? await tx.beneficiario.findUnique({ where: { numCpf } }) : null;
-    const pre = verificarPrecondicoesDescontos({ numCpf, pagamento, beneficiario });
-    if (!pre.ok) return { ok: false, mensagem: pre.mensagem } as const;
+    // Orden del legado: primero el pago (CALCDSCT:75/:82), luego el beneficiario (:91).
+    // Fuera del rango Int32 no hay pago posible: "no encontrado" sin consultar.
+    if (!Number.isInteger(numPagamento) || numPagamento < 1 || numPagamento > INT32_MAX) {
+      return { ok: false, mensagem: MSG_PAGAMENTO_NAO_ENCONTRADO } as const;
+    }
+    const pagamento = await tx.pagamento.findUnique({ where: { numPagamento } });
+    const prePagamento = verificarPagamento(numCpf, pagamento);
+    if (!prePagamento.ok) return { ok: false, mensagem: prePagamento.mensagem } as const;
+    const beneficiario = await tx.beneficiario.findUnique({ where: { numCpf } });
+    const preBeneficiario = verificarBeneficiario(beneficiario);
+    if (!preBeneficiario.ok) return { ok: false, mensagem: preBeneficiario.mensagem } as const;
     if (!pagamento || !beneficiario) throw new Error("precondições inconsistentes");
     const usuario = usuarioOperativo();
     const { data, hora } = hoje(agora);
@@ -87,6 +104,7 @@ export async function recalcularDescontos(
       numProcesso: d.numProcesso,
     }));
     const r = calcularDescontos({ vlrBruto: pagamento.vlrBruto, descontos: cadastrados, dtHoje: data });
+    if (r.vlrTotal > INT32_MAX) return { ok: false, mensagem: MSG_DESCONTO_EXCEDE_LIMITE } as const;
     const aplicados = r.itens.filter((i) => i.aplicado);
 
     // LEGACY-QUIRK(D13): solo se actualiza el descuento del pago; vlrLiquido NO se recalcula.
@@ -94,7 +112,11 @@ export async function recalcularDescontos(
       where: { id: pagamento.id },
       data: { vlrDescontoTotal: r.vlrTotal, dtUltAlteracao: data, hrUltAlteracao: hora, usrUltAlteracao: usuario },
     });
-    // LEGACY-QUIRK(D14): los descuentos aplicados van a PagamentoDesconto (reemplazo completo).
+    // LEGACY-QUIRK(D14): CALCDSCT no graba detalle por ítem (solo UPDATE PAGAMENTO-V.VLR-DESCONTO).
+    // Las filas PagamentoDesconto son el detalle del modelo nuevo: una por descuento
+    // APLICADO, con el valor propio de cada ítem (#VLR-DSCT-ITEM) y reemplazo completo.
+    // Por eso, cuando el tope del 30 % recorta el total (D2), la suma de las filas puede
+    // superar vlrDescontoTotal: el total del pago es el valor legado, las filas no.
     await tx.pagamentoDesconto.deleteMany({ where: { pagamentoId: pagamento.id } });
     if (aplicados.length > 0) {
       await tx.pagamentoDesconto.createMany({
@@ -118,6 +140,7 @@ export async function recalcularDescontos(
         occurrence: d.occurrence,
         tipoDesconto: d.tipoDesconto,
         vlrItem: p?.vlrItem ?? 0,
+        vlrDesconto: d.vlrDesconto,
         pctDesconto: d.pctDesconto,
         dtInicioDsct: d.dtInicioDsct,
         dtFimDsct: d.dtFimDsct,
