@@ -100,9 +100,14 @@ export function descricaoStatus(status: string): string {
   }
 }
 
+/** Código de programa (String(4)) sin espacios y en mayúsculas — semántica de campo A. */
+export function normalizarCodPrograma(cod: string): string {
+  return String(cod ?? "").trim().toUpperCase();
+}
+
 /** Filtro de programa: vacío o "0" (`#COD-PROG-FILTRO = 0`) = todos. */
 export function normalizarFiltroPrograma(programa: string): string {
-  const p = String(programa ?? "").trim().toUpperCase();
+  const p = normalizarCodPrograma(programa);
   return p === "" || /^0+$/.test(p) ? "" : p;
 }
 
@@ -153,16 +158,24 @@ export function montarRelatorioPagamentos(filas: readonly PagamentoLido[], filtr
     if (sub) linhas.push(sub);
   };
 
-  for (const p of ordenarLeitura(filas)) {
+  // El código de programa se normaliza una sola vez: filtro, orden y corte usan el mismo valor.
+  const lidas = filas.map((p) => ({ ...p, codPrograma: normalizarCodPrograma(p.codPrograma) }));
+
+  for (const p of ordenarLeitura(lidas)) {
     // READ … BY COMPETENCIA = #COMP-INI: la lectura empieza en la competencia inicial.
     if (p.anoMesRef < filtros.compIni) continue;
     // RK-c1a8ff5dbe7b (RELPGT:83) — IF COMPETENCIA > #COMP-FIM → ESCAPE BOTTOM.
     if (p.anoMesRef > filtros.compFim) break;
     // RK-5a5f1426d63d (RELPGT:87) — IF #COD-PROG-FILTRO NE 0 AND COD-PROGRAMA NE filtro → ESCAPE TOP.
-    if (filtroPrograma !== "" && p.codPrograma.trim().toUpperCase() !== filtroPrograma) continue;
+    if (filtroPrograma !== "" && p.codPrograma !== filtroPrograma) continue;
 
     // RK-7c5773e59cfe (RELPGT:93) — IF COD-PROGRAMA NE #PROG-ANT AND #PROG-ANT NE 0 →
-    // IMPRIME-SUBTOTAL y zera acumuladores (corte entre registros consecutivos).
+    // IMPRIME-SUBTOTAL y zera acumuladores. El corte es entre registros CONSECUTIVOS en el
+    // orden de lectura, no un agrupamiento global: se emite un subtotal por cada tramo
+    // contiguo, así que un mismo programa puede tener varios subtotales (p. ej. P2 en una
+    // competencia, P1, y P2 otra vez en la siguiente). Se replica tal cual el legado.
+    // TODO(review): el orden secundario dentro de la competencia (ver ordenarLeitura) define
+    // dónde caen esos cortes; confirmar con negocio.
     if (progAnt !== null && p.codPrograma !== progAnt) {
       fecharSubtotal();
       sub = null;
@@ -206,18 +219,28 @@ const texto = z
   .union([z.string(), z.array(z.string()), z.undefined()])
   .transform((v) => (Array.isArray(v) ? (v[0] ?? "") : (v ?? "")).trim());
 
-/** `AAAAMM` o `AAAA-MM` → AAAAMM; otro → 0 (no informado). */
-const competencia = texto.transform((v) => {
+export const MENSAGENS_RELATORIO_PAGAMENTOS = {
+  competenciaAusente: "Informe a competência inicial e a final.",
+  competenciaInvalida: "Competência inválida.",
+  periodoInvertido: "Competência inicial maior que a final.",
+  programaInvalido: "Programa inválido.",
+  vazio: "Nenhum pagamento no período",
+} as const;
+
+/** `AAAAMM` o `AAAA-MM` → AAAAMM; ausente → 0; presente pero inválida → `null`. */
+const competencia = texto.transform((v): number | null => {
+  if (v === "") return 0;
   const m = /^([1-9]\d{3})-?(0[1-9]|1[0-2])$/.exec(v);
-  return m ? Number(`${m[1]}${m[2]}`) : 0;
+  return m ? Number(`${m[1]}${m[2]}`) : null;
 });
 
 export const filtrosRelatorioPagamentosSchema = z.object({
   compIni: competencia,
   compFim: competencia,
-  programa: texto.transform((v) => {
+  /** "" = todos; `null` = informado pero inválido. */
+  programa: texto.transform((v): string | null => {
     const c = normalizarFiltroPrograma(v);
-    return /^[A-Z0-9]{1,4}$/.test(c) ? c : "";
+    return c === "" || /^[A-Z0-9]{1,4}$/.test(c) ? c : null;
   }),
   pagina: texto.transform((v) => {
     const n = Math.trunc(Number(v));
@@ -236,4 +259,24 @@ export function lerFiltrosRelatorioPagamentos(sp: Record<string, string | string
     pagina: sp.pagina,
     impressao: sp.impressao,
   });
+}
+
+export type ValidacaoFiltros =
+  | { ok: true; filtros: FiltrosRelatorioPagamentos }
+  | { ok: false; erros: { compIni?: string; compFim?: string; programa?: string }; aviso?: string };
+
+/**
+ * Decide si el informe se puede generar. Ausente → aviso (informe no solicitado);
+ * competência o programa inválidos → error en el campo; período invertido → error.
+ */
+export function validarFiltrosRelatorioPagamentos(f: FiltrosTelaRelatorioPagamentos): ValidacaoFiltros {
+  const M = MENSAGENS_RELATORIO_PAGAMENTOS;
+  const erros: { compIni?: string; compFim?: string; programa?: string } = {};
+  if (f.compIni === null) erros.compIni = M.competenciaInvalida;
+  if (f.compFim === null) erros.compFim = M.competenciaInvalida;
+  if (f.programa === null) erros.programa = M.programaInvalido;
+  if (Object.keys(erros).length > 0) return { ok: false, erros };
+  if (!f.compIni || !f.compFim) return { ok: false, erros: {}, aviso: M.competenciaAusente };
+  if ((f.compIni as number) > (f.compFim as number)) return { ok: false, erros: { compIni: M.periodoInvertido } };
+  return { ok: true, filtros: { compIni: f.compIni as number, compFim: f.compFim as number, programa: f.programa as string } };
 }

@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { ERRO_INESPERADO, falhaInesperada } from "@/app/relatorios/pagamentos/falha";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/server/db";
 import { relatorioPagamentos } from "@/server/relatorios";
@@ -53,6 +54,24 @@ beforeEach(async () => {
 });
 
 const ANO_2011 = { compIni: 201101, compFim: 201112, programa: "" };
+
+describe("falhaInesperada (relatório de pagamentos)", () => {
+  it("devolve a mensagem genérica e só registra nome e código do erro, sem CPF", () => {
+    const erro = Object.assign(new Error(`falha na consulta numCpf = ${CPF_A}`), { name: "PrismaClientKnownRequestError", code: "P2025" });
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(falhaInesperada("relatorio", erro)).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
+      expect(spy).toHaveBeenCalledTimes(1);
+      const args = JSON.stringify(spy.mock.calls[0]);
+      expect(args).toContain("PrismaClientKnownRequestError");
+      expect(args).toContain("P2025");
+      expect(args).not.toContain(CPF_A);
+      expect(args).not.toContain("falha na consulta");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
 
 describe("relatorioPagamentos", () => {
   it("lê o período em ordem competência → programa → nº, com corte, nome, UF e máscara", async () => {

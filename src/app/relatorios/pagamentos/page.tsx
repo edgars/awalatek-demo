@@ -3,7 +3,13 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { ResultadoLegado } from "@/components/campos";
 import { Button } from "@/components/ui/button";
-import { lerFiltrosRelatorioPagamentos, TITULO_RELATORIO_PAGAMENTOS, type FiltrosTelaRelatorioPagamentos } from "@/domain/relatorios/pagamentos";
+import {
+  lerFiltrosRelatorioPagamentos,
+  MENSAGENS_RELATORIO_PAGAMENTOS,
+  TITULO_RELATORIO_PAGAMENTOS,
+  validarFiltrosRelatorioPagamentos,
+  type FiltrosRelatorioPagamentos,
+} from "@/domain/relatorios/pagamentos";
 import { listarOpcoesProgramas } from "@/server/beneficiarios";
 import { relatorioPagamentos } from "@/server/relatorios";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
@@ -17,7 +23,7 @@ export const metadata: Metadata = { title: "Relatório de pagamentos" };
 type SearchParams = Record<string, string | string[] | undefined>;
 
 /** URL del informe con los filtros vigentes (ya validados). */
-function hrefRelatorio(f: FiltrosTelaRelatorioPagamentos, extra: { pagina?: number; impressao?: boolean } = {}): string {
+function hrefRelatorio(f: FiltrosRelatorioPagamentos, extra: { pagina?: number; impressao?: boolean } = {}): string {
   const q = new URLSearchParams();
   q.set("compIni", String(f.compIni));
   q.set("compFim", String(f.compFim));
@@ -27,9 +33,9 @@ function hrefRelatorio(f: FiltrosTelaRelatorioPagamentos, extra: { pagina?: numb
   return `/relatorios/pagamentos?${q.toString()}`;
 }
 
-async function carregar(f: FiltrosTelaRelatorioPagamentos) {
+async function carregar(f: FiltrosRelatorioPagamentos) {
   try {
-    return { ok: true as const, relatorio: await relatorioPagamentos({ compIni: f.compIni, compFim: f.compFim, programa: f.programa }) };
+    return { ok: true as const, relatorio: await relatorioPagamentos(f) };
   } catch (e) {
     return falhaInesperada("relatorio", e);
   }
@@ -62,9 +68,9 @@ function PaginaLink({ href, ativo, children }: { href: string; ativo: boolean; c
 
 /** Pantalla 4.18 — Relatório de pagamentos (RELPGT). Solo lectura. */
 export default async function RelatorioPagamentosPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const f = lerFiltrosRelatorioPagamentos(await searchParams);
-  const informado = f.compIni > 0 && f.compFim > 0;
-  const [r, programas] = await Promise.all([informado ? carregar(f) : Promise.resolve(null), carregarProgramas()]);
+  const tela = lerFiltrosRelatorioPagamentos(await searchParams);
+  const v = validarFiltrosRelatorioPagamentos(tela);
+  const [r, programas] = await Promise.all([v.ok ? carregar(v.filtros) : Promise.resolve(null), carregarProgramas()]);
 
   return (
     <div className="grid gap-4">
@@ -73,38 +79,47 @@ export default async function RelatorioPagamentosPage({ searchParams }: { search
         <p className="text-sm text-muted-foreground">Relatório analítico por período, com subtotal por programa e total geral. Somente leitura.</p>
       </div>
 
-      <Filtros f={f} programas={programas} />
+      <Filtros f={tela} erros={v.ok ? {} : v.erros} programas={programas} />
 
-      {r === null ? (
-        <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">Informe a competência inicial e a final.</div>
+      {!v.ok || r === null ? (
+        !v.ok && v.aviso ? (
+          <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">{v.aviso}</div>
+        ) : null
       ) : !r.ok ? (
         <ResultadoLegado variante="erro" mensagens={[r.mensagem]} />
-      ) : f.impressao ? (
+      ) : tela.impressao ? (
         <>
           <div className="flex items-center justify-between gap-2 print:hidden">
             <Button asChild variant="outline">
-              <Link href={hrefRelatorio(f)}>Voltar ao relatório</Link>
+              <Link href={hrefRelatorio(v.filtros)}>Voltar ao relatório</Link>
             </Button>
             <BotaoImprimir />
           </div>
           <VersaoImpressao
             paginas={r.relatorio.paginas}
             total={r.relatorio.total}
-            compIni={f.compIni}
-            compFim={f.compFim}
+            compIni={v.filtros.compIni}
+            compFim={v.filtros.compFim}
             data={r.relatorio.dataEmissao}
           />
         </>
       ) : (
-        <TelaRelatorio f={f} relatorio={r.relatorio} />
+        <TelaRelatorio f={v.filtros} paginaPedida={tela.pagina} relatorio={r.relatorio} />
       )}
     </div>
   );
 }
 
-function TelaRelatorio({ f, relatorio }: { f: FiltrosTelaRelatorioPagamentos; relatorio: Awaited<ReturnType<typeof relatorioPagamentos>> }) {
+function TelaRelatorio({
+  f,
+  paginaPedida,
+  relatorio,
+}: {
+  f: FiltrosRelatorioPagamentos;
+  paginaPedida: number;
+  relatorio: Awaited<ReturnType<typeof relatorioPagamentos>> }) {
   const totalPaginas = relatorio.paginas.length;
-  const pagina = Math.min(f.pagina, Math.max(1, totalPaginas));
+  const pagina = Math.min(paginaPedida, Math.max(1, totalPaginas));
   const linhas = relatorio.paginas[pagina - 1] ?? [];
   return (
     <>
@@ -118,7 +133,7 @@ function TelaRelatorio({ f, relatorio }: { f: FiltrosTelaRelatorioPagamentos; re
       </div>
 
       {linhas.length === 0 ? (
-        <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">Nenhum pagamento no período</div>
+        <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">{MENSAGENS_RELATORIO_PAGAMENTOS.vazio}</div>
       ) : (
         <div className="rounded-lg border bg-card">
           <TabelaRelatorio linhas={linhas} rotulo="Relatório de pagamentos" />

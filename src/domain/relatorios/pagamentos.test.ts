@@ -3,8 +3,11 @@ import {
   descricaoStatus,
   descricaoTipo,
   lerFiltrosRelatorioPagamentos,
+  MENSAGENS_RELATORIO_PAGAMENTOS,
   montarRelatorioPagamentos,
+  normalizarCodPrograma,
   normalizarFiltroPrograma,
+  validarFiltrosRelatorioPagamentos,
   paginarRelatorioPagamentos,
   TITULO_RELATORIO_PAGAMENTOS,
   type LinhaRelatorio,
@@ -142,7 +145,7 @@ describe("RELPGT — paginação (FR-REL-04)", () => {
 });
 
 describe("filtros da tela", () => {
-  it("competências AAAA-MM ou AAAAMM; inválidas → 0; programa 0 → todos", () => {
+  it("competências AAAA-MM ou AAAAMM; ausentes → 0; inválidas → null; programa 0 → todos", () => {
     expect(lerFiltrosRelatorioPagamentos({ compIni: "2011-01", compFim: "201112", programa: "0", pagina: "2" })).toEqual({
       compIni: 201101,
       compFim: 201112,
@@ -151,12 +154,40 @@ describe("filtros da tela", () => {
       impressao: false,
     });
     expect(lerFiltrosRelatorioPagamentos({ compIni: "2011-13", compFim: ["x"], programa: "pa01", pagina: "-1", impressao: "1" })).toEqual({
-      compIni: 0,
-      compFim: 0,
+      compIni: null,
+      compFim: null,
       programa: "PA01",
       pagina: 1,
       impressao: true,
     });
-    expect(lerFiltrosRelatorioPagamentos({ programa: "<script>" }).programa).toBe("");
+    expect(lerFiltrosRelatorioPagamentos({})).toMatchObject({ compIni: 0, compFim: 0, programa: "" });
+    expect(lerFiltrosRelatorioPagamentos({ programa: "<script>" }).programa).toBeNull();
+    expect(lerFiltrosRelatorioPagamentos({ programa: "ABCDE" }).programa).toBeNull();
+  });
+
+  const validar = (sp: Record<string, string>) => validarFiltrosRelatorioPagamentos(lerFiltrosRelatorioPagamentos(sp));
+
+  it("validação: ausente → aviso; inválida → erro no campo; período invertido; programa inválido", () => {
+    const M = MENSAGENS_RELATORIO_PAGAMENTOS;
+    expect(validar({})).toEqual({ ok: false, erros: {}, aviso: M.competenciaAusente });
+    expect(validar({ compIni: "201101" })).toEqual({ ok: false, erros: {}, aviso: M.competenciaAusente });
+    expect(validar({ compIni: "2011-13", compFim: "201101" })).toEqual({ ok: false, erros: { compIni: M.competenciaInvalida } });
+    expect(validar({ compIni: "201101", compFim: "abc" })).toEqual({ ok: false, erros: { compFim: M.competenciaInvalida } });
+    expect(validar({ compIni: "201112", compFim: "201101" })).toEqual({ ok: false, erros: { compIni: M.periodoInvertido } });
+    expect(validar({ compIni: "201101", compFim: "201112", programa: "!!" })).toEqual({ ok: false, erros: { programa: M.programaInvalido } });
+    expect(validar({ compIni: "201101", compFim: "201101", programa: "pa01" })).toEqual({
+      ok: true,
+      filtros: { compIni: 201101, compFim: 201101, programa: "PA01" },
+    });
+    expect(M.periodoInvertido).toBe("Competência inicial maior que a final.");
+    expect(M.competenciaInvalida).toBe("Competência inválida.");
+    expect(M.programaInvalido).toBe("Programa inválido.");
+  });
+
+  it("código de programa normalizado uma vez: filtro, ordem e corte usam o mesmo valor", () => {
+    const r = montarRelatorioPagamentos([pg({ codPrograma: "p1 " }), pg({ codPrograma: "P1" }), pg({ codPrograma: " P1" })], { ...ANO_2011, programa: "p1" });
+    expect(r.total.qtd).toBe(3);
+    expect(r.linhas.filter((l) => l.tipo === "subtotal")).toEqual([{ tipo: "subtotal", codPrograma: "P1", qtd: 3, bruto: 30000, liquido: 27000 }]);
+    expect(normalizarCodPrograma(" pa01 ")).toBe("PA01");
   });
 });

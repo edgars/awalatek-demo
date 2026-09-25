@@ -144,6 +144,56 @@ test("versão para impressão: todas as páginas com o cabeçalho literal", asyn
   await expect(page).not.toHaveURL(/impressao=1/);
 });
 
+test("página além do fim → última página", async ({ page }) => {
+  await page.goto("/relatorios/pagamentos?compIni=199301&compFim=199302&pagina=99");
+  await expect(page.getByText("61 pagamentos · página 2 de 2")).toBeVisible();
+  await expect(subtotais(page)).toHaveCount(1);
+  await expect(subtotais(page)).toContainText("SUBTOTAL PROGRAMA: PT01 · QTD: 56");
+});
+
+test("Limpar zera os campos e volta ao aviso", async ({ page }) => {
+  await page.goto("/relatorios/pagamentos");
+  await gerar(page, "1993-01", "1993-02", "PP01");
+  await expect(subtotais(page)).toHaveCount(1);
+  await page.getByRole("link", { name: "Limpar" }).click();
+  await expect(page).toHaveURL(/\/relatorios\/pagamentos$/);
+  await expect(page.getByText("Informe a competência inicial e a final.")).toBeVisible();
+  await expect(page.getByLabel("Competência inicial")).toHaveValue("");
+  await expect(page.getByLabel("Competência final")).toHaveValue("");
+  await expect(page.getByLabel("Programa")).toHaveValue("");
+  await expect(page.getByTestId("total-geral")).toHaveCount(0);
+});
+
+test("validação dos filtros: período invertido, competência e programa inválidos", async ({ page }) => {
+  await page.goto("/relatorios/pagamentos?compIni=199302&compFim=199301");
+  await expect(page.getByText("Competência inicial maior que a final.")).toBeVisible();
+  await expect(page.getByText("Informe a competência inicial e a final.")).toHaveCount(0);
+  await expect(page.getByText("Nenhum pagamento no período")).toHaveCount(0);
+  await expect(page.getByTestId("total-geral")).toHaveCount(0);
+
+  await page.goto("/relatorios/pagamentos?compIni=1993-13&compFim=199301");
+  await expect(page.getByText("Competência inválida.")).toHaveCount(1);
+  await expect(page.getByText("Informe a competência inicial e a final.")).toHaveCount(0);
+  await expect(page.getByTestId("total-geral")).toHaveCount(0);
+
+  await page.goto("/relatorios/pagamentos?compIni=199301&compFim=199301&programa=%21%21");
+  await expect(page.getByText("Programa inválido.")).toBeVisible();
+  await expect(page.getByTestId("total-geral")).toHaveCount(0);
+
+  // Código válido mas fora da lista: vira opção extra e o select reflete o filtro.
+  await page.goto("/relatorios/pagamentos?compIni=199301&compFim=199301&programa=ZZ99");
+  await expect(page.getByLabel("Programa")).toHaveValue("ZZ99");
+  await expect(page.getByText("Nenhum pagamento no período")).toBeVisible();
+});
+
+test("versão para impressão de período vazio mostra o estado vazio", async ({ page }) => {
+  await page.goto("/relatorios/pagamentos?compIni=199303&compFim=199303&impressao=1");
+  const versao = page.getByTestId("versao-impressao");
+  await expect(versao.getByText("Nenhum pagamento no período")).toBeVisible();
+  await expect(versao.getByTestId("cabecalho-relatorio")).toHaveCount(0);
+  await expect(versao.getByTestId("total-geral")).toContainText("TOTAL GERAL QTD:0");
+});
+
 test("período sem pagamentos: estado vazio e totais zero; somente leitura", async ({ page }) => {
   await page.goto("/relatorios/pagamentos?compIni=199303&compFim=199303");
   await expect(page.getByText("Nenhum pagamento no período")).toBeVisible();
