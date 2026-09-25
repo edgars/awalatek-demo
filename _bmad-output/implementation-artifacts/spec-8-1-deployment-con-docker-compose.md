@@ -2,14 +2,19 @@
 title: 'Story 8.1 — Deployment con docker-compose'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '9f266bb'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/docs/architecture.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: Reducir la imagen (627 MB, mayormente dependencias del CLI de Prisma necesarias para `migrate deploy`).
+    evidence: Medido en el smoke; recortar exige podar archivos dentro de paquetes.
+  - summary: Nombre de volumen fijo `sifap-data` compartido por proyectos compose del mismo host salvo `SIFAP_VOLUME`.
+    evidence: Elegido para que backup/restore del README apunten siempre al volumen correcto.
 ---
 
 <intent-contract>
@@ -74,8 +79,27 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 34 findings — high 0, medium 2, low 18, false 14, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (blind/verif/edge) `npm start` standalone fuera de Docker hacía `chdir` a `.next/standalone` y abría otro SQLite — `start` vuelve a `next start`; standalone solo en la imagen (assets copiados en el Dockerfile, sin `.env` dentro)
+  - `[medium]` `[patch]` `next build` exigía base de datos — `await connection()` en `/beneficiarios/novo` y `/lote`; eliminado el workaround `/tmp/build.db`; build verificado sin `DATABASE_URL`
+  - `[low]` `[patch]` ×9 — `.dockerignore` `.env*` (salvo ejemplo), volumen con nombre fijo + backup/restore seguros (app detenida, vaciar `-wal/-shm`, uid 1000), cron con `-T` y log, `SKIP_MIGRATIONS`, `restart: on-failure:5`, healthcheck con `PORT` y 60 s, `scripts/docker-smoke.sh` repetible (200 + asset estático + seed + lote + migración inválida + persistencia), lista `docker/cli-deps.json` verificada por test con metafile de esbuild y validada en el build, entrypoint con chequeo de escritura en `/data`, comando por defecto y `flock` en migraciones, test de variables con desestructuración y variables de compose/entrypoint
+  - `[low]` `[defer]` ×2 — tamaño de imagen, volumen compartido entre proyectos
+  - `[low]` `[reject]` ×7 — healthcheck sobre ruta sin base (se mantiene `/`), etc.
+  - `[false]` `[reject]` ×14 — criterios de runtime sin evidencia (verificados con Docker real y ahora con script repetible), etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3234 npx playwright test` -- expected: todo en verde
 - `docker compose -p sifap-8-1 up --build -d` + `curl -f` + lote en el contenedor + `down`/`up` -- expected: OK
+
+## Auto Run Result
+
+- **Resumen:** despliegue docker-compose (ADR-007): imagen multi-stage Node 24 con Next.js standalone, usuario no root, servicio único `app`, SQLite en volumen `sifap-data` (`/data/sifap.db`), `prisma migrate deploy` al arrancar (con candado), lote y seed empaquetados con esbuild (`docker compose run --rm app npm run lote:pagamentos`), `.env.example` completo verificado por test, README de despliegue, `scripts/docker-smoke.sh`.
+- **Implementado en paralelo** (worktree); integrado por merge.
+- **Review:** 34 hallazgos — 11 patches (2 `medium`), 2 diferidos, 21 rechazados.
+- **Follow-up review recomendado:** `false`.
+- **Verificación (tras merge, `main` final):** lint 0; `npm test` 769/769; build OK (también sin `DATABASE_URL`); e2e 79/79 (×3); `scripts/docker-smoke.sh sifap-final 3301` OK (imagen 627 MB, HTTP 200 + assets, seed, lote exit 0, migración inválida exit ≠ 0, persistencia tras down/up) y limpieza completa.
+

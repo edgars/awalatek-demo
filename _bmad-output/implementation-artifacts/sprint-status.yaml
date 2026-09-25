@@ -78,6 +78,6 @@ development_status:
   7-3-informe-de-auditoría: done
   epic-7-retrospective: optional
 
-  epic-8: backlog
-  8-1-deployment-con-docker-compose: ready-for-dev
+  epic-8: done
+  8-1-deployment-con-docker-compose: done
   epic-8-retrospective: optional
