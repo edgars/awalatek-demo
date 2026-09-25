@@ -2,14 +2,23 @@
 title: 'Story 6.1 — Conciliación de retorno CNAB 240'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'e6dbeb9'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-6-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: Candado de conciliación entre procesos (fila de control en la base) en lugar de un flag en memoria.
+    evidence: El candado vive en globalThis; réplicas standalone o CLI no lo ven.
+  - summary: Identidad del operador y autorización en la conciliación disparada desde la web.
+    evidence: Toda la auditoría se graba como `BATCH`; no hay control de acceso (auth fuera de alcance).
+  - summary: Validación del header CNAB 240 (banco 001, archivo de retorno, competencia del archivo vs. la informada).
+    evidence: Solo se validan extensión y tamaño; un archivo equivocado produce "NAO ENCONTRADO" o 0 conciliados sin error claro.
+  - summary: Rendimiento con archivos cercanos al límite (~21k líneas): una transacción por registro dentro de una Server Action.
+    evidence: Sin progreso visible ni protección de timeout de la solicitud.
 ---
 
 <intent-contract>
@@ -82,7 +91,27 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 38 findings — high 0, medium 2, low 18, false 18, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (blind/edge) upload decodificado como UTF-8 desplazaba posiciones fijas con bytes Latin-1 — `decodificarArquivo` Latin-1 con tests de acentos antes de las columnas 44/120/231
+  - `[medium]` `[patch]` (blind) fecha de pago DDMMAAAA grabada sin conversión con fixtures inconsistentes — marcado `LEGACY-QUIRK(D23)` + `TODO(review)`; fixtures DDMMAAAA
+  - `[low]` `[patch]` ×7 — resumen parcial ante error inesperado + revalidación, split CR/LF/CRLF con líneas vacías solo al final descartadas, límite de 5 MB en una sola constante con chequeo en cliente y e2e de ~2 MB (prueba `bodySizeLimit`), fieldset deshabilitado y foco en la confirmación, validación AAAAMMDD/HHMMSS del momento de auditoría, rótulo COMPETENCIA en el dominio + test de pago repetido en el archivo, `TODO(review)` de re-ejecución del mismo archivo
+  - `[low]` `[defer]` ×4 — candado entre procesos, identidad del operador, validación del header CNAB, rendimiento con archivos grandes
+  - `[low]` `[reject]` ×5 — mensajes literales con CPF completo en pantalla (NFR-04), limpieza de su propia auditoría en `e2e.db`, keys por índice, etc.
+  - `[false]` `[reject]` ×18 — código desconocido cuenta como conciliado y audita CO (extracto BATCHCON), una transacción por registro (arquitectura §5), sin evidencia de `getRule` (`rk-verification.md`), etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3230 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** conciliación de retorno CNAB 240 (BATCHCON, 9 RK) en `/conciliacao`: parser por posiciones (Latin-1), correspondencia por nº/CPF/competencia, divergencia estricta > 0,01 con auditoría DV, actualización por código 00/01/02 con auditoría CO, una transacción por registro, momento de auditoría único por corrida (extensión de `registrarEvento`), candado en proceso, resumen literal y tablas con CPF enmascarado.
+- **Implementado en paralelo** (worktree); integrado por merge (conflicto trivial en `navegacao.ts`).
+- **Review:** 38 hallazgos — 9 patches (2 `medium`), 4 diferidos, 23 rechazados.
+- **Follow-up review recomendado:** `true` — reconciliar dos veces el mismo archivo re-aplica y re-audita (como el legado); candado solo en proceso.
+- **Verificación (tras merge):** lint 0; `npm test` 721/721; build OK; e2e 71/71 (×3).
+- **Pendiente de negocio:** D23 — `dtPagamento` puede quedar en DDMMAAAA (formato del banco) mientras el resto del modelo usa AAAAMMDD.
+
