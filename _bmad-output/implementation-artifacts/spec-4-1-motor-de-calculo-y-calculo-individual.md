@@ -2,14 +2,22 @@
 title: 'Story 4.1 — Cálculo individual de beneficio'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '5a787f9'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      usuarioOperativo() duplicado en programas, beneficiarios, calculo (y variante en auditoria).
+    evidence: |-
+      Cuatro copias de la misma lógica (SIFAP_USER cortado a 8); una divergencia haría que distintas pantallas graben usuarios distintos. Extraer a src/server/usuario.ts tras integrar la ola paralela.
+    location: >-
+      src/server/*.ts
+    severity: low
 ---
 
 <intent-contract>
@@ -76,6 +84,40 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 30 findings — high 0, medium 5, low 17, false 8, maybe-false 0
+- findings:
+  - `[low]` `[reject]` (blind) enlace a `/pagamentos/[num]` inexistente — lo implementa la historia 4.4 de la misma ola; se integra antes del cierre de la épica
+  - `[false]` `[reject]` (blind) 13.º mostrado pero no grabado — CALCBENF tampoco lo graba (solo VLR-ABONO); el esquema replica el legado
+  - `[medium]` `[patch]` (blind) `SIFAP_USER` ausente oculta los mensajes de dominio — el usuario se resuelve solo al grabar
+  - `[low]` `[defer]` (blind) `usuarioOperativo` triplicado — refactor transversal a ramas paralelas; se hace tras integrar la ola
+  - `[medium]` `[patch]` (blind) reintento P2002 sin test — tests de 1 fallo y de 3 fallos
+  - `[low]` `[patch]` (blind) errores de zod no llegan a los campos — campo devuelto en el estado
+  - `[low]` `[reject]` (blind) `FormCalculo` no usa `useAcaoFormulario` / `ERRO_INESPERADO` duplicado — patrón de pantalla de proceso de 2.2/2.3
+  - `[low]` `[reject]` (blind) `competenciaTexto` duplica lógica — cosmético
+  - `[low]` `[patch]` (blind) import duplicado en `conversao.test.ts` — unificado
+  - `[low]` `[reject]` (blind) RK-46191b29bce5 no registrada en el test de trazabilidad — ya citada y verificada en `motor.ts`
+  - `[false]` `[reject]` (blind) etiqueta "Cálculo individual" vs spec — es la etiqueta del mapa de EXPERIENCE §1
+  - `[low]` `[reject]` (blind) resultado anterior visible durante el nuevo cálculo — cosmético
+  - `[low]` `[reject]` (blind) chequeo de formato de CPF duplicado con mensajes distintos — la acción valida con zod; el servidor es defensa
+  - `[false]` `[reject]` (intent) sin evidencia de `getRule` — `rk-verification.md` 289/289
+  - `[false]` `[reject]` (intent) "PROGRAMA NAO ENCONTRADO" inalcanzable por FK — regla preservada en el dominio con test
+  - `[low]` `[reject]` (intent) casos de error solo en capas inferiores — cubiertos en servidor/acción
+  - `[false]` `[reject]` (intent) LEGACY-QUIRK sin ID en duplicados — comentario con fuente CALCBENF; comportamiento documentado en el contexto de la épica
+  - `[false]` `[reject]` (intent) vlr13 no persistido — ver arriba
+  - `[medium]` `[patch]` (verif) descuento/líquido nunca probados con descuento ≠ 0 — caso con bruto > 500,00
+  - `[medium]` `[patch]` (verif) reintento de numeración sin test — mismo patch
+  - `[medium]` `[patch]` (verif) camino de error inesperado de la acción sin test — caso con `SIFAP_USER` vacío
+  - `[low]` `[reject]` (verif) enlace 404 — ver arriba
+  - `[low]` `[reject]` (edge) enlace 404 — ver arriba
+  - `[medium]` `[patch]` (edge) usuario antes de precondiciones — mismo patch
+  - `[low]` `[reject]` (edge) SQLITE_BUSY no reintentado — SQLite serializa escritores; diferido de concurrencia entre procesos ya registrado en 0.2
+  - `[false]` `[reject]` (edge) vlr13 sin columna — ver arriba
+  - `[low]` `[reject]` (edge) año < 1000 en el selector de mes — inalcanzable desde el selector
+  - `[low]` `[patch]` (edge) variables de entorno del test sin restaurar — `vi.stubEnv` + unstub y reset del singleton
+  - `[false]` `[reject]` (intent) etiqueta del menú — ver arriba
+  - `[low]` `[reject]` (intent) trazabilidad por presencia de comentario — reglas con tests de comportamiento en el dominio
+
 ## Verification
 
 **Commands:**
@@ -83,3 +125,11 @@ deferred: []
 - `npm test` -- expected: todos en verde
 - `npm run build` -- expected: OK
 - `E2E_PORT=3223 npx playwright test` -- expected: todos en verde
+
+## Auto Run Result
+
+- **Resumen:** cálculo individual (CALCBENF) en `/calculo`: precondiciones FR-CAL-01/02 en el dominio (3 RK), caso de uso transaccional que invoca el motor existente y graba `Pagamento` (G, `numPagamento` máx.+1 con reintento en P2002), resumen con 13.º/abono en diciembre; componentes `Competencia` y `ResumoProcesso`.
+- **Implementado en paralelo** (worktree, ola A); integrado en `main` por merge.
+- **Review:** 30 hallazgos — 7 patches (3 `medium`: usuario antes de precondiciones, tests con descuento ≠ 0 y de reintento/error inesperado; 4 `low`), 1 diferido (`usuarioOperativo` duplicado), 22 rechazados.
+- **Follow-up review recomendado:** `true` — patches: high 0, medium 3, low 4. Riesgo: enlace al detalle del pago depende de la historia 4.4.
+- **Verificación (tras merge):** lint 0; `npm test` 360/360; build OK; e2e 19/19.
