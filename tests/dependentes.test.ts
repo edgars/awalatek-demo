@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { revalidatePath } from "next/cache";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { incluirDependenteAction } from "@/app/beneficiarios/[cpf]/dependentes/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
@@ -198,6 +199,98 @@ describe("incluirDependente", () => {
   });
 });
 
+/** Cliente cuja transação troca um método de um delegate (`modelo.metodo`) por `substituto`. */
+function dbComTroca(modelo: "beneficiario" | "beneficiarioDependente", metodo: string, substituto: (original: (a: unknown) => Promise<unknown>, a: unknown) => Promise<unknown>): PrismaClient {
+  const envolver = (tx: object) =>
+    new Proxy(tx, {
+      get(t, k, r) {
+        const v = Reflect.get(t, k, r);
+        if (k !== modelo) return v;
+        return new Proxy(v as object, {
+          get(d, m, rd) {
+            const orig = Reflect.get(d, m, rd) as (a: unknown) => Promise<unknown>;
+            return m === metodo ? (a: unknown) => substituto(orig.bind(d), a) : orig;
+          },
+        });
+      },
+    });
+  return {
+    $transaction: (fn: (tx: unknown) => Promise<unknown>) => prisma.$transaction((tx) => fn(envolver(tx))),
+  } as unknown as PrismaClient;
+}
+
+describe("incluirDependente — revisão", () => {
+  it("sobrescrita de linha sobrante zera todas as colunas não chave (sitDependente, indDeficiencia)", async () => {
+    const t0 = await titular();
+    await prisma.beneficiarioDependente.create({
+      data: {
+        beneficiarioId: t0.id,
+        occurrence: 1,
+        nomeDependente: "ANTIGO",
+        dtNascDepend: 20000101,
+        parentesco: "OU",
+        cpfDependente: CPF_DEP,
+        docDependente: "DOC ANTIGO",
+        sexoDependente: "F",
+        sitDependente: "A",
+        indDeficiencia: "S",
+      },
+    });
+    expect((await incluirDependente(CPF_TITULAR, dep({ nomeDependente: "NOVO", sexoDependente: null }))).ok).toBe(true);
+    const t = await titular();
+    expect(t.dependentes).toHaveLength(1);
+    expect(t.dependentes[0]).toMatchObject({
+      occurrence: 1,
+      nomeDependente: "NOVO",
+      dtNascDepend: 20150310,
+      parentesco: "FI",
+      cpfDependente: null,
+      docDependente: null,
+      sexoDependente: null,
+      sitDependente: null,
+      indDeficiencia: null,
+    });
+  });
+
+  it("concorrência: contador lido defasado → mensagem de concorrência, nada alterado", async () => {
+    await incluirDependente(CPF_TITULAR, dep({ nomeDependente: "EXISTENTE" }));
+    const antes = await titular();
+    // A leitura devolve numDependentes 0, mas na base já é 1 (outra inclusão chegou antes).
+    const db = dbComTroca("beneficiario", "findUnique", async (orig, a) => {
+      const r = (await orig(a)) as { numDependentes: number } | null;
+      return r && { ...r, numDependentes: r.numDependentes - 1 };
+    });
+    expect(await incluirDependente(CPF_TITULAR, dep({ nomeDependente: "INTRUSO" }), db)).toEqual({
+      ok: false,
+      mensagens: ["Os dependentes do titular foram alterados por outra operação. Recarregue a página e tente novamente."],
+    });
+    const depois = await titular();
+    expect(depois.numDependentes).toBe(1);
+    expect(depois.numVersao).toBe(antes.numVersao);
+    expect(depois.dependentes).toEqual(antes.dependentes);
+    expect(depois.dependentes[0]?.nomeDependente).toBe("EXISTENTE");
+  });
+
+  it("P2002 de outro unique (ocorrência) não vira CPF duplicado: é relançado", async () => {
+    const erro = Object.assign(new Error("unique"), {
+      code: "P2002",
+      meta: { driverAdapterError: { cause: { constraint: { fields: ["beneficiarioId", "occurrence"] } } } },
+    });
+    const db = dbComTroca("beneficiarioDependente", "upsert", async () => {
+      throw erro;
+    });
+    await expect(incluirDependente(CPF_TITULAR, dep(), db)).rejects.toBe(erro);
+    expect((await titular()).numDependentes).toBe(0);
+  });
+
+  it("P2002 com meta.target contendo cpfDependente → CPF duplicado", async () => {
+    const db = dbComTroca("beneficiarioDependente", "upsert", async () => {
+      throw Object.assign(new Error("unique"), { code: "P2002", meta: { target: ["beneficiarioId", "cpfDependente"] } });
+    });
+    expect(await incluirDependente(CPF_TITULAR, dep(), db)).toEqual({ ok: false, mensagens: ["DEPENDENTE JA CADASTRADO (CPF DUPLICADO)"] });
+  });
+});
+
 describe("listarDependentes", () => {
   it("titular inexistente ou CPF mal formado → null", async () => {
     expect(await listarDependentes(completaDv("999888777"), prisma)).toBeNull();
@@ -240,6 +333,14 @@ describe("incluirDependenteAction", () => {
       mensagens: ["NOME DO DEPENDENTE OBRIGATORIO", "PARENTESCO INVALIDO"],
       erros: { nomeDependente: "NOME DO DEPENDENTE OBRIGATORIO", parentesco: "PARENTESCO INVALIDO" },
     });
+  });
+
+  it("falha de inclusão (limite) também revalida a página de dependentes", async () => {
+    await prisma.beneficiario.update({ where: { numCpf: CPF_TITULAR }, data: { numDependentes: 6 } });
+    vi.mocked(revalidatePath).mockClear();
+    const r = await incluirDependenteAction(CPF_TITULAR, null, form({}));
+    expect(r).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"], erros: {} });
+    expect(revalidatePath).toHaveBeenCalledWith(`/beneficiarios/${CPF_TITULAR}/dependentes`);
   });
 
   it("zod: formato inválido não chega ao caso de uso", async () => {

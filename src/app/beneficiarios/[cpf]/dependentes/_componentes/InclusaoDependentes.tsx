@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Campo, CpfInput, DataLegada, ResultadoLegado, idsCampo, useAcaoFormulario } from "@/components/campos";
 import { Button } from "@/components/ui/button";
@@ -8,7 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ROTULOS_SEXO } from "@/domain/beneficiario/cadastro";
-import { PARENTESCOS, ROTULOS_PARENTESCO, SEXOS_DEPENDENTE } from "@/domain/beneficiario/dependentes";
+import {
+  continuarInclusao,
+  MENSAGENS_CADDEPEND,
+  PARENTESCOS,
+  ROTULOS_PARENTESCO,
+  SEXOS_DEPENDENTE,
+  verificarLimite,
+} from "@/domain/beneficiario/dependentes";
 import type { EstadoDependente } from "./estado";
 
 type Acao = (estado: EstadoDependente, dados: FormData) => Promise<EstadoDependente>;
@@ -25,16 +33,29 @@ export function InclusaoDependentes({ acao, bloqueio }: { acao: Acao; bloqueio: 
 
 function FormDependente({ acao, bloqueio, onOutro }: { acao: Acao; bloqueio: string | null; onOutro: () => void }) {
   const { estado, onSubmit, pendente } = useAcaoFormulario<EstadoDependente>(acao, null);
+  const router = useRouter();
 
   if (estado?.ok) {
+    // Solo se ofrece otra inclusión si el estado refrescado la permite: titular no C/D
+    // (`bloqueio` viene de la página revalidada) y total dentro del límite D6.
+    const podeIncluirOutro = bloqueio === null && estado.total !== undefined && verificarLimite(estado.total) === null;
+    // RK-db6fc93c9e4c (CADDEPEND:126): S continúa; cualquier otra respuesta termina.
+    const responder = (resposta: "S" | "N") => {
+      if (continuarInclusao(resposta)) onOutro();
+      else router.push("/beneficiarios");
+    };
     return (
       <ResultadoLegado variante="sucesso" mensagens={estado.mensagens}>
+        {podeIncluirOutro ? <p className="mb-2 font-mono text-[0.8125rem]">{MENSAGENS_CADDEPEND.incluirOutro}</p> : null}
+        {!podeIncluirOutro && bloqueio !== null ? <p className="mb-2 font-mono text-[0.8125rem]">{bloqueio}</p> : null}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={onOutro} autoFocus>
-            Incluir outro dependente
-          </Button>
-          <Button asChild variant="outline">
-            <Link href="/beneficiarios">Concluir</Link>
+          {podeIncluirOutro ? (
+            <Button type="button" onClick={() => responder("S")} autoFocus>
+              Incluir outro dependente
+            </Button>
+          ) : null}
+          <Button type="button" variant="outline" onClick={() => responder("N")} autoFocus={!podeIncluirOutro}>
+            Concluir
           </Button>
         </div>
       </ResultadoLegado>

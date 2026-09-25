@@ -30,6 +30,7 @@ test("incluir dois dependentes em série a partir da lista e rejeitar CPF duplic
   await page.getByRole("button", { name: "Gravar" }).click();
   const resultado = page.getByTestId("resultado-legado");
   await expect(resultado).toContainText("DEPENDENTE INCLUIDO - TOTAL: 1");
+  await expect(resultado).toContainText("INCLUIR OUTRO DEPENDENTE? (S/N)");
   await expect(page.getByTestId("total-dependentes")).toHaveText("1");
   const tabela = page.getByRole("table", { name: "Dependentes do titular" });
   await expect(tabela.getByRole("row", { name: /CARLOS FILHO E2E/ })).toContainText("***.***.247-25");
@@ -62,10 +63,27 @@ test("incluir dois dependentes em série a partir da lista e rejeitar CPF duplic
   await page.getByLabel("CPF").fill("");
   await page.getByRole("button", { name: "Gravar" }).click();
   await expect(resultado).toContainText("DEPENDENTE INCLUIDO - TOTAL: 3");
-  await page.getByRole("link", { name: "Concluir" }).click();
+  await page.getByRole("button", { name: "Concluir" }).click();
   await expect(page).toHaveURL(/\/beneficiarios$/);
   await page.goto(`/beneficiarios?q=${CPF_JOSE}`);
   await expect(page.getByRole("table").getByRole("row", { name: /JOSE CARLOS PEREIRA/ })).toContainText("3");
+});
+
+test("D6: após o 6.º dependente não oferece incluir outro", async ({ page }) => {
+  // Seed: MARIA APARECIDA DA SILVA, situação A, 1 dependente.
+  await page.goto("/beneficiarios/01234567890/dependentes");
+  await expect(page.getByTestId("total-dependentes")).toHaveText("1");
+  const resultado = page.getByTestId("resultado-legado");
+  for (let n = 2; n <= 6; n++) {
+    if (n > 2) await page.getByRole("button", { name: "Incluir outro dependente" }).click();
+    await preencher(page, { nome: `Dep ${n} E2E`, parentesco: "OU" });
+    await page.getByRole("button", { name: "Gravar" }).click();
+    await expect(resultado).toContainText(`DEPENDENTE INCLUIDO - TOTAL: ${n}`);
+  }
+  await expect(page.getByRole("button", { name: "Incluir outro dependente" })).toHaveCount(0);
+  await expect(resultado).not.toContainText("INCLUIR OUTRO DEPENDENTE? (S/N)");
+  await expect(resultado).toContainText("LIMITE DE DEPENDENTES ATINGIDO");
+  await expect(page.getByRole("button", { name: "Concluir" })).toBeVisible();
 });
 
 test("titular cancelado: formulário bloqueado com a mensagem literal", async ({ page }) => {

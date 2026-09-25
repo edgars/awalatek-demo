@@ -36,6 +36,8 @@ export async function incluirDependenteAction(cpf: string, _anterior: EstadoDepe
   try {
     const r = await incluirDependente(cpf, parsed.data);
     if (!r.ok) {
+      // Límite/concurrencia/titular bloqueado: la pantalla se refresca con el estado real.
+      revalidatePath(`/beneficiarios/${cpf}/dependentes`);
       const erros: Record<string, string> = {};
       for (const m of r.mensagens) {
         const campo = campoDoErroDependente(m);

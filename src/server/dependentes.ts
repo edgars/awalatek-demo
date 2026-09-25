@@ -22,8 +22,18 @@ function usuarioOperativo(): string {
   return u.slice(0, 8);
 }
 
-function ehUnicoViolado(e: unknown): boolean {
-  return (e as { code?: string }).code === "P2002";
+type ErroPrisma = {
+  code?: string;
+  meta?: { target?: string | string[]; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } };
+};
+
+/** P2002 del unique `(beneficiarioId, cpfDependente)`; cualquier otro unique no es "CPF duplicado". */
+function ehCpfDependenteDuplicado(e: unknown): boolean {
+  const erro = e as ErroPrisma | null;
+  if (erro?.code !== "P2002") return false;
+  // Con driver adapter, los campos llegan en meta.driverAdapterError.cause.constraint.fields.
+  const campos = [erro.meta?.target ?? [], erro.meta?.driverAdapterError?.cause?.constraint?.fields ?? []].flat();
+  return campos.some((c) => c.includes("cpfDependente"));
 }
 
 /** Sinal interno para abortar a transação devolvendo uma falha de negócio. */
@@ -98,6 +108,7 @@ export async function incluirDependente(numCpf: string, dados: DadosDependente, 
       if (r.count === 0) throw new FalhaTransacao([MENSAGENS_SISTEMA_DEPENDENTES.concorrencia]);
 
       // Como el `MOVE ... (#IDX)` del PE: escribe la ocurrencia n + 1, sobrescribiendo si existiera.
+      // Todas las columnas no clave se escriben: una fila sobrante no deja valores heredados.
       const campos = {
         nomeDependente: dados.nomeDependente,
         dtNascDepend: dados.dtNascDepend,
@@ -105,6 +116,8 @@ export async function incluirDependente(numCpf: string, dados: DadosDependente, 
         cpfDependente: dados.cpfDependente,
         docDependente: dados.docDependente,
         sexoDependente: dados.sexoDependente,
+        sitDependente: null,
+        indDeficiencia: null,
       };
       await tx.beneficiarioDependente.upsert({
         where: { beneficiarioId_occurrence: { beneficiarioId: titular.id, occurrence: decisao.occurrence } },
@@ -117,7 +130,7 @@ export async function incluirDependente(numCpf: string, dados: DadosDependente, 
     if (e instanceof FalhaTransacao) return { ok: false, mensagens: e.mensagens };
     // El unique (beneficiarioId, cpfDependente) también cubre ocurrencias por encima del
     // contador que el legado no recorre: se informa como duplicado.
-    if (ehUnicoViolado(e)) return { ok: false, mensagens: [MENSAGENS_CADDEPEND.cpfDuplicado] };
+    if (ehCpfDependenteDuplicado(e)) return { ok: false, mensagens: [MENSAGENS_CADDEPEND.cpfDuplicado] };
     throw e;
   }
 }
