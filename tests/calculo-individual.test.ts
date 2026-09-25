@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { calcularBeneficioAction } from "@/app/calculo/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { calcular } from "@/domain/calculo/motor";
@@ -27,8 +27,8 @@ beforeAll(async () => {
   execFileSync("npx", ["prisma", "migrate", "deploy"], { env: { ...process.env, DATABASE_URL: url }, stdio: "pipe" });
   prisma = createPrismaClient(url);
   delete globalPrisma.prisma;
-  process.env.DATABASE_URL = url;
-  process.env.SIFAP_USER = "OPERADR1";
+  vi.stubEnv("DATABASE_URL", url);
+  vi.stubEnv("SIFAP_USER", "OPERADR1");
   await seed(prisma);
 });
 
@@ -36,12 +36,13 @@ afterAll(async () => {
   await prisma?.$disconnect();
   await globalPrisma.prisma?.$disconnect();
   delete globalPrisma.prisma;
+  vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
 });
 
-function entradaMaria(competencia: number) {
+function entradaMaria(competencia: number, vlrBase: number = PA01.vlrBaseIndividual) {
   return {
-    vlrBase: PA01.vlrBaseIndividual,
+    vlrBase,
     fatorReajuste: PA01.fatorReajuste,
     tipoPrograma: PA01.tipoPrograma,
     codRegiao: 1,
@@ -117,6 +118,60 @@ describe("calcularBeneficioIndividual", () => {
     }
   });
 
+  it("bruto > 500,00 → desconto de 3 % gravado e líquido = bruto − desconto", async () => {
+    await prisma.programaSocial.update({ where: { codPrograma: "PA01" }, data: { vlrBaseIndividual: 100000 } });
+    try {
+      const esperado = calcular(entradaMaria(202609, 100000));
+      // 1.000,00 × 1,35 × 1,05 × 0,55 = 779,62 → × 1,045 = 814,70; desconto 24,44; líquido 790,26
+      expect(esperado).toMatchObject({ vlrBruto: 81470, vlrDesc: 2444, vlrLiq: 79026 });
+      const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, prisma, AGORA);
+      if (!r.ok) throw new Error(r.mensagem);
+      expect(r.resumo).toMatchObject({ vlrBruto: esperado.vlrBruto, vlrDesconto: esperado.vlrDesc, vlrLiquido: esperado.vlrLiq });
+      const p = await prisma.pagamento.findUniqueOrThrow({ where: { numPagamento: r.resumo.numPagamento } });
+      expect(p).toMatchObject({ vlrBruto: 81470, vlrDescontoTotal: 2444, vlrLiquido: 79026 });
+    } finally {
+      await prisma.programaSocial.update({ where: { codPrograma: "PA01" }, data: { vlrBaseIndividual: PA01.vlrBaseIndividual } });
+    }
+  });
+
+  it("P2002 na numeração → nova tentativa grava exatamente um pagamento", async () => {
+    const antes = await prisma.pagamento.count();
+    let chamadas = 0;
+    const db = {
+      $transaction: (fn: Parameters<PrismaClient["$transaction"]>[0]) => {
+        chamadas++;
+        if (chamadas === 1) return Promise.reject({ code: "P2002" });
+        return prisma.$transaction(fn as never);
+      },
+    } as unknown as PrismaClient;
+    const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, db, AGORA);
+    expect(r.ok).toBe(true);
+    expect(chamadas).toBe(2);
+    expect(await prisma.pagamento.count()).toBe(antes + 1);
+  });
+
+  it("P2002 persistente → relança após 3 tentativas", async () => {
+    let chamadas = 0;
+    const db = {
+      $transaction: () => {
+        chamadas++;
+        return Promise.reject({ code: "P2002" });
+      },
+    } as unknown as PrismaClient;
+    await expect(calcularBeneficioIndividual(CPF_MARIA, 202609, db, AGORA)).rejects.toEqual({ code: "P2002" });
+    expect(chamadas).toBe(3);
+  });
+
+  it("sem SIFAP_USER os erros de entrada ainda mostram a mensagem do legado", async () => {
+    vi.stubEnv("SIFAP_USER", "");
+    try {
+      expect(await calcularBeneficioIndividual(CPF_MARIA, 202613, prisma)).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
+      expect(await calcularBeneficioIndividual(CPF_JOSE, 202609, prisma)).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ATIVO - STATUS: S" });
+    } finally {
+      vi.stubEnv("SIFAP_USER", "OPERADR1");
+    }
+  });
+
   it("falhas não gravam nada, na ordem do legado", async () => {
     const antes = await prisma.pagamento.count();
     expect(await calcularBeneficioIndividual(CPF_MARIA, 202613, prisma)).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
@@ -134,13 +189,35 @@ describe("calcularBeneficioAction", () => {
     expect(r).toMatchObject({ ok: true, mensagem: "CALCULO REALIZADO COM SUCESSO", resumo: { vlrLiquido: 12220 } });
   });
 
-  it("zod rejeita CPF e competência malformados", async () => {
-    expect(await calcularBeneficioAction(null, form({ numCpf: "123", competencia: "202609" }))).toMatchObject({ ok: false });
+  it("zod rejeita CPF e competência malformados, indicando o campo", async () => {
+    expect(await calcularBeneficioAction(null, form({ numCpf: "123", competencia: "202609" }))).toEqual({
+      ok: false,
+      mensagem: "Informe o CPF do beneficiário (11 dígitos).",
+      campo: "numCpf",
+    });
     expect(await calcularBeneficioAction(null, form({ numCpf: CPF_MARIA, competencia: "" }))).toEqual({
       ok: false,
       mensagem: "Informe a competência (mês/ano).",
+      campo: "competencia",
     });
-    expect(await calcularBeneficioAction(null, form({ numCpf: CPF_MARIA, competencia: "invalido" }))).toMatchObject({ ok: false });
+    expect(await calcularBeneficioAction(null, form({ numCpf: CPF_MARIA, competencia: "invalido" }))).toMatchObject({
+      ok: false,
+      campo: "competencia",
+    });
+  });
+
+  it("falha inesperada (sem SIFAP_USER) → mensagem genérica", async () => {
+    const erroLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubEnv("SIFAP_USER", "");
+    try {
+      expect(await calcularBeneficioAction(null, form({ numCpf: CPF_MARIA, competencia: "202609" }))).toEqual({
+        ok: false,
+        mensagem: "Erro inesperado ao processar a solicitação. Tente novamente.",
+      });
+    } finally {
+      vi.stubEnv("SIFAP_USER", "OPERADR1");
+      erroLog.mockRestore();
+    }
   });
 
   it("mês 13 → mensagem literal do legado", async () => {

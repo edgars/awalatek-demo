@@ -50,7 +50,6 @@ export async function calcularBeneficioIndividual(
   db: PrismaClient = prisma,
   agora: Date = new Date(),
 ): Promise<ResultadoCalculoIndividual> {
-  const usuario = usuarioOperativo();
   for (let tentativa = 1; ; tentativa++) {
     try {
       return await db.$transaction(async (tx) => {
@@ -62,6 +61,8 @@ export async function calcularBeneficioIndividual(
         if (!pre.ok) return { ok: false, mensagem: pre.mensagem } as const;
         // verificarPrecondicoes garantiza ambos; el `if` solo estrecha los tipos.
         if (!beneficiario || !programa) throw new Error("precondições inconsistentes");
+        // Solo en el camino de grabación: sin SIFAP_USER los errores de entrada siguen mostrando su mensaje.
+        const usuario = usuarioOperativo();
 
         // D17: el individual NO pasa fatorRendaAnterior (renta > 9.999,99 → factor 0).
         const r = calcular({

@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { centavosParaTexto, dataIntParaIso, fatorParaTexto, isoParaDataInt, textoParaCentavos, textoParaFator } from "./conversao";
-import { competenciaIntParaMes, mesParaCompetenciaInt } from "./conversao";
+import {
+  centavosParaTexto,
+  competenciaIntParaMes,
+  dataIntParaIso,
+  fatorParaTexto,
+  isoParaDataInt,
+  mesParaCompetenciaInt,
+  textoParaCentavos,
+  textoParaFator,
+} from "./conversao";
 
 describe("conversão dos campos", () => {
   it("Moeda → centavos", () => {

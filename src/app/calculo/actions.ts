@@ -2,7 +2,7 @@
 
 import { z } from "zod";
 import { calcularBeneficioIndividual } from "@/server/calculo";
-import type { EstadoCalculo } from "./estado";
+import type { CampoCalculo, EstadoCalculo } from "./estado";
 
 // Server Action de /calculo (CALCBENF). Valida la forma de la entrada con zod;
 // las reglas (FR-CAL-01/02 y el cálculo) están en el dominio.
@@ -33,7 +33,11 @@ function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
 
 export async function calcularBeneficioAction(_anterior: EstadoCalculo, dados: FormData): Promise<EstadoCalculo> {
   const parsed = entradaCalculoSchema.safeParse({ numCpf: texto(dados, "numCpf"), competencia: texto(dados, "competencia") });
-  if (!parsed.success) return { ok: false, mensagem: parsed.error.issues[0]?.message ?? ERRO_INESPERADO };
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const campo = issue?.path[0] === "numCpf" || issue?.path[0] === "competencia" ? (issue.path[0] as CampoCalculo) : undefined;
+    return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
+  }
   try {
     return await calcularBeneficioIndividual(parsed.data.numCpf, parsed.data.competencia);
   } catch (e) {
