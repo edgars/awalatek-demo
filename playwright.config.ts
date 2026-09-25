@@ -23,7 +23,13 @@ export default defineConfig({
     url: `http://localhost:${PORT}`,
     // Variáveis do processo têm precedência sobre o .env (Next e dotenv não sobrescrevem).
     // D4 fixo em false: o e2e verifica o comportamento padrão, independente do .env local.
-    env: { DATABASE_URL: E2E_DATABASE_URL, SIFAP_USER: "E2EUSER", LEGACY_DOC_ESPECIAL_ENABLED: "false" },
+    env: {
+      DATABASE_URL: E2E_DATABASE_URL,
+      SIFAP_USER: "E2EUSER",
+      LEGACY_DOC_ESPECIAL_ENABLED: "false",
+      LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED: "false",
+      SIFAP_QUIRKS_CORRIGIDOS: "",
+    },
     // Nunca reutilizar: um serviço alheio na porta faria o teste validar outro app.
     reuseExistingServer: false,
     timeout: 180_000,

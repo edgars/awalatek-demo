@@ -96,7 +96,7 @@ export function acumularErroDoc(erros: string[], mensagem: string): void {
  * Validación de documentos de VALDOCS: acumula errores en el orden del legado
  * (CPF → RG). Título de elector y CTPS no se validan. El flag D4 se inyecta.
  */
-export function validarDocumentos(dados: DadosValdocs, quirks: Quirks): ResultadoValdocs {
+export function validarDocumentos(dados: DadosValdocs, quirks: Pick<Quirks, "docEspecialHabilitado">): ResultadoValdocs {
   const erros: string[] = [];
   // RK-82c01a2ea13d (VALDOCS:69): IF NOT #CPF-OK → "CPF INVALIDO".
   if (!validarCpfDoc(dados.numCpf)) acumularErroDoc(erros, MENSAGENS_VALDOCS.cpfInvalido);
