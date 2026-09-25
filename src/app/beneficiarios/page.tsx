@@ -51,7 +51,9 @@ const COLUNAS: readonly Coluna<Linha>[] = [
           Editar<span className="sr-only"> {b.nomeCompleto}</span>
         </Link>
         <AcaoFutura>Dependentes</AcaoFutura>
-        <AcaoFutura>Descontos</AcaoFutura>
+        <Link href={`/beneficiarios/${b.numCpf}/descontos`} className="font-medium text-primary underline-offset-4 hover:underline">
+          Descontos<span className="sr-only"> {b.nomeCompleto}</span>
+        </Link>
         <AcaoFutura>Consultar</AcaoFutura>
       </span>
     ),
