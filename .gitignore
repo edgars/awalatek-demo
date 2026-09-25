@@ -25,6 +25,8 @@ next-env.d.ts
 /blob-report/
 /playwright/.cache/
 /coverage/
+# informe del robot de reglas (npm run test:regras) — solo salida generada
+/reports/
 
 # misc
 .DS_Store
