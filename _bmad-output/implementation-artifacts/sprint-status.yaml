@@ -72,8 +72,8 @@ development_status:
   6-1-conciliación-de-retorno-cnab-240: ready-for-dev
   epic-6-retrospective: optional
 
-  epic-7: backlog
-  7-1-informe-analítico-de-pagos: ready-for-dev
+  epic-7: in-progress
+  7-1-informe-analítico-de-pagos: done
   7-2-informe-consolidado-mensual: done
   7-3-informe-de-auditoría: ready-for-dev
   epic-7-retrospective: optional

@@ -2,14 +2,17 @@
 title: 'Story 7.1 — Informe analítico de pagos'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'e6dbeb9'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: Límite de filas/rango en el informe analítico (y en su versión imprimible) para volúmenes reales.
+    evidence: `findMany` sin tope sobre el rango de competencias con join a beneficiario; la impresión renderiza todas las páginas.
 ---
 
 <intent-contract>
@@ -78,7 +81,26 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 33 findings — high 0, medium 1, low 16, false 16, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (blind/edge) "Limpar" hacía navegación suave y los campos conservaban los valores — formulario con `key` por filtros + e2e
+  - `[low]` `[patch]` ×7 — programa inválido → "Programa inválido." (no "Todos"), programa válido fuera de la lista como opción extra, período invertido / competencia mal formada con mensaje por campo, estado vacío en la versión imprimible, e2e de `?pagina=99` y test de `falhaInesperada` sin PII, `codPrograma` normalizado una vez, CSS de impresión unificado en el layout (`print:hidden`, también para 7.2), comentario del corte por tramos (RELPGT:93)
+  - `[low]` `[defer]` — tope de filas/rango por volumen
+  - `[low]` `[reject]` ×8 — máscara `***.XXX.XXX-XX` expone 8 dígitos (literal FR-REL-03/RELPGT; registrada como decisión LGPD), dos enlaces "Pagamentos" (los encabezados de grupo desambiguan), subtotal sin descuento (legado), tests de solo lectura, etc.
+  - `[false]` `[reject]` ×16 — varios subtotales por programa (corte por registros consecutivos del legado, pedido por el spec), exportación a archivo (la versión imprimible es la equivalencia acordada), sin evidencia de `getRule` (`rk-verification.md`), etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3231 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** informe analítico de pagos (RELPGT, 7 RK) en `/relatorios/pagamentos`: filtros de competencia y programa, corte de control por programa entre registros consecutivos con subtotales y total general, descripciones truncadas del legado, máscara `***.XXX.XXX-XX`, paginación de 66 líneas reutilizable (`src/domain/relatorios/paginacao.ts`) y versión imprimible.
+- **Implementado en paralelo** (worktree); integrado por merge (tras traer `main` y unificar la impresión con 7.2).
+- **Review:** 33 hallazgos — 8 patches (1 `medium`), 1 diferido, 24 rechazados.
+- **Follow-up review recomendado:** `false`.
+- **Verificación (tras merge):** lint 0; `npm test` 683/683; build OK; e2e 66/66 (×3).
+- **Pendiente de negocio:** LGPD — la máscara del informe expone los dígitos 4–11 del CPF.
+
