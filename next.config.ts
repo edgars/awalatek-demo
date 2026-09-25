@@ -11,6 +11,11 @@ const nextConfig: NextConfig = {
     // para el overhead multipart. El default de Next (1 MB) rechazaría el archivo.
     serverActions: { bodySizeLimit: `${LIMITE_ARQUIVO_MB + MARGEM_MULTIPART_MB}mb` },
   },
+  // H2 (LGPD): las URLs llevan la clave opaca del beneficiario (dato seudonimizado);
+  // el Referer no debe llevarla a sitios de terceros.
+  headers() {
+    return [{ source: "/:path*", headers: [{ key: "Referrer-Policy", value: "same-origin" }] }];
+  },
 };
 
 export default nextConfig;

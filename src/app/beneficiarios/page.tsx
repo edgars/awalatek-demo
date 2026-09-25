@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { TabelaPaginada, type Coluna } from "@/components/campos";
+import { redirect } from "next/navigation";
+import { FiltroBeneficiario, ResultadoLegado, TabelaPaginada, type Coluna } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { descricaoSituacaoBeneficiario } from "@/domain/beneficiario/cadastro";
 import { mascaraCpfLista } from "@/domain/cpf";
-import { cpfPorChave, listarBeneficiarios } from "@/server/beneficiarios";
+import { BENEF_ERRO, BENEF_NAO_ENCONTRADO } from "@/domain/chavePublica";
+import { cpfExatoDaBusca, listarBeneficiarios, resolverChavePorCpf, resolverCpfPorChave } from "@/server/beneficiarios";
+import { ERRO_INESPERADO } from "@/server/quirksConfig";
 import { buscarBeneficiariosAction } from "./actions";
 
 export const metadata: Metadata = { title: "Beneficiários" };
@@ -58,23 +61,27 @@ const COLUNAS: readonly Coluna<Linha>[] = [
   },
 ];
 
-function cpfFormatado(cpf: string): string {
-  return `${cpf.slice(0, 3)}.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-${cpf.slice(9)}`;
-}
-
 /** Pantalla 4.4 — lista de beneficiários. */
 export default async function BeneficiariosPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const sp = await searchParams;
   const q = typeof sp.q === "string" ? sp.q : "";
   const pagina = Number(typeof sp.pagina === "string" ? sp.pagina : 1) || 1;
-  // H2 (LGPD): a busca por CPF chega como chave opaca (`?benef=`), nunca como CPF na URL.
+  // H2 (LGPD): um CPF em `?q=` (link antigo ou digitado) não é buscado nem ecoado:
+  // redireciona para o resultado do fluxo POST (chave opaca em `?benef=`).
+  const cpfNaQuery = cpfExatoDaBusca(q);
+  if (cpfNaQuery) {
+    const r = await resolverChavePorCpf(cpfNaQuery, "busca da lista (query)");
+    redirect(`/beneficiarios?benef=${encodeURIComponent(!r.ok ? BENEF_ERRO : (r.valor ?? BENEF_NAO_ENCONTRADO))}`);
+  }
+  // A busca por CPF chega como chave opaca (`?benef=`); o CPF só é usado no servidor.
   const benef = typeof sp.benef === "string" ? sp.benef : "";
-  const cpfBusca = benef ? await cpfPorChave(benef) : null;
-  const r = benef
-    ? cpfBusca
-      ? await listarBeneficiarios({ q: cpfBusca, pagina })
-      : { itens: [], total: 0, pagina: 1, totalPaginas: 1 }
-    : await listarBeneficiarios({ q, pagina });
+  const resolvido = !benef ? null : benef === BENEF_ERRO ? ({ ok: false } as const) : await resolverCpfPorChave(benef, "lista (chave)");
+  const erro = resolvido !== null && !resolvido.ok;
+  const cpfBusca = resolvido?.ok ? resolvido.valor : null;
+  const r =
+    benef && !cpfBusca
+      ? { itens: [], total: 0, pagina: 1, totalPaginas: 1 }
+      : await listarBeneficiarios({ q: cpfBusca ?? q, pagina });
 
   return (
     <div className="grid gap-4">
@@ -84,15 +91,17 @@ export default async function BeneficiariosPage({ searchParams }: { searchParams
           <Link href="/beneficiarios/novo">Novo beneficiário</Link>
         </Button>
       </div>
+      {erro ? <ResultadoLegado variante="erro" mensagens={[ERRO_INESPERADO]} /> : null}
+      {/* LGPD: só o CPF mascarado; o campo de busca fica vazio. */}
+      {cpfBusca ? <FiltroBeneficiario cpfMascarado={mascaraCpfLista(cpfBusca)} hrefLimpar="/beneficiarios" /> : null}
       <TabelaPaginada
         caminho="/beneficiarios"
         colunas={COLUNAS}
         linhas={r.itens}
-        chave={(b) => b.numCpf}
+        chave={(b) => b.chavePublica}
         q={benef ? "" : q}
         acaoBusca={buscarBeneficiariosAction}
         parametros={benef ? { benef } : {}}
-        valorBusca={cpfBusca ? cpfFormatado(cpfBusca) : undefined}
         pagina={r.pagina}
         totalPaginas={r.totalPaginas}
         total={r.total}

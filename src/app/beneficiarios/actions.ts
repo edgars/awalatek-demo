@@ -14,14 +14,15 @@ import {
 } from "@/domain/beneficiario/cadastro";
 import {
   alterarBeneficiario,
-  chavePorCpf,
   cpfExatoDaBusca,
-  cpfPorChave,
   incluirBeneficiario,
+  resolverChavePorCpf,
+  resolverCpfPorChave,
   type Resultado,
 } from "@/server/beneficiarios";
 import { lerQuirksServidor } from "@/server/quirksConfig";
-import { BENEF_NAO_ENCONTRADO, type EstadoAcao } from "./estado";
+import { BENEF_ERRO, BENEF_NAO_ENCONTRADO } from "@/domain/chavePublica";
+import type { EstadoAcao } from "./estado";
 
 // Server Actions de /beneficiarios: zod en el borde; reglas en el dominio.
 // La operación I/A del legado se sustituye por rutas (novo = I, editar = A).
@@ -46,13 +47,19 @@ function falhaValidacao(op: OperacaoCadastro, bruto: Record<string, string>, err
   return falha(primeiro?.message ?? ERRO_INESPERADO, primeiro?.path.join("."));
 }
 
-async function resposta(r: Resultado): Promise<EstadoAcao> {
+function resposta(r: Resultado): EstadoAcao {
   if (!r.ok) return falha(r.mensagem, campoDoErro(r.mensagem));
-  // H2 (LGPD): o link e a revalidação usam a chave opaca, nunca o CPF.
-  const chavePublica = (await chavePorCpf(r.numCpf)) ?? undefined;
+  // H2 (LGPD): o link e a revalidação usam a chave opaca devolvida pelo caso de uso, nunca o CPF.
   revalidatePath("/beneficiarios");
-  if (chavePublica) revalidatePath(`/beneficiarios/${chavePublica}/editar`);
-  return { ok: true, mensagens: [r.mensagem], chavePublica, status: r.status, suspensoPorIdade: r.suspensoPorIdade, numVersao: r.numVersao };
+  revalidatePath(`/beneficiarios/${r.chavePublica}/editar`);
+  return {
+    ok: true,
+    mensagens: [r.mensagem],
+    chavePublica: r.chavePublica,
+    status: r.status,
+    suspensoPorIdade: r.suspensoPorIdade,
+    numVersao: r.numVersao,
+  };
 }
 
 function falhaInesperada(contexto: string, e: unknown): EstadoAcao {
@@ -72,7 +79,7 @@ export async function incluirBeneficiarioAction(_anterior: EstadoAcao, dados: Fo
   const quirks = lerQuirksServidor("beneficiarios");
   if (!quirks) return { ok: false, mensagens: [ERRO_INESPERADO] };
   try {
-    return await resposta(await incluirBeneficiario(parsed.data, undefined, quirks));
+    return resposta(await incluirBeneficiario(parsed.data, undefined, quirks));
   } catch (e) {
     return falhaInesperada("inclusão", e);
   }
@@ -85,12 +92,9 @@ export async function alterarBeneficiarioAction(chave: string, _anterior: Estado
     sitBeneficiario: texto(dados, "sitBeneficiario"),
     numVersao: texto(dados, "numVersao"),
   };
-  let cpf: string | null;
-  try {
-    cpf = await cpfPorChave(chave);
-  } catch (e) {
-    return falhaInesperada("alteração", e);
-  }
+  const resolvido = await resolverCpfPorChave(chave, "alteração (chave)");
+  if (!resolvido.ok) return { ok: false, mensagens: [ERRO_INESPERADO] };
+  const cpf = resolvido.valor;
   if (!cpf) return falha(MENSAGENS_CADBENEF.naoEncontradoAlteracao);
   const cpfForm = (bruto.numCpf ?? "").replace(/\D/g, "");
   if (cpfForm && cpfForm !== cpf) return falha("Campo não editável na alteração: CPF.", "numCpf");
@@ -102,7 +106,7 @@ export async function alterarBeneficiarioAction(chave: string, _anterior: Estado
   const parsed = esquemaAlteracaoBeneficiario(quirks).safeParse(bruto);
   if (!parsed.success) return falhaValidacao("A", bruto, parsed.error);
   try {
-    return await resposta(await alterarBeneficiario(parsed.data, undefined, quirks));
+    return resposta(await alterarBeneficiario(parsed.data, undefined, quirks));
   } catch (e) {
     return falhaInesperada("alteração", e);
   }
@@ -116,8 +120,8 @@ export async function buscarBeneficiariosAction(dados: FormData): Promise<void> 
   const termo = texto(dados, "q").trim();
   const cpf = cpfExatoDaBusca(termo);
   if (cpf) {
-    const chave = await chavePorCpf(cpf);
-    redirect(`/beneficiarios?benef=${encodeURIComponent(chave ?? BENEF_NAO_ENCONTRADO)}`);
+    const r = await resolverChavePorCpf(cpf, "busca da lista");
+    redirect(`/beneficiarios?benef=${encodeURIComponent(!r.ok ? BENEF_ERRO : (r.valor ?? BENEF_NAO_ENCONTRADO))}`);
   }
   redirect(termo ? `/beneficiarios?q=${encodeURIComponent(termo)}` : "/beneficiarios");
 }

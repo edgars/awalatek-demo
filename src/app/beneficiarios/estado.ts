@@ -11,6 +11,3 @@ export type EstadoAcao = {
   suspensoPorIdade?: boolean;
   numVersao?: number;
 } | null;
-
-/** Valor de `?benef=` cuando el CPF buscado en la lista no existe (no es una clave válida; H2). */
-export const BENEF_NAO_ENCONTRADO = "nao-encontrado";

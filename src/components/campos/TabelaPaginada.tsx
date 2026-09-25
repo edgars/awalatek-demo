@@ -16,7 +16,7 @@ export type Coluna<T> = {
  * servidor. Los CPF deben llegar ya enmascarados en `celula` (E2+).
  * `acaoBusca` (Server Action, POST) sustituye el GET cuando el término puede ser un
  * CPF: la acción decide la URL de destino sin el CPF (H2, LGPD). `parametros` son
- * filtros extra que la paginación conserva; `valorBusca`, el texto inicial del campo.
+ * filtros extra que la paginación conserva.
  */
 export function TabelaPaginada<T>({
   caminho,
@@ -31,7 +31,6 @@ export function TabelaPaginada<T>({
   vazio,
   acaoBusca,
   parametros = {},
-  valorBusca,
 }: {
   caminho: string;
   colunas: readonly Coluna<T>[];
@@ -45,7 +44,6 @@ export function TabelaPaginada<T>({
   vazio: ReactNode;
   acaoBusca?: (dados: FormData) => Promise<void>;
   parametros?: Readonly<Record<string, string>>;
-  valorBusca?: string;
 }) {
   const idBusca = useId();
   const href = (p: number) => {
@@ -62,7 +60,7 @@ export function TabelaPaginada<T>({
         <label htmlFor={idBusca} className="sr-only">
           {rotuloBusca}
         </label>
-        <Input id={idBusca} name="q" type="search" defaultValue={valorBusca ?? q} placeholder={rotuloBusca} />
+        <Input id={idBusca} name="q" type="search" defaultValue={q} placeholder={rotuloBusca} />
         <Button type="submit" variant="outline">
           Buscar
         </Button>

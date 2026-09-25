@@ -1,8 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { CAMPOS_FORMULARIO_DEPENDENTE, campoDoErroDependente, dependenteSchema } from "@/domain/beneficiario/dependentes";
-import { cpfPorChave } from "@/server/beneficiarios";
+import {
+  CAMPOS_FORMULARIO_DEPENDENTE,
+  campoDoErroDependente,
+  dependenteSchema,
+  MENSAGENS_CADDEPEND,
+} from "@/domain/beneficiario/dependentes";
+import { resolverCpfPorChave } from "@/server/beneficiarios";
 import { incluirDependente } from "@/server/dependentes";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoDependente } from "./_componentes/estado";
@@ -28,6 +33,12 @@ function falhaInesperada(e: unknown): EstadoDependente {
 
 /** `chave` (opaca) del titular viene de la ruta (ligada con bind); el CPF se resuelve aquí (H2). */
 export async function incluirDependenteAction(chave: string, _anterior: EstadoDependente, dados: FormData): Promise<EstadoDependente> {
+  // Chave primeiro (antes do zod): malformada/inexistente → mensagem literal do legado, sem
+  // revalidar nada; falha da base → mensagem genérica (log só tipo/código).
+  const resolvido = await resolverCpfPorChave(chave, "dependentes (chave)");
+  if (!resolvido.ok) return { ok: false, mensagens: [ERRO_INESPERADO] };
+  const cpf = resolvido.valor;
+  if (!cpf) return { ok: false, mensagens: [MENSAGENS_CADDEPEND.naoEncontrado] };
   const bruto = Object.fromEntries(CAMPOS_FORMULARIO_DEPENDENTE.map((c) => [c, texto(dados, c)]));
   const parsed = dependenteSchema.safeParse(bruto);
   if (!parsed.success) {
@@ -39,8 +50,6 @@ export async function incluirDependenteAction(chave: string, _anterior: EstadoDe
   const quirks = lerQuirksServidor("dependentes");
   if (!quirks) return { ok: false, mensagens: [ERRO_INESPERADO] };
   try {
-    // Chave inexistente → CPF vacío → el caso de uso responde "titular no encontrado".
-    const cpf = (await cpfPorChave(chave)) ?? "";
     const r = await incluirDependente(cpf, parsed.data, undefined, quirks);
     if (!r.ok) {
       // Límite/concurrencia/titular bloqueado: la pantalla se refresca con el estado real.

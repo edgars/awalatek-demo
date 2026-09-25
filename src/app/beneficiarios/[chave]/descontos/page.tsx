@@ -12,7 +12,7 @@ import {
   TIPOS_DESCONTO,
 } from "@/domain/beneficiario/descontosRegistrados";
 import { mascaraCpfLista } from "@/domain/cpf";
-import { cpfPorChave } from "@/server/beneficiarios";
+import { resolverCpfPorChave } from "@/server/beneficiarios";
 import { listarDescontosRegistrados } from "@/server/descontosRegistrados";
 import { salvarDescontosRegistradosAction } from "./actions";
 import { EditorDescontos } from "./EditorDescontos";
@@ -41,8 +41,9 @@ const TIPOS = TIPOS_DESCONTO.map((codigo) => ({ codigo, rotulo: ROTULOS_TIPO_DES
 export default async function DescontosBeneficiarioPage({ params }: Props) {
   // H2 (LGPD): a URL traz a chave opaca; o CPF é resolvido no servidor (chave inválida → não encontrado).
   const { chave } = await params;
-  const cpf = (await cpfPorChave(chave)) ?? "";
-  const r = await carregar(cpf);
+  // Falha da base ao resolver a chave → mensagem genérica (log só tipo/código).
+  const resolvido = await resolverCpfPorChave(chave, "descontos (chave)");
+  const r = resolvido.ok ? await carregar(resolvido.valor ?? "") : { ok: false as const, mensagem: ERRO_INESPERADO };
 
   if (!r.ok) {
     return (

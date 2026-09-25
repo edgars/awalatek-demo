@@ -2,6 +2,7 @@ export { Campo, idsCampo, type PropsCampoBase } from "./campo";
 export { Codigo } from "./Codigo";
 export { CpfInput } from "./CpfInput";
 export { DataLegada } from "./DataLegada";
+export { FiltroBeneficiario } from "./FiltroBeneficiario";
 export { Fator } from "./Fator";
 export { Moeda } from "./Moeda";
 export { NisInput } from "./NisInput";

@@ -348,6 +348,19 @@ describe("incluirDependenteAction", () => {
     expect(JSON.stringify(vi.mocked(revalidatePath).mock.calls)).not.toContain(CPF_TITULAR);
   });
 
+  it("H2: chave malformada/inexistente (ou CPF no lugar da chave) → BENEFICIARIO NAO ENCONTRADO antes do zod, sem revalidar", async () => {
+    vi.mocked(revalidatePath).mockClear();
+    for (const chave of ["123", CPF_TITULAR, "00000000-0000-4000-8000-000000000000"]) {
+      // Formulário inválido de propósito: a chave é verificada primeiro.
+      expect(await incluirDependenteAction(chave, null, form({ nomeDependente: "", parentesco: "XX" }))).toEqual({
+        ok: false,
+        mensagens: ["BENEFICIARIO NAO ENCONTRADO"],
+      });
+    }
+    expect(revalidatePath).not.toHaveBeenCalled();
+    expect((await titular()).numDependentes).toBe(0);
+  });
+
   it("zod: formato inválido não chega ao caso de uso", async () => {
     const r = await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, form({ sexoDependente: "X" }));
     expect(r).toEqual({ ok: false, mensagens: ["Sexo: informe M ou F"], erros: { sexoDependente: "Sexo: informe M ou F" } });

@@ -8,7 +8,7 @@ import { descricaoSituacaoBeneficiario, ROTULOS_SEXO } from "@/domain/beneficiar
 import { MENSAGENS_CADDEPEND, ROTULOS_PARENTESCO, verificarLimite, verificarTitular } from "@/domain/beneficiario/dependentes";
 import { mascaraCpfLista } from "@/domain/cpf";
 import { corrige } from "@/domain/quirks";
-import { cpfPorChave } from "@/server/beneficiarios";
+import { resolverCpfPorChave } from "@/server/beneficiarios";
 import { listarDependentes } from "@/server/dependentes";
 import { ERRO_INESPERADO, lerQuirksServidor } from "@/server/quirksConfig";
 import { incluirDependenteAction } from "./actions";
@@ -28,10 +28,12 @@ function dataBr(dt: number): string {
 export default async function DependentesPage({ params }: Props) {
   // H2 (LGPD): a URL traz a chave opaca; o CPF é resolvido no servidor (chave inválida → não encontrado).
   const { chave } = await params;
-  const cpf = (await cpfPorChave(chave)) ?? "";
+  // Falha da base ao resolver a chave → painel de erro genérico (log só tipo/código).
+  const resolvido = await resolverCpfPorChave(chave, "dependentes (chave)");
+  const cpf = resolvido.ok ? (resolvido.valor ?? "") : "";
   // D6: el límite de dependientes depende de la configuración (una lectura por solicitud).
   const quirks = lerQuirksServidor("dependentes");
-  if (!quirks) {
+  if (!quirks || !resolvido.ok) {
     return (
       <div className="grid gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Dependentes</h1>

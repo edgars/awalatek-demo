@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition, type FormEvent } from "react";
-import { Campo, CpfInput, ResultadoLegado, idsCampo } from "@/components/campos";
+import { Campo, CpfInput, FiltroBeneficiario, ResultadoLegado, idsCampo } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,14 +29,17 @@ function SeloElegibilidade({ elegivel }: { elegivel: boolean }) {
  */
 export function FormElegibilidade({
   programas,
-  cpfInicial = "",
+  filtro = null,
   programaInicial = "",
+  inicial = null,
 }: {
   programas: readonly OpcaoPrograma[];
-  cpfInicial?: string;
+  /** Atalho `?benef=` (H2): chave opaca (vai oculta no formulário) e CPF mascarado do aviso. */
+  filtro?: { benef: string; cpfMascarado: string } | null;
   programaInicial?: string;
+  inicial?: EstadoElegibilidade;
 }) {
-  const [painel, setPainel] = useState<EstadoElegibilidade>(null);
+  const [painel, setPainel] = useState<EstadoElegibilidade>(inicial);
   const [pendente, iniciar] = useTransition();
 
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -59,7 +62,17 @@ export function FormElegibilidade({
       <Card>
         <CardContent>
           <form onSubmit={onSubmit} noValidate className="grid gap-4 md:grid-cols-2" aria-label="Dados para verificação">
-            <CpfInput name="numCpf" label="CPF do beneficiário" defaultValue={cpfInicial} />
+            {filtro ? (
+              <div className="md:col-span-2">
+                <input type="hidden" name="benef" value={filtro.benef} />
+                <FiltroBeneficiario cpfMascarado={filtro.cpfMascarado} hrefLimpar="/elegibilidade" />
+              </div>
+            ) : null}
+            <CpfInput
+              name="numCpf"
+              label="CPF do beneficiário"
+              descricao={filtro ? "Opcional: deixe vazio para verificar o beneficiário filtrado." : undefined}
+            />
             <Campo {...progP}>
               <Select id={idsCampo(progP).id} name="codPrograma" defaultValue={programaInicial}>
                 <option value="">—</option>

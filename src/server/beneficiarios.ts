@@ -11,6 +11,7 @@ import {
   type AlteracaoBeneficiario,
   type InclusaoBeneficiario,
 } from "@/domain/beneficiario/cadastro";
+import { FORMATO_CHAVE_PUBLICA } from "@/domain/chavePublica";
 import { anoDe, hoje } from "@/domain/legacyDate";
 import { MENSAGENS_PROGRAMA } from "@/domain/programa";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
@@ -22,7 +23,16 @@ import { prisma } from "@/server/db";
 export const TAMANHO_PAGINA = 10;
 
 export type Falha = { ok: false; mensagem: string };
-export type Sucesso = { ok: true; mensagem: string; numCpf: string; status: string; suspensoPorIdade: boolean; numVersao: number };
+export type Sucesso = {
+  ok: true;
+  mensagem: string;
+  numCpf: string;
+  /** Clave opaca del beneficiario grabado (H2: los enlaces nunca llevan el CPF). */
+  chavePublica: string;
+  status: string;
+  suspensoPorIdade: boolean;
+  numVersao: number;
+};
 export type Resultado = Sucesso | Falha;
 
 function usuarioOperativo(): string {
@@ -85,7 +95,6 @@ export async function listarOpcoesProgramas(db: PrismaClient = prisma) {
 
 // H2 (LGPD): las URLs identifican al beneficiario por `chavePublica` (UUID opaco y estable),
 // nunca por el CPF. Estas funciones traducen entre la clave de la URL y el CPF (clave de negocio).
-const FORMATO_CHAVE_PUBLICA = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /** CPF del beneficiario de la clave opaca; `null` si el formato es inválido o no existe. */
 export async function cpfPorChave(chave: string, db: PrismaClient = prisma): Promise<string | null> {
@@ -131,8 +140,10 @@ export async function incluirBeneficiario(
   const agora = hoje();
   const { status, suspensoPorIdade } = statusResultante("I", dados.dtNascimento, anoDe(agora.data), undefined, quirks);
   const usuario = usuarioOperativo();
+  let chavePublica: string;
   try {
-    await db.beneficiario.create({
+    ({ chavePublica } = await db.beneficiario.create({
+      select: { chavePublica: true },
       data: {
         numCpf: dados.numCpf,
         nis: dados.nis,
@@ -158,7 +169,7 @@ export async function incluirBeneficiario(
         hrUltAlteracao: agora.hora,
         usrUltAlteracao: usuario,
       },
-    });
+    }));
   } catch (e) {
     // Carrera entre la verificación y el insert: la restricción única decide.
     if (ehUnicoViolado(e)) {
@@ -167,7 +178,7 @@ export async function incluirBeneficiario(
     }
     throw e;
   }
-  return { ok: true, mensagem: MENSAGENS_CADBENEF.incluidoSucesso, numCpf: dados.numCpf, status, suspensoPorIdade, numVersao: 1 };
+  return { ok: true, mensagem: MENSAGENS_CADBENEF.incluidoSucesso, numCpf: dados.numCpf, chavePublica, status, suspensoPorIdade, numVersao: 1 };
 }
 
 /** `quirks`: flags LEGACY-QUIRK (D5 y D18); por defecto, legado (QUIRKS_PADRAO); la acción/página lee el entorno y los pasa. */
@@ -215,8 +226,34 @@ export async function alterarBeneficiario(
     ok: true,
     mensagem: MENSAGENS_CADBENEF.alteradoSucesso,
     numCpf: registrado.numCpf,
+    chavePublica: registrado.chavePublica,
     status,
     suspensoPorIdade,
     numVersao: dados.numVersao + 1,
   };
+}
+
+/** Resultado de resolver la clave/CPF sin propagar fallas de la base (H2). */
+export type Resolucao = { ok: true; valor: string | null } | { ok: false };
+
+async function resolverSeguro(contexto: string, f: () => Promise<string | null>): Promise<Resolucao> {
+  try {
+    return { ok: true, valor: await f() };
+  } catch (e) {
+    // Solo tipo y código: el mensaje de Prisma incluye los argumentos (CPF/clave), NFR-04.
+    const nome = e instanceof Error ? e.name : "erro desconhecido";
+    const codigo = (e as { code?: unknown } | null)?.code;
+    console.error(`[beneficiarios] ${contexto}:`, nome, typeof codigo === "string" ? codigo : "");
+    return { ok: false };
+  }
+}
+
+/** `cpfPorChave` que nunca lanza: falla de la base → `{ ok: false }` (log sin datos personales). */
+export function resolverCpfPorChave(chave: string, contexto: string, db: PrismaClient = prisma): Promise<Resolucao> {
+  return resolverSeguro(contexto, () => cpfPorChave(chave, db));
+}
+
+/** `chavePorCpf` que nunca lanza: falla de la base → `{ ok: false }` (log sin datos personales). */
+export function resolverChavePorCpf(numCpf: string, contexto: string, db: PrismaClient = prisma): Promise<Resolucao> {
+  return resolverSeguro(contexto, () => chavePorCpf(numCpf, db));
 }

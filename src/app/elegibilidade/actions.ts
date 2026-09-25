@@ -1,6 +1,7 @@
 "use server";
 
 import { entradaElegibilidadeSchema } from "@/domain/elegibilidade";
+import { resolverCpfPorChave } from "@/server/beneficiarios";
 import { verificarElegibilidade } from "@/server/elegibilidade";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoElegibilidade } from "./estado";
@@ -24,8 +25,18 @@ function falhaInesperada(contexto: string, e: unknown): { ok: false; mensagem: s
 }
 
 export async function verificarElegibilidadeAction(_anterior: EstadoElegibilidade, dados: FormData): Promise<EstadoElegibilidade> {
+  // H2 (LGPD): chegando pelo atalho `?benef=`, o formulário leva a chave opaca (campo oculto)
+  // e o campo CPF vazio; um CPF digitado prevalece. Chave inexistente → CPF vazio → o domínio
+  // responde BENEFICIARIO NAO ENCONTRADO; falha da base → mensagem genérica.
+  let numCpf = texto(dados, "numCpf");
+  const benef = texto(dados, "benef");
+  if (!numCpf.replace(/\D/g, "") && benef) {
+    const resolvido = await resolverCpfPorChave(benef, "elegibilidade (chave)");
+    if (!resolvido.ok) return { ok: false, mensagem: ERRO_INESPERADO };
+    numCpf = resolvido.valor ?? "";
+  }
   const parsed = entradaElegibilidadeSchema.safeParse({
-    numCpf: texto(dados, "numCpf"),
+    numCpf,
     codPrograma: texto(dados, "codPrograma"),
   });
   if (!parsed.success) return { ok: false, mensagem: parsed.error.issues[0]?.message ?? ERRO_INESPERADO };

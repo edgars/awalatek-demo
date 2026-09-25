@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/server/db";
-import { chaveDe } from "./chave";
+import { chaveDe, esperarHtmlSemCpf, esperarUrlSemCpf } from "./chave";
 
 // Story 4.4 — consulta de pagamentos (somente leitura, ADR-009). O seed não tem
 // pagamentos: o spec os grava direto na base do e2e antes de navegar.
@@ -105,11 +105,28 @@ test("lista ordenada por Nº desc com CPF mascarado e filtro por CPF", async ({ 
   await page.getByRole("button", { name: "Filtrar" }).click();
   // H2: o filtro por CPF vai por POST e a URL leva a chave opaca, nunca o CPF.
   await expect(page).toHaveURL(new RegExp(`benef=${await chaveDe(CPF_JOSE)}.*competencia=1990-01`));
-  expect(page.url()).not.toContain(CPF_JOSE);
-  expect(page.url()).not.toMatch(/\d{11}/);
-  await expect(page.getByLabel("CPF")).toHaveValue("123.456.780-62");
+  await esperarUrlSemCpf(page, CPF_JOSE);
+  // LGPD: o campo CPF fica vazio; só o aviso com o CPF mascarado.
+  await expect(page.getByLabel("CPF")).toHaveValue("");
+  await expect(page.getByTestId("filtro-beneficiario")).toContainText("Filtrando por: ***.***.780-62");
+  await esperarHtmlSemCpf(page, CPF_JOSE);
   await expect(linhas).toHaveCount(2);
   await expect(linhas.nth(1)).toContainText("9002");
+
+  // Trocar outro filtro com o campo CPF vazio mantém o filtro pela chave.
+  await page.getByLabel("Situação").selectOption("P");
+  await page.getByRole("button", { name: "Filtrar" }).click();
+  await expect(page).toHaveURL(new RegExp(`benef=${await chaveDe(CPF_JOSE)}.*situacao=P`));
+  await expect(linhas).toHaveCount(2);
+  await expect(linhas.nth(1)).toContainText("9002");
+
+  // "Limpar" do aviso tira só o filtro de CPF (a competência continua).
+  await page.getByTestId("filtro-beneficiario").getByRole("link", { name: "Limpar" }).click();
+  await expect(page).not.toHaveURL(/benef=/);
+  await expect(page).toHaveURL(/competencia=1990-01/);
+  await expect(page.getByTestId("filtro-beneficiario")).toHaveCount(0);
+  await expect(linhas).toHaveCount(3); // cabeçalho + 9003 (MARIA) + 9002 (JOSE), situação P
+  await expect(linhas.nth(1)).toContainText("9003");
 });
 
 test("filtro competência + situação; vazio; CPF incompleto", async ({ page }) => {

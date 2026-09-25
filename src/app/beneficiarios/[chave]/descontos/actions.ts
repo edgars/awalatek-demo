@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { CAMPOS_DESCONTO, MENSAGENS_DESCONTOS, validarDescontosRegistrados } from "@/domain/beneficiario/descontosRegistrados";
-import { cpfPorChave } from "@/server/beneficiarios";
+import { resolverCpfPorChave } from "@/server/beneficiarios";
 import { salvarDescontosRegistrados } from "@/server/descontosRegistrados";
 
 // Server Action de /beneficiarios/[chave]/descontos: zod en el borde; reglas en el dominio.
@@ -49,12 +49,10 @@ export async function salvarDescontosRegistradosAction(
   _anterior: EstadoDescontos,
   dados: FormData,
 ): Promise<EstadoDescontos> {
-  let cpf: string | null;
-  try {
-    cpf = await cpfPorChave(chave);
-  } catch (e) {
-    return falhaInesperada(e);
-  }
+  // Falha da base ao resolver a chave → mensagem genérica (log só tipo/código).
+  const resolvido = await resolverCpfPorChave(chave, "descontos (chave)");
+  if (!resolvido.ok) return { ok: false, mensagens: [ERRO_INESPERADO] };
+  const cpf = resolvido.valor;
   if (!cpf) return { ok: false, mensagens: [MENSAGENS_DESCONTOS.beneficiarioNaoEncontrado] };
 
   const linhas = lerFilas(dados, CAMPOS_DESCONTO);
