@@ -87,6 +87,7 @@ test("menu → filtro de competência → totais por região, situação e gerai
   await page.getByLabel("Competência").fill("1994-01");
   await page.getByRole("button", { name: "Gerar relatório" }).click();
   await expect(page).toHaveURL(/competencia=199401/);
+  await expect(page.getByText("Competência 01/1994")).toBeVisible();
 
   // LEGACY-QUIRK(D10): 22 e 99 caem em CENTRO-OESTE.
   await expect(celulas(page, "Por região", "NORTE")).toHaveText(["1", "R$ 100,00", "R$ 1,00", "R$ 99,00"]);
@@ -127,8 +128,17 @@ test("competência sem pagamentos → todas as linhas em zero", async ({ page })
   await expect(celulas(page, "Totais gerais", "TOTAL GERAL")).toHaveText(["0", "R$ 0,00", "R$ 0,00", "R$ 0,00"]);
 });
 
-test("competência inválida na URL → pede a competência, sem erro", async ({ page }) => {
-  await page.goto("/relatorios/consolidado?competencia=199413");
+for (const valor of ["199413", "invalido", "1994-1"]) {
+  test(`competência presente mas inválida (${valor}) → "Competência inválida."`, async ({ page }) => {
+    await page.goto(`/relatorios/consolidado?competencia=${valor}`);
+    await expect(page.getByText("Competência inválida.")).toBeVisible();
+    await expect(page.getByText("Informe a competência para gerar o relatório.")).toHaveCount(0);
+    await expect(page.getByRole("table")).toHaveCount(0);
+  });
+}
+
+test("sem o parâmetro → pede a competência, sem erro", async ({ page }) => {
+  await page.goto("/relatorios/consolidado");
   await expect(page.getByText("Informe a competência para gerar o relatório.")).toBeVisible();
-  await expect(page.getByRole("table")).toHaveCount(0);
+  await expect(page.getByText("Competência inválida.")).toHaveCount(0);
 });

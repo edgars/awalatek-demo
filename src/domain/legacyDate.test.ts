@@ -3,6 +3,7 @@ import {
   anoDe,
   competenciaParaInt,
   dataParaInt,
+  formatarCompetencia,
   hoje,
   idadePorAno,
   intParaCompetencia,
@@ -66,5 +67,12 @@ describe("legacyDate", () => {
     vi.stubEnv("TZ", "");
     expect(hoje(new Date("2026-09-25T02:30:00Z"))).toEqual({ data: 20260924, hora: 233000 });
     expect(hoje(new Date("2026-09-25T02:30:00Z"), "UTC")).toEqual({ data: 20260925, hora: 23000 });
+  });
+
+  it("formatarCompetencia: AAAAMM → MM/AAAA; 0 → null; inválida → erro", () => {
+    expect(formatarCompetencia(199401)).toBe("01/1994");
+    expect(formatarCompetencia(202612)).toBe("12/2026");
+    expect(formatarCompetencia(0)).toBeNull();
+    expect(() => formatarCompetencia(202613)).toThrow();
   });
 });

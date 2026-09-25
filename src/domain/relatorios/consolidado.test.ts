@@ -120,11 +120,12 @@ describe("consolidar", () => {
 });
 
 describe("filtro da tela", () => {
-  it("AAAAMM, AAAA-MM; inválido/ausente → 0", () => {
+  it("AAAAMM, AAAA-MM; ausente/vazio → 0; presente e inválido → null", () => {
     expect(lerFiltroConsolidado({ competencia: "199401" })).toEqual({ competencia: 199401 });
     expect(lerFiltroConsolidado({ competencia: ["1994-01", "x"] })).toEqual({ competencia: 199401 });
-    expect(lerFiltroConsolidado({ competencia: "199413" })).toEqual({ competencia: 0 });
-    expect(lerFiltroConsolidado({ competencia: "__invalido__" })).toEqual({ competencia: 0 });
+    expect(lerFiltroConsolidado({ competencia: "199413" })).toEqual({ competencia: null });
+    expect(lerFiltroConsolidado({ competencia: "invalido" })).toEqual({ competencia: null });
+    expect(lerFiltroConsolidado({ competencia: " " })).toEqual({ competencia: 0 });
     expect(lerFiltroConsolidado({})).toEqual({ competencia: 0 });
   });
 

@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { Competencia, ResultadoLegado } from "@/components/campos";
 import { Button } from "@/components/ui/button";
-import { CABECALHO_CONSOLIDADO, lerFiltroConsolidado } from "@/domain/relatorios/consolidado";
+import { formatarCompetencia } from "@/domain/legacyDate";
+import { CABECALHO_CONSOLIDADO, lerFiltroConsolidado, MENSAGEM_COMPETENCIA_INVALIDA } from "@/domain/relatorios/consolidado";
 import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
 import { TabelasConsolidado } from "./_componentes/TabelasConsolidado";
@@ -28,6 +29,8 @@ async function carregar(competencia: number) {
 /** Pantalla 4.19 — relatório consolidado mensal (BATCHREL). Solo lectura. */
 export default async function RelatorioConsolidadoPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const { competencia } = lerFiltroConsolidado(await searchParams);
+  // null = parámetro presente pero inválido; 0 = ausente (informe no solicitado).
+  const invalida = competencia === null;
   const r = competencia ? await carregar(competencia) : null;
 
   return (
@@ -46,12 +49,19 @@ export default async function RelatorioConsolidadoPage({ searchParams }: { searc
         aria-label="Filtro do relatório consolidado"
         className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4 print:hidden"
       >
-        <Competencia key={competencia} name="competencia" label="Competência" required defaultValue={competencia || undefined} />
+        <Competencia
+          key={String(competencia)}
+          name="competencia"
+          label="Competência"
+          required
+          defaultValue={competencia || undefined}
+          erro={invalida ? MENSAGEM_COMPETENCIA_INVALIDA : undefined}
+        />
         <Button type="submit">Gerar relatório</Button>
         {r?.ok ? <BotaoImprimir /> : null}
       </form>
 
-      {!r ? (
+      {invalida ? null : !r ? (
         <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground print:hidden">
           Informe a competência para gerar o relatório.
         </div>
@@ -70,7 +80,7 @@ export default async function RelatorioConsolidadoPage({ searchParams }: { searc
             <p>{"-".repeat(60)}</p>
           </div>
           <p className="text-sm text-muted-foreground print:hidden">
-            Competência <strong className="valor">{String(r.relatorio.competencia).slice(4)}/{String(r.relatorio.competencia).slice(0, 4)}</strong>
+            Competência <strong className="valor">{formatarCompetencia(r.relatorio.competencia)}</strong>
           </p>
           <TabelasConsolidado r={r.relatorio} />
         </>

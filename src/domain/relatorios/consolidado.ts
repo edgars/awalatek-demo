@@ -75,7 +75,13 @@ export function brutoRelatorio(vlrBruto: ValorDecimal): Dinheiro {
   return redondear(vlrBruto);
 }
 
-/** `brutoRelatorio` en centavos enteros (el bruto persistido ya tiene 2 decimales: no cambia). */
+/**
+ * `brutoRelatorio` en centavos enteros.
+ * Nota: como `vlrBruto` se persiste en centavos enteros (2 decimales exactos), el
+ * redondeo D11 es la identidad sobre los datos persistidos; se mantiene por
+ * fidelidad al legado. Por lo mismo, la asimetría bruto crudo (status) vs.
+ * redondeado (región/general) es hoy inerte: ambos totales coinciden.
+ */
 export function brutoRelatorioCentavos(vlrBrutoCentavos: number): number {
   return aCentavos(brutoRelatorio(deCentavos(vlrBrutoCentavos)));
 }
@@ -127,15 +133,19 @@ const texto = z
 
 /**
  * Parámetros de `/relatorios/consolidado`: `competencia` en `AAAAMM` (campo
- * `Competencia`) o `AAAA-MM`. Inválida o ausente → 0 (informe no solicitado).
+ * `Competencia`) o `AAAA-MM`. Ausente/vacía → 0 (informe no solicitado);
+ * presente pero inválida → `null` ("Competência inválida.").
  */
 export const filtroConsolidadoSchema = z.object({
-  competencia: texto.transform((v) => {
+  competencia: texto.transform((v): number | null => {
+    if (!v) return 0;
     const m = /^([1-9]\d{3})-?(0[1-9]|1[0-2])$/.exec(v);
-    return m ? Number(`${m[1]}${m[2]}`) : 0;
+    return m ? Number(`${m[1]}${m[2]}`) : null;
   }),
 });
 
-export function lerFiltroConsolidado(sp: Record<string, string | string[] | undefined>): { competencia: number } {
+export const MENSAGEM_COMPETENCIA_INVALIDA = "Competência inválida.";
+
+export function lerFiltroConsolidado(sp: Record<string, string | string[] | undefined>): { competencia: number | null } {
   return filtroConsolidadoSchema.parse({ competencia: sp.competencia });
 }
