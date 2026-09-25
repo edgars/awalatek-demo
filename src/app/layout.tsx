@@ -1,21 +1,45 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import Link from "next/link";
+import { connection } from "next/server";
+import { Suspense, type ReactNode } from "react";
+import { NavLateral } from "@/components/layout/NavLateral";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "SIFAP",
+  title: { default: "SIFAP", template: "%s · SIFAP" },
   description: "Sistema de Pagamentos de Programas Sociais",
 };
+
+/** Usuario operativo leído en tiempo de ejecución (no en el build). */
+async function UsuarioOperativo() {
+  await connection();
+  const usuario = process.env.SIFAP_USER?.trim() || "—";
+  return (
+    <span className="text-sm">
+      Usuário: <strong className="valor font-mono">{usuario}</strong>
+    </span>
+  );
+}
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body>
-        <header className="topo">
-          <strong>SIFAP</strong>
-          <span>Sistema de Pagamentos de Programas Sociais</span>
-        </header>
-        <main>{children}</main>
+      <body className="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
+        <aside className="bg-sidebar p-4 text-sidebar-foreground md:min-h-screen">
+          <Link href="/" className="mb-5 block px-2 text-lg font-bold tracking-tight">
+            SIFAP
+          </Link>
+          <NavLateral />
+        </aside>
+        <div className="flex min-w-0 flex-col">
+          <header className="flex items-center justify-between gap-4 border-b bg-card px-6 py-3">
+            <span className="text-sm text-muted-foreground">Sistema de Pagamentos de Programas Sociais</span>
+            <Suspense fallback={<span className="text-sm">Usuário: …</span>}>
+              <UsuarioOperativo />
+            </Suspense>
+          </header>
+          <main className="mx-auto w-full max-w-6xl flex-1 p-6">{children}</main>
+        </div>
       </body>
     </html>
   );

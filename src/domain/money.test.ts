@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aCentavos, dec, deCentavos, fator, redondear, truncar } from "./money";
+import { aCentavos, dec, deCentavos, fator, fatorParaString, formatarReais, redondear, truncar, truncarCasas } from "./money";
 
 describe("money", () => {
   it("trunca positivos a 2 decimais", () => {
@@ -45,5 +45,23 @@ describe("money", () => {
 
   it("aritmética decimal sem erro binário", () => {
     expect(dec("0.1").plus("0.2").toString()).toBe("0.3");
+  });
+
+  it("truncarCasas trunca a N decimais (atribuição Natural)", () => {
+    expect(truncarCasas("1.015624675", 6).toString()).toBe("1.015624");
+    expect(truncarCasas("-1.9999999", 6).toString()).toBe("-1.999999");
+    expect(() => truncarCasas("1", -1)).toThrow();
+  });
+
+  it("fatorParaString fixa as casas", () => {
+    expect(fatorParaString("0.045", 4)).toBe("0.0450");
+    expect(fatorParaString("1.0156246", 6)).toBe("1.015624");
+  });
+
+  it("formatarReais usa padrão pt-BR", () => {
+    expect(formatarReais(15234)).toBe("R$ 152,34");
+    expect(formatarReais(5)).toBe("R$ 0,05");
+    expect(formatarReais(123456789)).toBe("R$ 1.234.567,89");
+    expect(formatarReais(-100)).toBe("-R$ 1,00");
   });
 });

@@ -1,0 +1,9 @@
+/** Estado devuelto por las Server Actions de programas al formulario. */
+export type EstadoAcao = {
+  ok: boolean;
+  /** Mensajes para el panel de resultado (literales del legado cuando existen). */
+  mensagens: string[];
+  /** Error por campo (nombre del campo → mensaje), para mostrarlo junto al control. */
+  erros?: Record<string, string>;
+  codPrograma?: string;
+} | null;
