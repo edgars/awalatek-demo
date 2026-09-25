@@ -2,9 +2,10 @@
 title: 'Story 5.1 — Corrección retroactiva por IPCA'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '5dc58db'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-5-context.md'
   - '{project-root}/bmad-context.md'
@@ -74,6 +75,14 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 30 findings — high 0, medium 1, low 13, false 16, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (blind/intent) lectura no fiel: el servidor filtraba por período y ordenaba por competencia, dejando muertas las RK :129/:133/:136 — ahora lee todos los pagos del CPF por `numPagamento` (aprox. del ISN, como D21) y el dominio aplica `ESCAPE TOP/BOTTOM`; parada temprana marcada `LEGACY-QUIRK(D22)` + `TODO(review)` con test
+  - `[low]` `[patch]` ×5 — tests (`indCorrigido` N, lectura desactualizada con guarda, falla inesperada sin PII), `revalidatePath` de pagos, diferencia calculada una vez en centavos, limpieza e2e por `numPagamento`, `formatarReais`/clase `valor`
+  - `[low]` `[reject]` ×8 — DV del CPF (el legado no valida), varios errores zod a la vez, filtro por status (el legado no filtra), tope N9.2, resumen parcial ante falla (el legado aborta igual; mes 00/13 lanza como el índice legado), wrapper de transacción de una sentencia
+  - `[false]` `[reject]` ×16 — tabla IPCA verificada contra CALCCORR:47–96 (coincide), `vlrCorrecao` = valor corregido completo y total = suma de diferencias (CALCCORR:159–173), sin evidencia de `getRule` (`rk-verification.md`), etc.
+
 ## Design Notes
 
 - Verificar el mensaje literal del resumen contra CALCCORR ("CORRECAO RETROATIVA FINALIZADA").
@@ -82,3 +91,13 @@ deferred: []
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3229 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** corrección retroactiva por IPCA (CALCCORR, 14 RK) en `/correcao`: período validado, lectura por CPF en orden de inserción con parada del legado (D22), saltea corregidos, índice por mes con tabla 2010–2012 (D9), truncado, graba solo si diferencia > 0 con guarda contra doble corrección; resumen con total = suma de diferencias.
+- **Implementado en paralelo** (worktree); integrado por merge.
+- **Review:** 30 hallazgos — 6 patches (1 `medium`), 0 diferidos, 24 rechazados.
+- **Follow-up review recomendado:** `true` — nuevo quirk D22 (parada temprana) requiere decisión de negocio.
+- **Verificación (tras merge):** lint 0; `npm test` 620/620; build OK; e2e 51/51 (×4).
+- **Pendiente de negocio:** D22 — un pago de competencia posterior al período, insertado antes que pagos dentro del período, corta la corrida (réplica del `ESCAPE BOTTOM` sobre el orden del descriptor CPF).
+
