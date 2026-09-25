@@ -16,6 +16,7 @@ import {
   rotuloDominio,
   rotuloSituacaoPagamento,
   rotuloTipoPagamento,
+  varianteSituacaoPagamento,
 } from "@/domain/pagamento";
 import { obterPagamento } from "@/server/pagamentos";
 import { falhaInesperada } from "../falha";
@@ -47,8 +48,11 @@ function competencia(c: number): string {
   }
 }
 
+/** HHMMSS → `HH:MM:SS`; 0 o fuera de rango → "—". */
 function hora(h: number): string {
+  if (!Number.isInteger(h) || h <= 0 || h > 235959) return "—";
   const s = String(h).padStart(6, "0");
+  if (Number(s.slice(2, 4)) > 59 || Number(s.slice(4, 6)) > 59) return "—";
   return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`;
 }
 
@@ -124,12 +128,12 @@ export default async function PagamentoPage({ params }: Props) {
               <span className="valor">{competencia(p.anoMesRef)}</span>
             </Item>
             <Item rotulo="Situação">
-              <Badge variant="secondary">{rotuloSituacaoPagamento(p.sitPagamento)}</Badge>
+              <Badge variant={varianteSituacaoPagamento(p.sitPagamento)}>{rotuloSituacaoPagamento(p.sitPagamento)}</Badge>
             </Item>
             <Item rotulo="Tipo">{rotuloTipoPagamento(p.tipoPgto)}</Item>
             <Item rotulo="Geração">
               <span className="valor">
-                {data(p.dtGeracao)} {hora(p.hrGeracao)}
+                {[data(p.dtGeracao), hora(p.hrGeracao)].filter((x) => x !== "—").join(" ") || "—"}
               </span>
             </Item>
             <Item rotulo="Usuário">

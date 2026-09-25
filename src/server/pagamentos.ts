@@ -21,26 +21,32 @@ export async function listarPagamentos(
     ...(programa ? { codPrograma: programa } : {}),
     ...(situacao ? { sitPagamento: situacao } : {}),
   };
-  const total = await db.pagamento.count({ where });
-  const totalPaginas = Math.max(1, Math.ceil(total / TAMANHO_PAGINA));
-  const atual = Math.min(Math.max(1, Math.trunc(pagina) || 1), totalPaginas);
-  const itens = await db.pagamento.findMany({
-    where,
-    orderBy: { numPagamento: "desc" },
-    skip: (atual - 1) * TAMANHO_PAGINA,
-    take: TAMANHO_PAGINA,
-    select: {
-      numPagamento: true,
-      numCpf: true,
-      codPrograma: true,
-      anoMesRef: true,
-      vlrBruto: true,
-      vlrDescontoTotal: true,
-      vlrLiquido: true,
-      sitPagamento: true,
-      tipoPgto: true,
-    },
-  });
+  const select = {
+    numPagamento: true,
+    numCpf: true,
+    codPrograma: true,
+    anoMesRef: true,
+    vlrBruto: true,
+    vlrDescontoTotal: true,
+    vlrLiquido: true,
+    sitPagamento: true,
+    tipoPgto: true,
+  } as const;
+  // count + findMany en la misma transacción: total y filas consistentes entre sí.
+  const consultar = (p: number) =>
+    db.$transaction([
+      db.pagamento.count({ where }),
+      db.pagamento.findMany({ where, orderBy: { numPagamento: "desc" }, skip: (p - 1) * TAMANHO_PAGINA, take: TAMANHO_PAGINA, select }),
+    ]);
+  let atual = Math.max(1, Math.trunc(pagina) || 1);
+  let [total, itens] = await consultar(atual);
+  let totalPaginas = Math.max(1, Math.ceil(total / TAMANHO_PAGINA));
+  if (atual > totalPaginas) {
+    // Página más allá del final → última página (nueva lectura consistente).
+    atual = totalPaginas;
+    [total, itens] = await consultar(atual);
+    totalPaginas = Math.max(1, Math.ceil(total / TAMANHO_PAGINA));
+  }
   return { itens, total, pagina: atual, totalPaginas };
 }
 

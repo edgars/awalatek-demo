@@ -3,10 +3,12 @@ import {
   lerFiltrosPagamentos,
   lerNumPagamento,
   MENSAGENS_PAGAMENTO,
+  normalizarParams,
   ROTULOS_TIPO_DESCONTO,
   rotuloDominio,
   rotuloSituacaoPagamento,
   rotuloTipoPagamento,
+  varianteSituacaoPagamento,
 } from "./pagamento";
 
 describe("rótulos de pagamento (D15)", () => {
@@ -29,6 +31,9 @@ describe("rótulos de pagamento (D15)", () => {
   it("tipo de desconto do código (C/I/J/S/P/A)", () => {
     expect(rotuloDominio(ROTULOS_TIPO_DESCONTO, "J")).toBe("J — Judicial");
     expect(rotuloDominio(ROTULOS_TIPO_DESCONTO, "IR")).toBe("IR");
+    // Sem membros do protótipo.
+    expect(rotuloDominio(ROTULOS_TIPO_DESCONTO, "toString")).toBe("toString");
+    expect(rotuloSituacaoPagamento("constructor")).toBe("constructor");
   });
 
   it("mensagem literal de inexistente", () => {
@@ -36,7 +41,21 @@ describe("rótulos de pagamento (D15)", () => {
   });
 });
 
+describe("variante do badge de situação", () => {
+  it("mesma variante para lista e detalhe; desconhecida → secondary", () => {
+    expect(varianteSituacaoPagamento("P")).toBe("success");
+    expect(varianteSituacaoPagamento("C")).toBe("destructive");
+    expect(varianteSituacaoPagamento("toString")).toBe("secondary");
+  });
+});
+
 describe("filtros da lista", () => {
+  it("parâmetros repetidos → primeiro valor, igual nos filtros e nos links", () => {
+    const sp = { cpf: ["01234567890", "12345678062"], situacao: ["P", "G"] };
+    expect(normalizarParams(sp)).toMatchObject({ cpf: "01234567890", situacao: "P" });
+    expect(lerFiltrosPagamentos(sp)).toMatchObject({ cpf: "01234567890", situacao: "P" });
+  });
+
   it("vazios → sem filtro, página 1", () => {
     expect(lerFiltrosPagamentos({})).toEqual({ cpf: "", competencia: 0, programa: "", situacao: "", pagina: 1 });
   });
@@ -80,6 +99,10 @@ describe("número do pagamento na rota", () => {
     expect(lerNumPagamento("0")).toBeNull();
     expect(lerNumPagamento("abc")).toBeNull();
     expect(lerNumPagamento("1e3")).toBeNull();
+    expect(lerNumPagamento("1000000000")).toBe(1000000000);
+    expect(lerNumPagamento("2147483647")).toBe(2147483647);
+    expect(lerNumPagamento("2147483648")).toBeNull();
     expect(lerNumPagamento("9999999999")).toBeNull();
+    expect(lerNumPagamento("12345678901")).toBeNull();
   });
 });

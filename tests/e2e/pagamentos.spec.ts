@@ -4,14 +4,25 @@ import { createPrismaClient } from "@/server/db";
 
 // Story 4.4 — consulta de pagamentos (somente leitura, ADR-009). O seed não tem
 // pagamentos: o spec os grava direto na base do e2e antes de navegar.
+// Outros specs (p. ex. cálculo) gravam pagamentos reais na mesma base em paralelo:
+// aqui só se usam competências que nenhum outro spec usa (1990-01 / 1990-02) e
+// toda asserção de contagem é restrita a elas.
 
 test.describe.configure({ mode: "serial" });
 
 const CPF_MARIA = "01234567890"; // seed: PA01
 const CPF_JOSE = "12345678062"; // seed: PP01
-const NUMS = [9001, 9002, 9003];
+const COMP_A = 199001; // 3 pagamentos (lista, filtros, detalhe)
+const COMP_B = 199002; // 12 pagamentos (paginação)
+const NUMS_A = [9001, 9002, 9003];
+const NUMS_B = Array.from({ length: 12 }, (_, i) => 9011 + i);
+const NUMS = [...NUMS_A, ...NUMS_B];
+const NOSSOS = { numPagamento: { in: NUMS }, anoMesRef: { in: [COMP_A, COMP_B] } };
 
 let db: PrismaClient;
+
+const nossosPagamentos = () =>
+  db.pagamento.findMany({ where: NOSSOS, orderBy: { numPagamento: "asc" }, include: { descontos: { orderBy: { occurrence: "asc" } } } });
 
 test.beforeAll(async () => {
   db = createPrismaClient("file:./e2e.db");
@@ -20,7 +31,7 @@ test.beforeAll(async () => {
     db.beneficiario.findUnique({ where: { numCpf: CPF_JOSE }, select: { id: true } }),
   ]);
   if (!maria || !jose) throw new Error("seed do e2e sem os beneficiários esperados");
-  await db.pagamento.deleteMany({ where: { numPagamento: { in: NUMS } } });
+  await db.pagamento.deleteMany({ where: NOSSOS });
   const base = { vlrLiquido: 48500, vlrDescontoTotal: 1500, tipoPgto: "N", dtGeracao: 20260901, hrGeracao: 101500, usrInclusao: "BATCH" };
   await db.pagamento.create({
     data: {
@@ -28,7 +39,7 @@ test.beforeAll(async () => {
       numPagamento: 9001,
       numCpf: CPF_MARIA,
       codPrograma: "PA01",
-      anoMesRef: 202609,
+      anoMesRef: COMP_A,
       vlrBruto: 50000,
       sitPagamento: "G",
       vlrCorrecao: 1234,
@@ -47,15 +58,18 @@ test.beforeAll(async () => {
     },
   });
   await db.pagamento.create({
-    data: { ...base, numPagamento: 9002, numCpf: CPF_JOSE, codPrograma: "PP01", anoMesRef: 202609, vlrBruto: 70000, sitPagamento: "P" },
+    data: { ...base, numPagamento: 9002, numCpf: CPF_JOSE, codPrograma: "PP01", anoMesRef: COMP_A, vlrBruto: 70000, sitPagamento: "P" },
   });
   await db.pagamento.create({
-    data: { ...base, numPagamento: 9003, numCpf: CPF_MARIA, codPrograma: "PA01", anoMesRef: 202608, vlrBruto: 50000, sitPagamento: "G", tipoPgto: "D" },
+    data: { ...base, numPagamento: 9003, numCpf: CPF_MARIA, codPrograma: "PA01", anoMesRef: COMP_A, vlrBruto: 50000, sitPagamento: "P", tipoPgto: "D" },
+  });
+  await db.pagamento.createMany({
+    data: NUMS_B.map((n) => ({ ...base, numPagamento: n, numCpf: CPF_JOSE, codPrograma: "PP01", anoMesRef: COMP_B, vlrBruto: 50000, sitPagamento: "G" })),
   });
 });
 
 test.afterAll(async () => {
-  await db?.pagamento.deleteMany({ where: { numPagamento: { in: NUMS } } });
+  await db?.pagamento.deleteMany({ where: NOSSOS });
   await db?.$disconnect();
 });
 
@@ -67,6 +81,10 @@ test("lista ordenada por Nº desc com CPF mascarado e filtro por CPF", async ({ 
   await expect(page.getByRole("heading", { level: 1, name: "Pagamentos" })).toBeVisible();
   await expect(menu.getByRole("link", { name: "Pagamentos" })).toHaveAttribute("aria-current", "page");
 
+  await page.getByLabel("Competência").fill("1990-01");
+  await page.getByRole("button", { name: "Filtrar" }).click();
+  await expect(page).toHaveURL(/competencia=1990-01/);
+
   const tabela = page.getByRole("table");
   const linhas = tabela.getByRole("row");
   await expect(linhas).toHaveCount(4); // cabeçalho + 3
@@ -74,7 +92,7 @@ test("lista ordenada por Nº desc com CPF mascarado e filtro por CPF", async ({ 
   await expect(linhas.nth(2)).toContainText("9002");
   await expect(linhas.nth(3)).toContainText("9001");
   await expect(linhas.nth(1)).toContainText("***.***.678-90");
-  await expect(linhas.nth(1)).toContainText("2026-08");
+  await expect(linhas.nth(1)).toContainText("1990-01");
   await expect(linhas.nth(1)).toContainText("D — Décimo");
   await expect(linhas.nth(2)).toContainText("R$ 700,00");
   await expect(linhas.nth(2)).toContainText("P — Pago");
@@ -82,26 +100,54 @@ test("lista ordenada por Nº desc com CPF mascarado e filtro por CPF", async ({ 
 
   await page.getByLabel("CPF").fill("123.456.780-62");
   await page.getByRole("button", { name: "Filtrar" }).click();
-  await expect(page).toHaveURL(/cpf=/);
+  await expect(page).toHaveURL(/cpf=.*competencia=1990-01|competencia=1990-01.*cpf=/);
   await expect(linhas).toHaveCount(2);
   await expect(linhas.nth(1)).toContainText("9002");
 });
 
-test("filtro competência + situação", async ({ page }) => {
+test("filtro competência + situação; vazio; CPF incompleto", async ({ page }) => {
   await page.goto("/pagamentos");
-  await page.getByLabel("Competência").fill("2026-09");
+  await page.getByLabel("Competência").fill("1990-01");
   await page.getByLabel("Situação").selectOption("G");
   await page.getByRole("button", { name: "Filtrar" }).click();
   const linhas = page.getByRole("table").getByRole("row");
   await expect(linhas).toHaveCount(2);
   await expect(linhas.nth(1)).toContainText("9001");
 
-  await page.goto("/pagamentos?competencia=2020-01");
+  await page.goto("/pagamentos?competencia=1989-12");
   await expect(page.getByText("Nenhum pagamento")).toBeVisible();
+  await expect(page.getByRole("table")).toHaveCount(0);
+
+  await page.goto("/pagamentos?cpf=012345");
+  await expect(page.getByText("Informe o CPF completo (11 dígitos).")).toBeVisible();
+  await expect(page.getByRole("table")).toHaveCount(0);
+});
+
+test("paginação mantém os filtros", async ({ page }) => {
+  await page.goto("/pagamentos?competencia=1990-02&situacao=G");
+  const linhas = page.getByRole("table").getByRole("row");
+  await expect(linhas).toHaveCount(11); // cabeçalho + 10
+  await expect(linhas.nth(1)).toContainText("9022");
+  await expect(page.getByText("12 registros · página 1 de 2")).toBeVisible();
+
+  await page.getByRole("link", { name: "Próxima" }).click();
+  await expect(page).toHaveURL(/pagina=2/);
+  const url = new URL(page.url());
+  expect(url.searchParams.get("competencia")).toBe("1990-02");
+  expect(url.searchParams.get("situacao")).toBe("G");
+  expect(url.searchParams.get("pagina")).toBe("2");
+  await expect(linhas).toHaveCount(3); // cabeçalho + 2
+  await expect(linhas.nth(1)).toContainText("9012");
+  await expect(linhas.nth(2)).toContainText("9011");
+  for (const i of [1, 2]) {
+    await expect(linhas.nth(i)).toContainText("1990-02");
+    await expect(linhas.nth(i)).toContainText("G — Gerado");
+  }
+  await expect(page.getByLabel("Competência")).toHaveValue("1990-02");
 });
 
 test("detalhe com descontos na ordem de occurrence, correção e conciliação", async ({ page }) => {
-  await page.goto("/pagamentos");
+  await page.goto("/pagamentos?competencia=1990-01");
   await page.getByRole("link", { name: "9001", exact: true }).click();
   await expect(page).toHaveURL(/\/pagamentos\/9001$/);
   await expect(page.getByRole("heading", { level: 1, name: "Pagamento 9001" })).toBeVisible();
@@ -112,6 +158,8 @@ test("detalhe com descontos na ordem de occurrence, correção e conciliação",
   await expect(descontos.nth(1)).toContainText("J — Judicial");
   await expect(descontos.nth(1)).toContainText("R$ 10,00");
   await expect(descontos.nth(2)).toContainText("S — Sindical");
+  await expect(descontos.nth(2)).toContainText("1,00 %");
+  await expect(descontos.nth(2)).toContainText("01/01/2026 a indeterminado");
 
   const correcao = page.getByRole("definition").filter({ hasText: "R$ 12,34" });
   await expect(correcao).toBeVisible();
@@ -138,20 +186,20 @@ test("ADR-009: sem formulários nem ações de escrita", async ({ page, request 
     await expect(page.getByRole("link", { name: escrita })).toHaveCount(0);
   }
 
-  // POST sem ação registrada: nenhuma escrita executada.
-  const antes = await db.pagamento.count();
+  // POST sem ação registrada: nenhuma escrita executada nos pagamentos deste spec.
+  const antes = await nossosPagamentos();
+  expect(antes).toHaveLength(NUMS.length);
   for (const url of ["/pagamentos", "/pagamentos/9001"]) {
     const r = await request.post(url, { headers: { "Next-Action": "0000000000000000000000000000000000000000" }, data: "[]" });
     expect(r.status()).toBeGreaterThanOrEqual(400);
-    // POST de formulário comum: no máximo re-renderiza a página (leitura).
-    await request.post(url, { form: { numPagamento: "9001", vlrBruto: "1", sitPagamento: "C" } });
+    // POST de formulário comum: sem ação registrada, só re-renderiza a página (leitura).
+    const f = await request.post(url, { form: { numPagamento: "9001", vlrBruto: "1", sitPagamento: "C" } });
+    expect(f.status()).toBe(200);
+    expect(await f.text()).not.toContain("SUCESSO");
   }
   for (const method of ["post", "put", "delete", "patch"] as const) {
     const r = await request[method]("/api/pagamentos", { data: {} });
     expect(r.status()).toBe(404);
   }
-  expect(await db.pagamento.count()).toBe(antes);
-  const p = await db.pagamento.findUnique({ where: { numPagamento: 9001 }, include: { descontos: true } });
-  expect(p).toMatchObject({ vlrBruto: 50000, vlrLiquido: 48500, sitPagamento: "G" });
-  expect(p?.descontos).toHaveLength(2);
+  expect(await nossosPagamentos()).toEqual(antes);
 });

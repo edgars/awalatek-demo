@@ -57,7 +57,8 @@ export const ROTULOS_SITUACAO_CONCILIACAO: Record<string, string> = {
 
 /** `código — rótulo` para dominios cerrados; código desconocido → el código solo. */
 export function rotuloDominio(rotulos: Record<string, string>, codigo: string): string {
-  const r = rotulos[codigo];
+  // Object.hasOwn: códigos como "toString" no devuelven miembros del prototipo.
+  const r = Object.hasOwn(rotulos, codigo) ? rotulos[codigo] : undefined;
   return r ? `${codigo} — ${r}` : codigo;
 }
 
@@ -101,18 +102,42 @@ export const filtrosPagamentosSchema = z.object({
 export type FiltrosPagamentos = z.output<typeof filtrosPagamentosSchema>;
 
 export function lerFiltrosPagamentos(sp: Record<string, string | string[] | undefined>): FiltrosPagamentos {
-  return filtrosPagamentosSchema.parse({
-    cpf: sp.cpf,
-    competencia: sp.competencia,
-    programa: sp.programa,
-    situacao: sp.situacao,
-    pagina: sp.pagina,
-  });
+  return filtrosPagamentosSchema.parse(normalizarParams(sp));
 }
 
-/** Número de pago de la ruta `/pagamentos/[num]`: entero positivo o `null`. */
+/** Máximo de `numPagamento` (Int de SQLite/Prisma, 32 bits). */
+export const MAX_NUM_PAGAMENTO = 2147483647;
+
+/** Número de pago de la ruta `/pagamentos/[num]`: entero en 1..MAX_NUM_PAGAMENTO o `null`. */
 export function lerNumPagamento(num: string): number | null {
-  if (!/^\d{1,9}$/.test(num)) return null;
+  if (!/^\d{1,10}$/.test(num)) return null;
   const n = Number(num);
-  return n >= 1 ? n : null;
+  return n >= 1 && n <= MAX_NUM_PAGAMENTO ? n : null;
+}
+
+export type VarianteBadge = "success" | "warning" | "secondary" | "destructive" | "default";
+
+/** Variante visual del badge de situação, igual en la lista y el detalle. */
+export const VARIANTE_SITUACAO_PAGAMENTO: Record<SituacaoPagamento, VarianteBadge> = {
+  G: "default",
+  P: "success",
+  C: "destructive",
+  D: "warning",
+  E: "secondary",
+};
+
+export function varianteSituacaoPagamento(sit: string): VarianteBadge {
+  return Object.hasOwn(VARIANTE_SITUACAO_PAGAMENTO, sit) ? VARIANTE_SITUACAO_PAGAMENTO[sit as SituacaoPagamento] : "secondary";
+}
+
+/** Primer valor string de un parámetro de query (`?cpf=a&cpf=b` → `"a"`); ausente → `""`. */
+export function primeiroValor(v: string | string[] | undefined): string {
+  return (Array.isArray(v) ? (v[0] ?? "") : (v ?? "")).trim();
+}
+
+/** Normaliza los parámetros de la lista a su primer valor (filtros y enlaces coinciden). */
+export function normalizarParams(sp: Record<string, string | string[] | undefined>): Record<string, string> {
+  const r: Record<string, string> = {};
+  for (const k of ["cpf", "competencia", "programa", "situacao", "pagina"]) r[k] = primeiroValor(sp[k]);
+  return r;
 }

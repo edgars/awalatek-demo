@@ -13,10 +13,12 @@ import { intParaCompetencia } from "@/domain/legacyDate";
 import { formatarReais } from "@/domain/money";
 import {
   lerFiltrosPagamentos,
+  normalizarParams,
   ROTULOS_SITUACAO_PAGAMENTO,
   rotuloSituacaoPagamento,
   rotuloTipoPagamento,
   SITUACOES_PAGAMENTO,
+  varianteSituacaoPagamento,
   type FiltrosPagamentos,
 } from "@/domain/pagamento";
 import { listarOpcoesProgramas } from "@/server/beneficiarios";
@@ -27,14 +29,6 @@ export const metadata: Metadata = { title: "Pagamentos" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-const VARIANTE_SITUACAO: Record<string, "success" | "warning" | "secondary" | "destructive" | "default"> = {
-  G: "default",
-  P: "success",
-  C: "destructive",
-  D: "warning",
-  E: "secondary",
-};
-
 function competenciaTexto(c: number): string {
   try {
     return intParaCompetencia(c) ?? "—";
@@ -43,25 +37,20 @@ function competenciaTexto(c: number): string {
   }
 }
 
-/** Query string con los filtros vigentes (para la paginación). */
-function hrefPagina(sp: SearchParams, pagina: number): string {
+/** Query string con los filtros vigentes (para la paginación), ya normalizados. */
+function hrefPagina(params: Record<string, string>, pagina: number): string {
   const q = new URLSearchParams();
   for (const k of ["cpf", "competencia", "programa", "situacao"]) {
-    const v = sp[k];
-    if (typeof v === "string" && v.trim()) q.set(k, v.trim());
+    const v = params[k];
+    if (v) q.set(k, v);
   }
   if (pagina > 1) q.set("pagina", String(pagina));
   const s = q.toString();
   return s ? `/pagamentos?${s}` : "/pagamentos";
 }
 
-function valorBruto(sp: SearchParams, k: string): string {
-  const v = sp[k];
-  return typeof v === "string" ? v : "";
-}
-
-function Filtros({ sp, programas }: { sp: SearchParams; programas: readonly { codPrograma: string; nomePrograma: string }[] }) {
-  const f = lerFiltrosPagamentos(sp);
+function Filtros({ params, programas }: { params: Record<string, string>; programas: readonly { codPrograma: string; nomePrograma: string }[] }) {
+  const f = lerFiltrosPagamentos(params);
   const competencia = f.competencia ? (intParaCompetencia(f.competencia) ?? "") : "";
   return (
     // Formulario de consulta (GET): solo filtra la lista, no escribe nada (ADR-009).
@@ -76,7 +65,7 @@ function Filtros({ sp, programas }: { sp: SearchParams; programas: readonly { co
           maxLength={14}
           placeholder="000.000.000-00"
           className="valor font-mono"
-          defaultValue={valorBruto(sp, "cpf")}
+          defaultValue={params.cpf}
           aria-describedby="filtro-cpf-ajuda"
         />
         <span id="filtro-cpf-ajuda" className="text-xs text-muted-foreground">
@@ -138,18 +127,27 @@ function PaginaLink({ href, ativo, children }: { href: string; ativo: boolean; c
 
 async function carregar(f: FiltrosPagamentos) {
   try {
-    const [lista, programas] = await Promise.all([listarPagamentos(f), listarOpcoesProgramas()]);
-    return { ok: true as const, lista, programas };
+    return { ok: true as const, lista: await listarPagamentos(f) };
   } catch (e) {
     return falhaInesperada("lista", e);
   }
 }
 
+/** Opciones de programa del filtro; si falla, lista vacía para que los filtros sigan visibles. */
+async function carregarProgramas() {
+  try {
+    return await listarOpcoesProgramas();
+  } catch (e) {
+    falhaInesperada("programas", e);
+    return [];
+  }
+}
+
 /** Pantalla 4.15 — lista de pagamentos (solo lectura, ADR-009). */
 export default async function PagamentosPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const sp = await searchParams;
-  const f = lerFiltrosPagamentos(sp);
-  const r = await carregar(f);
+  const params = normalizarParams(await searchParams);
+  const f = lerFiltrosPagamentos(params);
+  const [r, programas] = await Promise.all([carregar(f), carregarProgramas()]);
 
   return (
     <div className="grid gap-4">
@@ -158,11 +156,12 @@ export default async function PagamentosPage({ searchParams }: { searchParams: P
         <p className="text-sm text-muted-foreground">Consulta somente leitura. Pagamentos são gerados pelo cálculo e pelo lote mensal.</p>
       </div>
 
+      <Filtros params={params} programas={programas} />
+
       {!r.ok ? (
         <ResultadoLegado variante="erro" mensagens={[r.mensagem]} />
       ) : (
         <>
-          <Filtros sp={sp} programas={r.programas} />
 
           {r.lista.itens.length === 0 ? (
             <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
@@ -208,7 +207,7 @@ export default async function PagamentosPage({ searchParams }: { searchParams: P
                       <TableCell className="valor text-right">{formatarReais(p.vlrDescontoTotal)}</TableCell>
                       <TableCell className="valor text-right">{formatarReais(p.vlrLiquido)}</TableCell>
                       <TableCell>
-                        <Badge variant={VARIANTE_SITUACAO[p.sitPagamento] ?? "secondary"}>{rotuloSituacaoPagamento(p.sitPagamento)}</Badge>
+                        <Badge variant={varianteSituacaoPagamento(p.sitPagamento)}>{rotuloSituacaoPagamento(p.sitPagamento)}</Badge>
                       </TableCell>
                       <TableCell>{rotuloTipoPagamento(p.tipoPgto)}</TableCell>
                     </TableRow>
@@ -223,10 +222,10 @@ export default async function PagamentosPage({ searchParams }: { searchParams: P
               {r.lista.total} registro{r.lista.total === 1 ? "" : "s"} · página {r.lista.pagina} de {r.lista.totalPaginas}
             </span>
             <span className="flex gap-2">
-              <PaginaLink href={hrefPagina(sp, r.lista.pagina - 1)} ativo={r.lista.pagina > 1}>
+              <PaginaLink href={hrefPagina(params, r.lista.pagina - 1)} ativo={r.lista.pagina > 1}>
                 Anterior
               </PaginaLink>
-              <PaginaLink href={hrefPagina(sp, r.lista.pagina + 1)} ativo={r.lista.pagina < r.lista.totalPaginas}>
+              <PaginaLink href={hrefPagina(params, r.lista.pagina + 1)} ativo={r.lista.pagina < r.lista.totalPaginas}>
                 Próxima
               </PaginaLink>
             </span>
