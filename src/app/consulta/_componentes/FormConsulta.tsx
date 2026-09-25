@@ -28,7 +28,8 @@ function dataTexto(dt: number): string {
 }
 
 function competenciaTexto(comp: number): string {
-  const s = String(comp).padStart(6, "0");
+  const s = String(comp);
+  if (!comp || !/^\d{6}$/.test(s)) return "—";
   return `${s.slice(4, 6)}/${s.slice(0, 4)}`;
 }
 
@@ -147,6 +148,10 @@ export function FormConsulta({ cpfInicial, inicial }: { cpfInicial: string; inic
     iniciar(async () => {
       try {
         setPainel(await consultarBeneficiarioAction(null, dados));
+        // Busca manual: tira o `?cpf=` da chegada pela lista (um reload não deve mostrar o CPF anterior).
+        // History API nativa (integrada ao router do Next): router.replace re-renderizaria a página
+        // no servidor e remontaria este formulário (key = cpf), apagando o resultado recém-obtido.
+        if (window.location.search) window.history.replaceState(null, "", "/consulta");
       } catch {
         setPainel({ ok: false, mensagem: ERRO_INESPERADO });
       }
@@ -163,7 +168,11 @@ export function FormConsulta({ cpfInicial, inicial }: { cpfInicial: string; inic
               <div className="flex gap-4 text-sm">
                 {(["C", "N"] as const).map((t) => (
                   <label key={t} className="flex items-center gap-2">
-                    <input type="radio" name="tipo" value={t} checked={tipo === t} onChange={() => setTipo(t)} />
+                    <input type="radio" name="tipo" value={t} checked={tipo === t} onChange={() => {
+                        setTipo(t);
+                        setPainel(null);
+                      }}
+                    />
                     {t === "C" ? "CPF" : "NIS"}
                   </label>
                 ))}

@@ -49,4 +49,15 @@ test("lista → Consultar: beneficiário sem pagamentos → NENHUM PAGAMENTO ENC
   await expect(page.getByTestId("cpf-mascarado")).toHaveText(/^\*\*\*\.\*\*\*\.\d{3}-\d{2}$/);
   await expect(page.getByTestId("situacao")).toHaveText("D - DESLIGADO");
   await expect(page.getByTestId("resultado-legado")).toContainText("NENHUM PAGAMENTO ENCONTRADO");
+
+  // Busca manual depois de chegar por ?cpf=: a URL volta a /consulta e o resultado permanece.
+  await page.getByLabel("CPF do beneficiário").fill("01234567890");
+  await page.getByRole("button", { name: "Consultar" }).click();
+  await expect(page.getByTestId("cpf-mascarado")).toHaveText("012.***.***-**");
+  await expect(page).toHaveURL(/\/consulta$/);
+  await expect(page.getByTestId("cpf-mascarado")).toHaveText("012.***.***-**");
+
+  // Trocar CPF/NIS limpa o painel.
+  await page.getByRole("radio", { name: "NIS" }).check();
+  await expect(page.getByTestId("cpf-mascarado")).toHaveCount(0);
 });

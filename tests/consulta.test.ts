@@ -2,8 +2,10 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { consultarBeneficiarioAction } from "@/app/consulta/actions";
+import { ERRO_INESPERADO } from "@/app/consulta/executar";
+import ConsultaPage from "@/app/consulta/page";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/server/db";
 import { consultarBeneficiario } from "@/server/consulta";
@@ -154,8 +156,60 @@ describe("consultarBeneficiarioAction", () => {
     expect({ aud: await prisma.auditoria.count(), pg: await prisma.pagamento.count() }).toEqual(antes);
   });
 
-  it("entrada fora do formato (zod) → mensagem, sem exceção", async () => {
-    const r = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: "9".repeat(50) }));
-    expect(r?.ok).toBe(false);
+  it("entrada longa é truncada/normalizada (A1, N11) e só aparecem mensagens do legado", async () => {
+    expect(await consultarBeneficiarioAction(null, form({ tipo: "Z".repeat(50), valor: CPF_MARIA }))).toEqual({
+      ok: false,
+      mensagem: "TIPO BUSCA INVALIDO",
+    });
+    expect(await consultarBeneficiarioAction(null, form({ tipo: "C", valor: "9".repeat(50) }))).toEqual({
+      ok: false,
+      mensagem: "BENEFICIARIO NAO ENCONTRADO",
+    });
+    // 11 dígitos de um CPF real seguidos de mais dígitos: não é truncado para o CPF real.
+    expect(await consultarBeneficiarioAction(null, form({ tipo: "C", valor: `${CPF_MARIA}99` }))).toEqual({
+      ok: false,
+      mensagem: "BENEFICIARIO NAO ENCONTRADO",
+    });
+    const nCom = await consultarBeneficiarioAction(null, form({ tipo: "NIS", valor: "10000000001" }));
+    expect(nCom?.ok && nCom.ficha.nomeCompleto).toBe("MARIA APARECIDA DA SILVA");
+  });
+
+  it("falha inesperada da base → mensagem genérica, sem CPF no log", async () => {
+    await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA })); // garante o singleton
+    const cliente = globalPrisma.prisma!;
+    const busca = vi.spyOn(cliente.beneficiario, "findUnique").mockRejectedValue(new Error(`falha ao ler CPF ${CPF_MARIA}`));
+    const erroLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }))).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
+      expect(busca).toHaveBeenCalled();
+      expect(erroLog).toHaveBeenCalled();
+      expect(JSON.stringify(erroLog.mock.calls)).not.toContain(CPF_MARIA);
+    } finally {
+      busca.mockRestore();
+      erroLog.mockRestore();
+    }
+  });
+});
+
+describe("página /consulta?cpf=", () => {
+  async function inicialDaPagina(cpf: string) {
+    const el = await ConsultaPage({ searchParams: Promise.resolve({ cpf }) });
+    const filhos = (el.props as { children: unknown[] }).children;
+    const form = filhos.find((c) => (c as { props?: { inicial?: unknown } } | null)?.props?.inicial !== undefined) as {
+      props: { inicial: unknown; cpfInicial: string };
+    };
+    return form.props;
+  }
+
+  it("CPF da lista → consulta direto", async () => {
+    const p = await inicialDaPagina(CPF_MARIA);
+    expect((p.inicial as { ok: boolean }).ok).toBe(true);
+    expect(p.cpfInicial).toBe(CPF_MARIA);
+  });
+
+  it("mais de 11 dígitos não é truncado → BENEFICIARIO NAO ENCONTRADO", async () => {
+    const p = await inicialDaPagina(`${CPF_MARIA}7`);
+    expect(p.inicial).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ENCONTRADO" });
+    expect(p.cpfInicial).toBe("");
   });
 });

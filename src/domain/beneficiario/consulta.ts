@@ -26,8 +26,10 @@ export type TipoBusca = "C" | "N";
  * por defecto (entrada → tipo de busca → búsqueda).
  */
 export const entradaConsultaSchema = z.object({
-  tipo: z.string().max(20, "Tipo de busca inválido."),
-  valor: z.string().max(40, "Informe o CPF ou o NIS (11 dígitos)."),
+  // #TIPO-BUSCA A1: solo la 1.ª posición; nunca se rechaza (el inválido lo decide RK-7ede98209218).
+  tipo: z.string().transform((s) => s.slice(0, 1)),
+  // #CPF-BUSCA/#NIS-BUSCA N11: solo dígitos; más de 11 no se trunca (la búsqueda no encuentra).
+  valor: z.string().transform((s) => s.replace(/\D/g, "")),
 });
 export type EntradaConsulta = z.input<typeof entradaConsultaSchema>;
 
@@ -92,8 +94,9 @@ export function selecionarHistorico(numCpf: string, pagamentos: readonly Pagamen
   const ordenados = [...pagamentos].sort((a, b) => a.numPagamento - b.numPagamento);
   const linhas: LinhaHistorico[] = [];
   for (const p of ordenados) {
-    // RK-e17f09d66201 (CONSBENF:152) — IF PAGAMENTO-V.CPF-BENEF NE BENEFICIARIO-V.CPF → ESCAPE BOTTOM:
-    // solo los pagos del CPF consultado.
+    // RK-e17f09d66201 (CONSBENF:152) — READ BY CPF-BENEF + IF CPF-BENEF NE BENEFICIARIO-V.CPF → ESCAPE BOTTOM:
+    // la consulta ya filtra por CPF (equivalente a leer por el descriptor y parar al cambiar
+    // de CPF); aquí se descartan por seguridad los de otro CPF, con el mismo resultado.
     if (p.numCpf !== numCpf) continue;
     // RK-0550647253b2 (CONSBENF:156) — ADD 1 TO #QTD-HIST; IF #QTD-HIST > 12 → ESCAPE BOTTOM.
     // LEGACY-QUIRK(D21): se muestran los PRIMEROS 12 pagos leídos (orden de inserción),
