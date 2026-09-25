@@ -67,10 +67,16 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// Modo legado explícito: un SIFAP_QUIRKS_CORRIGIDOS del .env/entorno del desarrollador
+// no cambia estos tests (las correcciones tienen tests propios).
+beforeEach(() => {
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+});
+
 describe("corrigirPagamentos", () => {
   it("período inválido → PERIODO INVALIDO - COMP INICIAL > FINAL, nada processado", async () => {
     const p = await pagamento(CPF_MARIA, 201101, 10000);
-    const r = await corrigirPagamentos(CPF_MARIA, 201205, 201201, prisma, AGORA);
+    const r = await corrigirPagamentos(CPF_MARIA, 201205, 201201, { db: prisma, agora: AGORA });
     expect(r).toEqual({ ok: false, mensagem: "PERIODO INVALIDO - COMP INICIAL > FINAL" });
     const depois = await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } });
     expect(depois).toMatchObject({ vlrCorrecao: null, dtCorrecao: null, indCorrigido: null });
@@ -78,7 +84,7 @@ describe("corrigirPagamentos", () => {
 
   it("corrige 100,00 em 201101 → 100,83; grava vlrCorrecao (valor completo), dtCorrecao = hoje e S", async () => {
     const p = await pagamento(CPF_MARIA, 201101, 10000);
-    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201101, prisma, AGORA);
+    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201101, { db: prisma, agora: AGORA });
     expect(r).toEqual({
       ok: true,
       mensagem: "CORRECAO RETROATIVA FINALIZADA",
@@ -93,8 +99,8 @@ describe("corrigirPagamentos", () => {
   it("fora da tabela (D9) e jun/2010 → diferença 0, não marca", async () => {
     const fora = await pagamento(CPF_MARIA, 202001, 10000);
     const jun = await pagamento(CPF_MARIA, 201006, 10000);
-    const r1 = await corrigirPagamentos(CPF_MARIA, 202001, 202001, prisma, AGORA);
-    const r2 = await corrigirPagamentos(CPF_MARIA, 201006, 201006, prisma, AGORA);
+    const r1 = await corrigirPagamentos(CPF_MARIA, 202001, 202001, { db: prisma, agora: AGORA });
+    const r2 = await corrigirPagamentos(CPF_MARIA, 201006, 201006, { db: prisma, agora: AGORA });
     for (const r of [r1, r2]) expect(r).toMatchObject({ ok: true, qtdRegistros: 0, vlrTotal: 0, corrigidos: [] });
     for (const id of [fora.id, jun.id]) {
       expect(await prisma.pagamento.findUniqueOrThrow({ where: { id } })).toMatchObject({ vlrCorrecao: null, dtCorrecao: null, indCorrigido: null });
@@ -104,12 +110,12 @@ describe("corrigirPagamentos", () => {
   it("já corrigido (S) é pulado; re-execução não corrige de novo", async () => {
     const ja = await pagamento(CPF_MARIA, 201102, 10000, { indCorrigido: "S", vlrCorrecao: 99999, dtCorrecao: 20200101 });
     const novo = await pagamento(CPF_MARIA, 201103, 10000);
-    const r1 = await corrigirPagamentos(CPF_MARIA, 201101, 201112, prisma, AGORA);
+    const r1 = await corrigirPagamentos(CPF_MARIA, 201101, 201112, { db: prisma, agora: AGORA });
     expect(r1).toMatchObject({ ok: true, qtdRegistros: 1, vlrTotal: 79 });
     expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: ja.id } })).toMatchObject({ vlrCorrecao: 99999, dtCorrecao: 20200101 });
     expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: novo.id } })).toMatchObject({ vlrCorrecao: 10079, indCorrigido: "S" });
 
-    const r2 = await corrigirPagamentos(CPF_MARIA, 201101, 201112, prisma, new Date("2026-10-01T15:00:00Z"));
+    const r2 = await corrigirPagamentos(CPF_MARIA, 201101, 201112, { db: prisma, agora: new Date("2026-10-01T15:00:00Z") });
     expect(r2).toEqual({ ok: true, mensagem: "CORRECAO RETROATIVA FINALIZADA", qtdRegistros: 0, vlrTotal: 0, corrigidos: [] });
     expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: novo.id } })).toMatchObject({ vlrCorrecao: 10079, dtCorrecao: HOJE });
   });
@@ -120,7 +126,7 @@ describe("corrigirPagamentos", () => {
     await pagamento(CPF_MARIA, 201101, 10000); // 100,83 → +0,83
     await pagamento(CPF_MARIA, 201207, 48500); // 487,08 → +2,08
     await pagamento(CPF_MARIA, 201212, 10000); // depois do período (ESCAPE BOTTOM)
-    const r = await corrigirPagamentos(CPF_MARIA, 201001, 201211, prisma, AGORA);
+    const r = await corrigirPagamentos(CPF_MARIA, 201001, 201211, { db: prisma, agora: AGORA });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.qtdRegistros).toBe(2);
@@ -136,7 +142,7 @@ describe("corrigirPagamentos", () => {
   it("LEGACY-QUIRK(D22): competência > final lida antes (ordem de ISN) encerra o recorrido", async () => {
     const depois = await pagamento(CPF_MARIA, 201205, 10000); // numPagamento menor, fora do período
     const dentro = await pagamento(CPF_MARIA, 201101, 10000); // no período, mas lido depois
-    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201112, prisma, AGORA);
+    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201112, { db: prisma, agora: AGORA });
     expect(r).toEqual({ ok: true, mensagem: "CORRECAO RETROATIVA FINALIZADA", qtdRegistros: 0, vlrTotal: 0, corrigidos: [] });
     expect(depois.numPagamento).toBeLessThan(dentro.numPagamento);
     expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: dentro.id } })).toMatchObject({ vlrCorrecao: null, indCorrigido: null });
@@ -145,13 +151,13 @@ describe("corrigirPagamentos", () => {
   it("competência anterior à inicial lida antes não encerra (ESCAPE TOP)", async () => {
     await pagamento(CPF_MARIA, 200912, 10000);
     await pagamento(CPF_MARIA, 201101, 10000);
-    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201112, prisma, AGORA);
+    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201112, { db: prisma, agora: AGORA });
     expect(r).toMatchObject({ ok: true, qtdRegistros: 1, vlrTotal: 83 });
   });
 
   it("indicador 'N' não impede a correção: termina como S", async () => {
     const p = await pagamento(CPF_MARIA, 201101, 10000, { indCorrigido: "N" });
-    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201101, prisma, AGORA);
+    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201101, { db: prisma, agora: AGORA });
     expect(r).toMatchObject({ ok: true, qtdRegistros: 1, vlrTotal: 83 });
     expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ vlrCorrecao: 10083, dtCorrecao: HOJE, indCorrigido: "S" });
   });
@@ -170,20 +176,20 @@ describe("corrigirPagamentos", () => {
         return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(alvo) : v;
       },
     }) as PrismaClient;
-    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201101, dbDesatualizado, AGORA);
+    const r = await corrigirPagamentos(CPF_MARIA, 201101, 201101, { db: dbDesatualizado, agora: AGORA });
     expect(r).toMatchObject({ ok: true, qtdRegistros: 0, vlrTotal: 0, corrigidos: [] });
     expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ vlrCorrecao: 12345, dtCorrecao: 20200101, indCorrigido: "S" });
   });
 
   it("CPF sem pagamentos → finalizada com 0 registros", async () => {
-    const r = await corrigirPagamentos("99999999999", 201001, 201212, prisma, AGORA);
+    const r = await corrigirPagamentos("99999999999", 201001, 201212, { db: prisma, agora: AGORA });
     expect(r).toMatchObject({ ok: true, mensagem: "CORRECAO RETROATIVA FINALIZADA", qtdRegistros: 0, vlrTotal: 0 });
   });
 
   it("não registra auditoria (CALCCORR não audita)", async () => {
     await pagamento(CPF_MARIA, 201101, 10000);
     const antes = await prisma.auditoria.count();
-    await corrigirPagamentos(CPF_MARIA, 201101, 201101, prisma, AGORA);
+    await corrigirPagamentos(CPF_MARIA, 201101, 201101, { db: prisma, agora: AGORA });
     expect(await prisma.auditoria.count()).toBe(antes);
   });
 });

@@ -1,6 +1,7 @@
 "use server";
 
 import { z } from "zod";
+import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { recalcularDescontos } from "@/server/descontos";
 import type { CampoDescontos, EstadoDescontos } from "./estado";
 
@@ -40,8 +41,17 @@ export async function recalcularDescontosAction(_anterior: EstadoDescontos, dado
     const campo = issue?.path[0] === "numCpf" || issue?.path[0] === "numPagamento" ? (issue.path[0] as CampoDescontos) : undefined;
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
+  // D13: la configuración de correcciones se lee una vez por solicitud.
+  let quirks: Quirks;
   try {
-    return await recalcularDescontos(parsed.data.numCpf, parsed.data.numPagamento);
+    quirks = lerQuirks();
+  } catch (e) {
+    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
+    console.error("[descontos]", detalheErroQuirks(e));
+    return { ok: false, mensagem: ERRO_INESPERADO };
+  }
+  try {
+    return await recalcularDescontos(parsed.data.numCpf, parsed.data.numPagamento, { quirks });
   } catch (e) {
     return falhaInesperada(e);
   }

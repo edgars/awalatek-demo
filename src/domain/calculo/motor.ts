@@ -16,9 +16,17 @@
 
 import { anoDe, idadePorAno } from "../legacyDate";
 import { aCentavos, dec, deCentavos, fator, fatorParaString, truncar, truncarCasas, type Dinheiro } from "../money";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "../quirks";
 import { FAIXAS_RENDA, FATOR_REGIONAL_PADRAO, TAB_REG } from "./tabelas";
 
 export const MSG_COMPETENCIA_INVALIDA = "COMPETENCIA INVALIDA";
+
+/**
+ * Correcciones de quirks que afectan al motor (D8, D17). Default = legado (paridad).
+ * El cálculo individual y el lote pasan LA MISMA configuración (leída una vez por
+ * solicitud/corrida en la capa de servidor).
+ */
+export type QuirksMotor = Pick<Quirks, "corrigidos">;
 
 /** Tipo de pago generado por el motor (D15: dominio del código N/D/T; el motor solo produce N y D). */
 export type TipoPgto = "N" | "D";
@@ -103,11 +111,15 @@ export function fatorFamiliar(numDependentes: number): string {
  * TODO(review): el arrastre en el lote es probablemente un bug del legado;
  * confirmar con negocio si debe mantenerse (PRD D17).
  */
-export function fatorRenda(renda: number, fatorRendaAnterior?: string): string {
+export function fatorRenda(renda: number, fatorRendaAnterior?: string, quirks: QuirksMotor = QUIRKS_PADRAO): string {
   exigirInteiro(renda, "renda");
   // RK-f69f8dc0b6c9 (CALCBENF:306) · RK-bf29157d9a87 (BATCHPGT:370) — IF #RENDA <= #FAIXA-RENDA(#J)
   for (const faixa of FAIXAS_RENDA) {
     if (renda <= faixa.teto) return faixa.fator; // ESCAPE BOTTOM
+  }
+  if (corrige(quirks, "D17")) {
+    // CORRECAO(D17): sin arrastre — el lote usa lo mismo que el individual (#FATOR-RND = 0).
+    return fatorParaString(dec(0), 4);
   }
   // LEGACY-QUIRK(D17): ningún tramo → #FATOR-RND queda con el valor previo.
   // TODO(review): ver comentario de la función (arrastre en el lote).
@@ -176,7 +188,7 @@ export interface ResultadoCalculo {
  * Lanza `Error("COMPETENCIA INVALIDA")` si el mes no está en 1–12 (el llamador
  * debería validar antes con `validarCompetencia` para mostrar el mensaje).
  */
-export function calcular(e: EntradaCalculo): ResultadoCalculo {
+export function calcular(e: EntradaCalculo, quirks: QuirksMotor = QUIRKS_PADRAO): ResultadoCalculo {
   const comp = validarCompetencia(e.competencia);
   if (!comp.ok) throw new Error(comp.mensagem);
   exigirInteiro(e.vlrBase, "vlrBase");
@@ -186,7 +198,7 @@ export function calcular(e: EntradaCalculo): ResultadoCalculo {
   const fReaj = truncarCasas(fator(e.fatorReajuste), 4);
   const fReg = fator(fatorRegional(e.codRegiao));
   const fFam = fator(fatorFamiliar(e.numDependentes));
-  const fRndStr = fatorRenda(e.renda, e.fatorRendaAnterior);
+  const fRndStr = fatorRenda(e.renda, e.fatorRendaAnterior, quirks);
   const fRnd = fator(fRndStr);
   const fIdade = fator(fatorIdade(e.dtNascimento, comp.ano));
 
@@ -196,8 +208,11 @@ export function calcular(e: EntradaCalculo): ResultadoCalculo {
   let vlrBenf = truncar(vlrBase.times(fReg).times(fFam).times(fRnd).times(fIdade));
   // RK-4bef7758397d (CALCBENF:229) · RK-a807625f63e9 (BATCHPGT:282)
   // #VLR-BENF = #VLR-BENF × (1 + FATOR-REAJ) — 2.º truncado (destino N9.2).
-  // LEGACY-QUIRK(D8): VLR-BASE ya viene × FATOR-K (CADPROG) y aquí se vuelve a reajustar.
-  vlrBenf = truncar(vlrBenf.times(dec(1).plus(fReaj)));
+  if (!corrige(quirks, "D8")) {
+    // LEGACY-QUIRK(D8): VLR-BASE ya viene × FATOR-K (CADPROG) y aquí se vuelve a reajustar.
+    vlrBenf = truncar(vlrBenf.times(dec(1).plus(fReaj)));
+  }
+  // CORRECAO(D8): el reajuste ya está en VLR-BASE (× FATOR-K): no se reaplica (1 + FATOR-REAJ).
   // RK-bb591a41dbf3 (CALCBENF:232) · RK-4cab47bee5b1 (BATCHPGT:284) — #VLR-TEMP = #VLR-BENF × 100 (N11)
   // RK-9ca5d0466ba9 (CALCBENF:233) · RK-00a9411b5321 (BATCHPGT:285) — #VLR-BENF = #VLR-TEMP / 100
   vlrBenf = truncar(vlrBenf);
@@ -245,15 +260,7 @@ export function calcular(e: EntradaCalculo): ResultadoCalculo {
     vlrDesc = truncar(vlrDesc);
   }
 
-  // FR-CAL-10 — líquido.
-  // RK-8d025b23228f (CALCBENF:266) · RK-61c33b29d6a8 (BATCHPGT:315) — #VLR-LIQ = #VLR-BRUTO - #VLR-DESC
-  let vlrLiq = truncar(vlrBruto.minus(vlrDesc));
-  // RK-45fca1f354da (CALCBENF:267) · RK-b5749db3ea0e (BATCHPGT:316) — IF #VLR-LIQ < 0 → 0
-  // (solo alcanzable con bruto negativo, p. ej. FATOR-REAJ < −1)
-  if (vlrLiq.lessThan(0)) vlrLiq = dec(0);
-  // RK-d8033ba178e5 (CALCBENF:272) · RK-8cbfbd730fa5 (BATCHPGT:319) — #VLR-TEMP = #VLR-LIQ × 100
-  // RK-c28ec6795433 (CALCBENF:273) · RK-273a402e3fcf (BATCHPGT:320) — #VLR-LIQ = #VLR-TEMP / 100
-  vlrLiq = truncar(vlrLiq);
+  const vlrLiq = liquido(vlrBruto, vlrDesc);
 
   return {
     vlrBenf: aCentavos(vlrBenf),
@@ -265,6 +272,31 @@ export function calcular(e: EntradaCalculo): ResultadoCalculo {
     tipoPgto,
     fatorRenda: fRndStr,
   };
+}
+
+/**
+ * FR-CAL-10 — líquido = bruto − descuento, nunca negativo, truncado a centavos.
+ * El bruto ya incluye 13.º y abono (FR-CAL-08): no se suman de nuevo.
+ */
+function liquido(vlrBruto: Dinheiro, vlrDesc: Dinheiro): Dinheiro {
+  // RK-8d025b23228f (CALCBENF:266) · RK-61c33b29d6a8 (BATCHPGT:315) — #VLR-LIQ = #VLR-BRUTO - #VLR-DESC
+  let vlrLiq = truncar(vlrBruto.minus(vlrDesc));
+  // RK-45fca1f354da (CALCBENF:267) · RK-b5749db3ea0e (BATCHPGT:316) — IF #VLR-LIQ < 0 → 0
+  // (solo alcanzable con bruto negativo, p. ej. FATOR-REAJ < −1)
+  if (vlrLiq.lessThan(0)) vlrLiq = dec(0);
+  // RK-d8033ba178e5 (CALCBENF:272) · RK-8cbfbd730fa5 (BATCHPGT:319) — #VLR-TEMP = #VLR-LIQ × 100
+  // RK-c28ec6795433 (CALCBENF:273) · RK-273a402e3fcf (BATCHPGT:320) — #VLR-LIQ = #VLR-TEMP / 100
+  return truncar(vlrLiq);
+}
+
+/**
+ * Fórmula del líquido del motor (FR-CAL-10) sobre valores en centavos. La usa CALCDSCT
+ * en modo corregido (D13) para recalcular `vlrLiquido` tras actualizar el descuento.
+ */
+export function calcularLiquido(vlrBrutoCentavos: number, vlrDescCentavos: number): number {
+  exigirInteiro(vlrBrutoCentavos, "vlrBruto");
+  exigirInteiro(vlrDescCentavos, "vlrDesc");
+  return aCentavos(liquido(deCentavos(vlrBrutoCentavos), deCentavos(vlrDescCentavos)));
 }
 
 function exigirInteiro(v: number, nome: string): void {

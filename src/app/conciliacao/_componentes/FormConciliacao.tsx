@@ -112,6 +112,10 @@ function Resultado({ resumo, parcial = false }: { resumo: ResumoConciliacaoTela;
         ]}
       />
       {resumo.avisos.length > 0 ? <ResultadoLegado variante="info" titulo="Códigos de retorno desconhecidos" mensagens={resumo.avisos} /> : null}
+      {/* CORRECAO(D23): datas de pagamento inválidas gravadas como 0 (só em modo corrigido). */}
+      {resumo.avisosDataPagamento?.length ? (
+        <ResultadoLegado variante="info" titulo="Datas de pagamento inválidas" mensagens={resumo.avisosDataPagamento} />
+      ) : null}
       {resumo.divergencias.length > 0 ? <TabelaDivergencias linhas={resumo.divergencias} /> : null}
       {resumo.listaNaoEncontrados.length > 0 ? <TabelaNaoEncontrados linhas={resumo.listaNaoEncontrados} /> : null}
     </>

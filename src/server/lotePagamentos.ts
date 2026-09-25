@@ -3,15 +3,18 @@ import {
   acumularGerado,
   acumularSelecao,
   deveRegistrarProgresso,
+  mensagemBeneficioZero,
   mensagemLoteInterrompido,
   mensagemProgresso,
   novoResumo,
+  registrarBeneficioZero,
   selecionarBeneficiario,
   type ResumoLote,
   type Selecao,
 } from "@/domain/calculo/lote";
-import { calcular, competenciaDaData, type ResultadoCalculo } from "@/domain/calculo/motor";
+import { calcular, competenciaDaData, type QuirksMotor, type ResultadoCalculo } from "@/domain/calculo/motor";
 import { hoje } from "@/domain/legacyDate";
+import { corrige, QUIRKS_PADRAO } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 
 // Caso de uso del lote mensual (BATCHPGT, FR-LOT-01..04). Orquesta dominio +
@@ -46,6 +49,11 @@ export interface OpcoesLote {
   db?: PrismaClient;
   /** Destino del registro de progreso (sin datos personales completos); default = consola. */
   log?: (linha: string) => void;
+  /**
+   * Correcciones activas (D8/D17), leídas una vez por corrida por la acción o el CLI.
+   * Default = legado. Es la misma configuración que recibe el cálculo individual.
+   */
+  quirks?: QuirksMotor;
 }
 
 // Candado en memoria: impide dos lotes simultáneos en el mismo proceso. Se guarda
@@ -102,7 +110,7 @@ export async function ejecutarLotePagamentos(opcoes: OpcoesLote = {}): Promise<R
   }
 }
 
-async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) => console.log(l) }: OpcoesLote): Promise<ResultadoLote> {
+async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) => console.log(l), quirks = QUIRKS_PADRAO }: OpcoesLote): Promise<ResultadoLote> {
   const momento = hoje(agora);
   const dataExecucao = dtHoje ?? momento.data;
   // FR-LOT-01 — RK-275ebe83e773 / RK-af5872bb5b6c / RK-8b46847de08b (BATCHPGT:108-110, en motor.ts).
@@ -131,6 +139,8 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
   // 9.999,99 el factor queda con el del último beneficiario CALCULADO (los ignorados
   // escapan antes y no lo tocan); el primero del lote arrastra 0 (`undefined`).
   // TODO(review): probablemente es un bug del legado; confirmar con negocio (PRD D17).
+  // CORRECAO(D17): con la corrección activa no hay arrastre (el motor tampoco lo usaría).
+  const arrastaFatorRenda = !corrige(quirks, "D17");
   let fatorRendaAnterior: string | undefined;
 
   for (const b of beneficiarios) {
@@ -169,7 +179,7 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
             dtNascimento: b.dtNascimento,
             competencia,
             fatorRendaAnterior,
-          });
+          }, quirks);
 
           const numPagamento = seqPgto + 1; // BATCHPGT:323 — ADD 1 TO #SEQ-PGTO
           // BATCHPGT:324-336 — STORE PAGAMENTO-V ; END TRANSACTION.
@@ -200,8 +210,14 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
           if (r.selecao.acao === "erro") log(r.selecao.mensagem);
         } else {
           seqPgto = r.numPagamento;
-          fatorRendaAnterior = r.calc.fatorRenda; // D17: arrastre al siguiente calculado
+          // LEGACY-QUIRK(D17): arrastre al siguiente calculado (solo en modo legado).
+          if (arrastaFatorRenda) fatorRendaAnterior = r.calc.fatorRenda;
           acumularGerado(resumo, r.calc);
+          // CORRECAO(D17): el pago con valor 0 se genera igual, pero se avisa antes de la remesa.
+          if (!arrastaFatorRenda && r.calc.vlrBruto === 0) {
+            registrarBeneficioZero(resumo, b.numCpf);
+            log(mensagemBeneficioZero(b.numCpf));
+          }
           if (deveRegistrarProgresso(resumo.gerados)) log(mensagemProgresso(resumo.gerados, b.numCpf));
         }
         break;

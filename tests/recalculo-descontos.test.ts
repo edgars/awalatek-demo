@@ -50,6 +50,12 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// Modo legado explícito: un SIFAP_QUIRKS_CORRIGIDOS del .env/entorno del desarrollador
+// no cambia estos tests (las correcciones tienen tests propios).
+beforeEach(() => {
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+});
+
 async function beneficiarioId(cpf: string): Promise<number> {
   return (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf } })).id;
 }
@@ -101,7 +107,7 @@ function form(campos: Record<string, string>): FormData {
 describe("recalcularDescontos", () => {
   it("só contribuição: bruto 800,00 sem descontos → 40,00 (5 %); líquido sem mudança (D13)", async () => {
     const auditoriasAntes = await prisma.auditoria.count();
-    const r = await recalcularDescontos(CPF_JOSE, PGTO_JOSE, prisma, AGORA);
+    const r = await recalcularDescontos(CPF_JOSE, PGTO_JOSE, { db: prisma, agora: AGORA });
     expect(r).toMatchObject({
       ok: true,
       mensagem: "DESCONTOS CALCULADOS",
@@ -134,7 +140,7 @@ describe("recalcularDescontos", () => {
         { occurrence: 2, tipoDesconto: "S", vlrDesconto: 0, pctDesconto: "1.00", dtInicioDsct: 20250101, dtFimDsct: 0 },
       ],
     });
-    const r = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, prisma, AGORA);
+    const r = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, { db: prisma, agora: AGORA });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     // 40,00 (contribuição) + 25,00 (J) + 8,00 (S 1 %) = 73,00
@@ -171,7 +177,7 @@ describe("recalcularDescontos", () => {
       { tipoDesconto: "J", vlrDesconto: 30000 },
       { tipoDesconto: "A", vlrDesconto: 1000 },
     ]);
-    const r = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, prisma, AGORA);
+    const r = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, { db: prisma, agora: AGORA });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     // 40 + 300 (J, sem teto) = 340 → + 10 (A) = 350 > 240 → 240 (recorta inclusive o judicial).
@@ -198,7 +204,7 @@ describe("recalcularDescontos", () => {
       { tipoDesconto: "J", vlrDesconto: 2_000_000_000 },
       { tipoDesconto: "J", vlrDesconto: 2_000_000_000 },
     ]);
-    expect(await recalcularDescontos(CPF_MARIA, PGTO_MARIA, prisma, AGORA)).toEqual({
+    expect(await recalcularDescontos(CPF_MARIA, PGTO_MARIA, { db: prisma, agora: AGORA })).toEqual({
       ok: false,
       mensagem: "VALOR DE DESCONTO EXCEDE O LIMITE",
     });
@@ -214,7 +220,7 @@ describe("recalcularDescontos", () => {
       { tipoDesconto: "C", pctDesconto: "5.00" },
       { tipoDesconto: "J", vlrDesconto: 1000 },
     ]);
-    const r = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, prisma, AGORA);
+    const r = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, { db: prisma, agora: AGORA });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.resumo.vlrDesconto).toBe(5000); // 40 + 10 (J)
@@ -230,8 +236,8 @@ describe("recalcularDescontos", () => {
 
   it("recálculo repetido substitui as linhas e mantém o total", async () => {
     await registrar(CPF_MARIA, [{ tipoDesconto: "J", vlrDesconto: 2500 }, { tipoDesconto: "S" }]);
-    const r1 = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, prisma, AGORA);
-    const r2 = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, prisma, AGORA);
+    const r1 = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, { db: prisma, agora: AGORA });
+    const r2 = await recalcularDescontos(CPF_MARIA, PGTO_MARIA, { db: prisma, agora: AGORA });
     expect(r2).toEqual(r1);
     const linhas = await prisma.pagamentoDesconto.findMany({ where: { pagamento: { numPagamento: PGTO_MARIA } } });
     expect(linhas).toHaveLength(2);
@@ -239,18 +245,18 @@ describe("recalcularDescontos", () => {
 
   it("RK-314dbfb4a26e — pagamento de outro CPF → PAGAMENTO NAO ENCONTRADO e nada gravado", async () => {
     await registrar(CPF_MARIA, [{ tipoDesconto: "J", vlrDesconto: 2500 }]);
-    expect(await recalcularDescontos(CPF_MARIA, PGTO_JOSE, prisma, AGORA)).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
+    expect(await recalcularDescontos(CPF_MARIA, PGTO_JOSE, { db: prisma, agora: AGORA })).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
     const p = await prisma.pagamento.findUniqueOrThrow({ where: { numPagamento: PGTO_JOSE }, include: { descontos: true } });
     expect(p).toMatchObject({ vlrDescontoTotal: 2400, vlrLiquido: LIQUIDO_ORIGINAL, usrUltAlteracao: "" });
     expect(p.descontos).toEqual([]);
   });
 
   it("RK-8b1376b9c23d — pagamento inexistente → PAGAMENTO NAO ENCONTRADO", async () => {
-    expect(await recalcularDescontos(CPF_MARIA, 999999, prisma, AGORA)).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
-    expect(await recalcularDescontos("123", PGTO_MARIA, prisma, AGORA)).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
+    expect(await recalcularDescontos(CPF_MARIA, 999999, { db: prisma, agora: AGORA })).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
+    expect(await recalcularDescontos("123", PGTO_MARIA, { db: prisma, agora: AGORA })).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
     // Fora do Int32: "não encontrado" sem erro do Prisma.
     for (const n of [0, -1, 2_147_483_648, 1.5, Number.NaN]) {
-      expect(await recalcularDescontos(CPF_MARIA, n, prisma, AGORA)).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
+      expect(await recalcularDescontos(CPF_MARIA, n, { db: prisma, agora: AGORA })).toEqual({ ok: false, mensagem: "PAGAMENTO NAO ENCONTRADO" });
     }
   });
 });

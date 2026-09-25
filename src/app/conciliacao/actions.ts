@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { decodificarArquivo, mensagemCodigoDesconhecido, type ResumoConciliacao } from "@/domain/cnab240";
 import { mascaraCpfLista } from "@/domain/cpf";
+import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { conciliarRetorno } from "@/server/conciliacao";
 import type { CampoConciliacao, EstadoConciliacao, ResumoConciliacaoTela } from "./estado";
 import { LIMITE_ARQUIVO_BYTES, MSG_ARQUIVO_GRANDE } from "./limite";
@@ -44,6 +45,7 @@ function paraTela(r: ResumoConciliacao): ResumoConciliacaoTela {
     divergencias: r.divergencias.map((d) => ({ ...d, cpf: mascaraCpfLista(d.cpf) })),
     listaNaoEncontrados: r.listaNaoEncontrados.map((n) => ({ ...n, cpf: mascaraCpfLista(n.cpf) })),
     avisos: r.codigosDesconhecidos.map((c) => mensagemCodigoDesconhecido(c.codRet, mascaraCpfLista(c.cpf))),
+    avisosDataPagamento: r.avisosDataPagamento,
   };
 }
 
@@ -60,10 +62,19 @@ export async function conciliarRetornoAction(_anterior: EstadoConciliacao, dados
     const campo = CAMPOS.find((c) => c === issue?.path[0]);
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
+  // D23: la configuración de correcciones se lee una vez por solicitud.
+  let quirks: Quirks;
+  try {
+    quirks = lerQuirks();
+  } catch (e) {
+    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
+    console.error("[conciliacao]", detalheErroQuirks(e));
+    return { ok: false, mensagem: ERRO_INESPERADO };
+  }
   try {
     // Latin-1: un carácter por byte, las posiciones del CNAB no se desplazan.
     const conteudo = decodificarArquivo(await parsed.data.arquivo.arrayBuffer());
-    const r = await conciliarRetorno({ competencia: parsed.data.competencia, conteudo });
+    const r = await conciliarRetorno({ competencia: parsed.data.competencia, conteudo }, { quirks });
     // Cada CO/DV es un registro grabado (update + auditoría): la consulta y el
     // detalle de pagos muestran el status y el código de retorno.
     if (r.resumo && r.resumo.auditoria > 0) {

@@ -66,6 +66,8 @@ function itensResumo(r: ResumoDescontos): ItemResumo[] {
     { rotulo: "VLR DESCONTO", valor: reais(r.vlrDesconto) },
     { rotulo: "TETO 30%", valor: reais(r.vlrTeto) },
     { rotulo: "CONTRIBUICAO SOCIAL", valor: reais(r.vlrContribuicao) },
+    // CORRECAO(D13): el líquido recalculado solo se muestra en modo corregido.
+    ...(r.liquidoRecalculado ? [{ rotulo: "VLR LIQUIDO", valor: reais(r.vlrLiquido) }] : []),
   ];
 }
 
@@ -172,12 +174,23 @@ export function FormDescontos() {
               </Link>
             </div>
           </ResumoProcesso>
-          <Alert variant="warning" data-testid="aviso-d13">
-            <AlertTitle>Atenção</AlertTitle>
-            <AlertDescription>
-              {AVISO_D13}. Valor líquido do pagamento: {reais(painel.resumo.vlrLiquido)}.
-            </AlertDescription>
-          </Alert>
+          {/* LEGACY-QUIRK(D13): aviso de líquido no recalculado (se quita con la corrección D13). */}
+          {/* CORRECAO(D13): pago fuera de status G → su propio aviso en lugar del D13. */}
+          {painel.resumo.liquidoRecalculado ? null : painel.resumo.avisoLiquido ? (
+            <Alert variant="warning" data-testid="aviso-liquido">
+              <AlertTitle>Atenção</AlertTitle>
+              <AlertDescription>
+                {painel.resumo.avisoLiquido}. Valor líquido do pagamento: {reais(painel.resumo.vlrLiquido)}.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <Alert variant="warning" data-testid="aviso-d13">
+              <AlertTitle>Atenção</AlertTitle>
+              <AlertDescription>
+                {AVISO_D13}. Valor líquido do pagamento: {reais(painel.resumo.vlrLiquido)}.
+              </AlertDescription>
+            </Alert>
+          )}
         </>
       ) : null}
     </div>

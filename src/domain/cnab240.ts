@@ -7,6 +7,10 @@
 
 import { normalizaCpfNumerico } from "./cpf";
 import { deCentavos } from "./money";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "./quirks";
+
+/** Correcciones de quirks de BATCHCON (D23). Default = legado (paridad). */
+export type QuirksConciliacao = Pick<Quirks, "corrigidos">;
 
 /** Largo del registro CNAB 240 (`#REG-CNAB (A240)`). */
 export const LARGO_REGISTRO = 240;
@@ -158,6 +162,36 @@ export type AtualizacaoPagamento =
   | { sitPagamento: "P"; dtPagamento: number; codBanco: "1"; codRetornoBanco: string }
   | { sitPagamento: "D" | "E"; codRetornoBanco: string };
 
+/** Año mínimo aceptado como fecha de pago válida (evita leer DDMMAAAA como AAAAMMDD y viceversa). */
+const ANO_MINIMO_PAGAMENTO = 1900;
+
+function dataValida(ano: number, mes: number, dia: number): boolean {
+  if (ano < ANO_MINIMO_PAGAMENTO || ano > 9999 || mes < 1 || mes > 12 || dia < 1) return false;
+  const bissexto = (ano % 4 === 0 && ano % 100 !== 0) || ano % 400 === 0;
+  const dias = [31, bissexto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mes - 1]!;
+  return dia <= dias;
+}
+
+/**
+ * CORRECAO(D23): normaliza la fecha de pago del retorno a AAAAMMDD. Primero se
+ * interpreta como DDMMAAAA (formato del BB); si no es una fecha válida, como AAAAMMDD.
+ * Fecha válida = calendario gregoriano con año ≥ 1900. `null` si ninguna es válida.
+ */
+export function normalizarDataPagamento(dtPgto: number): number | null {
+  if (!Number.isSafeInteger(dtPgto) || dtPgto <= 0 || dtPgto > 99_999_999) return null;
+  const s = String(dtPgto).padStart(8, "0");
+  const [dd, mm, aaaa] = [Number(s.slice(0, 2)), Number(s.slice(2, 4)), Number(s.slice(4, 8))];
+  if (dataValida(aaaa, mm, dd)) return aaaa * 10000 + mm * 100 + dd;
+  const [ano, mes, dia] = [Number(s.slice(0, 4)), Number(s.slice(4, 6)), Number(s.slice(6, 8))];
+  if (dataValida(ano, mes, dia)) return dtPgto;
+  return null;
+}
+
+/** CORRECAO(D23): "DATA PAGAMENTO INVALIDA: DOC=<nº do pagamento>". */
+export function mensagemDataPagamentoInvalida(numPagamento: number): string {
+  return `DATA PAGAMENTO INVALIDA: DOC=${numPagamento}`;
+}
+
 /** Status del pago según el código de retorno; `null` = código desconocido (sin update). */
 export function atualizacaoPorCodigo(codRet: string, dtPgto: number): AtualizacaoPagamento | null {
   // RK-9af86fb5374c (BATCHCON:171) — DECIDE ON FIRST VALUE OF #COD-RET:
@@ -182,10 +216,20 @@ export type DecisaoConciliacao =
       atualizacao: AtualizacaoPagamento | null;
       /** Mensaje de código desconocido (solo cuando `atualizacao` es `null`). */
       mensagem: string | null;
+      /** CORRECAO(D23): aviso de fecha de pago inválida (grabada como 0); solo en modo corregido. */
+      avisoData?: string;
     };
 
-/** FR-CNB-02..04 — decide qué hacer con un registro de detalle. */
-export function decidirConciliacao(reg: RegistroCnab, p: PagamentoConciliacao | null, competencia: number): DecisaoConciliacao {
+/**
+ * FR-CNB-02..04 — decide qué hacer con un registro de detalle.
+ * `quirks`: correcciones activas (D23); default = legado.
+ */
+export function decidirConciliacao(
+  reg: RegistroCnab,
+  p: PagamentoConciliacao | null,
+  competencia: number,
+  quirks: QuirksConciliacao = QUIRKS_PADRAO,
+): DecisaoConciliacao {
   // RK-31d94b6dc065 (BATCHCON:146) — IF NOT #FOUND → ADD 1 NAO-ENCONTRADOS, mensaje, ESCAPE TOP.
   if (!p || !pagamentoCorresponde(p, reg, competencia)) {
     return { tipo: "nao-encontrado", mensagem: mensagemNaoEncontrado(reg.cnabCpf, reg.cnabNumDoc) };
@@ -199,12 +243,22 @@ export function decidirConciliacao(reg: RegistroCnab, p: PagamentoConciliacao | 
       vlrRetorno: reg.vlrRetorno,
     };
   }
-  const atualizacao = atualizacaoPorCodigo(reg.codRet, reg.dtPgto);
+  // LEGACY-QUIRK(D23): la fecha DDMMAAAA del BB se graba sin conversión.
+  let atualizacao = atualizacaoPorCodigo(reg.codRet, reg.dtPgto);
+  let avisoData: string | undefined;
+  // CORRECAO(D23): solo cuando el status resultante graba la fecha (P = pago, según la
+  // tabla de códigos): DDMMAAAA válida → AAAAMMDD; AAAAMMDD válida → igual; si no → 0 + aviso.
+  if (corrige(quirks, "D23") && atualizacao?.sitPagamento === "P") {
+    const normalizada = normalizarDataPagamento(reg.dtPgto);
+    atualizacao = { ...atualizacao, dtPagamento: normalizada ?? 0 };
+    if (normalizada === null) avisoData = mensagemDataPagamentoInvalida(p.numPagamento);
+  }
   return {
     tipo: "conciliado",
     numPagamento: p.numPagamento,
     atualizacao,
     mensagem: atualizacao ? null : mensagemCodigoDesconhecido(reg.codRet, reg.cnabCpf),
+    ...(avisoData ? { avisoData } : {}),
   };
 }
 
@@ -315,6 +369,8 @@ export interface ResumoConciliacao {
   divergencias: DivergenciaResumo[];
   listaNaoEncontrados: NaoEncontradoResumo[];
   codigosDesconhecidos: CodigoDesconhecidoResumo[];
+  /** CORRECAO(D23): avisos "DATA PAGAMENTO INVALIDA: …" (vacío en modo legado). */
+  avisosDataPagamento: string[];
 }
 
 export function novoResumo(competencia: number): ResumoConciliacao {
@@ -330,6 +386,7 @@ export function novoResumo(competencia: number): ResumoConciliacao {
     divergencias: [],
     listaNaoEncontrados: [],
     codigosDesconhecidos: [],
+    avisosDataPagamento: [],
   };
 }
 
@@ -349,6 +406,11 @@ export function acumularDecisao(r: ResumoConciliacao, reg: RegistroCnab, d: Deci
     return;
   }
   r.conciliados += 1;
+  if (d.avisoData) {
+    // CORRECAO(D23): fecha de pago inválida grabada como 0.
+    r.mensagens.push(d.avisoData);
+    r.avisosDataPagamento.push(d.avisoData);
+  }
   if (d.mensagem) {
     r.mensagens.push(d.mensagem);
     r.codigosDesconhecidos.push({ numPagamento: d.numPagamento, cpf: alfa(reg.cnabCpf), codRet: alfa(reg.codRet) });

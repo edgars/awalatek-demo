@@ -12,6 +12,8 @@ export interface ResumoConciliacaoTela {
   listaNaoEncontrados: { cpf: string; documento: string }[];
   /** Mensagens "COD RETORNO DESCONHECIDO: …" com o CPF mascarado. */
   avisos: string[];
+  /** CORRECAO(D23): mensagens "DATA PAGAMENTO INVALIDA: DOC=…" (vazio em modo legado). */
+  avisosDataPagamento: string[];
 }
 
 /**
