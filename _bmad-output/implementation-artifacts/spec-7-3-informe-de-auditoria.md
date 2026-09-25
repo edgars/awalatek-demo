@@ -2,14 +2,19 @@
 title: 'Story 7.3 — Informe de auditoría'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'a316808'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: Control de acceso al informe de auditoría (muestra usuarios, claves tipo CPF y descripciones sin enmascarar).
+    evidence: Auth fuera de alcance; cualquiera que llegue a `/relatorios/auditoria` ve la trilla completa.
+  - summary: Informe de auditoría sin tope de filas — el período por defecto (1997–hoy) lee toda la tabla `Auditoria`.
+    evidence: `findMany` por rango de fechas y filtros en memoria; empujar filtros al `where` y paginar en la base.
 ---
 
 <intent-contract>
@@ -79,7 +84,25 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 36 findings — high 0, medium 1, low 17, false 18, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (blind/edge) en la versión impresa el resumen salía siempre solo en una hoja extra (`:last-of-type` nunca coincidía) — hojas en su propio contenedor con salto salvo la última (7.1 revisado: no afectado)
+  - `[low]` `[patch]` ×9 — seed e2e con `registrarEvento` + momento (sin `update` de auditoría), fechas de calendario reales, Usuário/Tabela en mayúsculas con `trimEnd()` (semántica A de Natural), valor inválido redisplayado, e2e de filtros conservados en paginación/impresión/volver + `pagina=99` + "Limpar", `print:hidden` en controles de pantalla, tests sin depender de TZ, segunda línea de guiones de la cabecera (RELAUDIT:216–219)
+  - `[low]` `[defer]` ×2 — control de acceso/PII en pantalla, volumen sin tope
+  - `[low]` `[reject]` ×6 — select de Ação limitado a IN/AL/CO/CN/DV (DESIGN 4.20; el dominio conserva la igualdad libre), período invertido con error (coherente con 7.1), horas inválidas, casts, prueba de Server Action falsa, etc.
+  - `[false]` `[reject]` ×18 — conteo por acción solo de exhibidos (RELAUDIT:134 antes de :137), paginación 54 detalles por hoja (cabecera deja `linha = 7`), T/I como layout de columnas con versión impresa aparte, sin evidencia de `getRule` (`rk-verification.md`), etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3233 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** informe de auditoría (RELAUDIT, 16 RK) en `/relatorios/auditoria`: defaults (T, 19970101, hoy), rango de fechas, EX nunca visible (cuenta como filtrado), filtros por igualdad, conteo por acción, salida T/I, paginación de 66 líneas (54 detalles), cabecera literal y versión imprimible; FR-AUD-07 verificado por test (único escritor `registrarEvento`).
+- **Implementado en paralelo** (worktree); integrado por merge.
+- **Review:** 36 hallazgos — 10 patches (1 `medium`), 2 diferidos, 24 rechazados.
+- **Follow-up review recomendado:** `false`.
+- **Verificación (tras merge):** lint 0; `npm test` 762/762; build OK; e2e 79/79 (×3).
+
