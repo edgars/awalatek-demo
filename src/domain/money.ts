@@ -69,3 +69,17 @@ export function fator(s: string): Dinheiro {
   if (typeof s !== "string") throw new Error("fator deve ser string decimal");
   return dec(s);
 }
+
+/**
+ * Trunca hacia cero a `casas` decimales — asignación Natural a un campo
+ * N_.casas (p. ej. FATOR-K N5.6). `truncarCasas("1.015624675", 6)` → 1.015624.
+ */
+export function truncarCasas(v: ValorDecimal, casas: number): Dinheiro {
+  if (!Number.isInteger(casas) || casas < 0) throw new Error(`casas decimais inválidas: ${casas}`);
+  return dec(v).toDecimalPlaces(casas, Decimal.ROUND_DOWN);
+}
+
+/** Factor como string con `casas` decimales fijos (truncado). `fatorParaString("0.045", 4)` → "0.0450". */
+export function fatorParaString(v: ValorDecimal, casas: number): string {
+  return truncarCasas(v, casas).toFixed(casas);
+}
