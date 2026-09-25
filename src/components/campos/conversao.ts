@@ -65,6 +65,19 @@ export function isoParaDataInt(iso: string): number | null {
   return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? Number(iso.replaceAll("-", "")) : null;
 }
 
+/** AAAAMM → `AAAA-MM` para `<input type=month>`; 0 → vacío. */
+export function competenciaIntParaMes(comp: number): string {
+  if (!comp) return "";
+  const s = String(comp).padStart(6, "0");
+  return `${s.slice(0, 4)}-${s.slice(4, 6)}`;
+}
+
+/** `AAAA-MM` → AAAAMM; vacío → 0; inválido → `null`. El mes lo valida el servidor (FR-CAL-01). */
+export function mesParaCompetenciaInt(mes: string): number | null {
+  if (mes === "") return 0;
+  return /^\d{4}-\d{2}$/.test(mes) ? Number(mes.replace("-", "")) : null;
+}
+
 /** Solo dígitos, cortado a `max`. */
 export function somenteDigitos(texto: string, max: number): string {
   return texto.replace(/\D/g, "").slice(0, max);

@@ -88,6 +88,12 @@ const REGRAS: Record<string, string[]> = {
     "RK-273a402e3fcf (BATCHPGT:320)",
     "RK-bf29157d9a87 (BATCHPGT:370)",
   ],
+  "precondicoes.ts": [
+    // 4.1 — CALCBENF (FR-CAL-02)
+    "RK-a88a2f157187 (CALCBENF:155)",
+    "RK-a116de8e94cf (CALCBENF:160)",
+    "RK-b030809a3f7c (CALCBENF:174)",
+  ],
   "descontos.ts": [
     "RK-83b28551c287 (CALCDSCT:195)",
     "RK-70cdacb35c1a (CALCDSCT:196)",

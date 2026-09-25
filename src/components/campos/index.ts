@@ -8,3 +8,5 @@ export { NisInput } from "./NisInput";
 export { ResultadoLegado, type VarianteResultado } from "./ResultadoLegado";
 export { TabelaPaginada, type Coluna } from "./TabelaPaginada";
 export { useAcaoFormulario } from "./useAcaoFormulario";
+export { Competencia } from "./Competencia";
+export { ResumoProcesso, type ItemResumo } from "./ResumoProcesso";
