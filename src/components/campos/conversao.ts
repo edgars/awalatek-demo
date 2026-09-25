@@ -24,6 +24,16 @@ export function textoParaCentavos(texto: string): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
+/**
+ * Valor que el campo `Moeda` envía: centavos; inválido → `VALOR_INVALIDO`. Vacío (o solo
+ * "R$"/espacios) → `"0"`, o `""` con `vazioComoVazio` (campo opcional: no informado ≠ R$ 0,00).
+ */
+export function valorEnviadoMoeda(texto: string, vazioComoVazio = false): string {
+  if (vazioComoVazio && texto.replace(/R\$/g, "").trim() === "") return "";
+  const centavos = textoParaCentavos(texto);
+  return centavos === null ? VALOR_INVALIDO : String(centavos);
+}
+
 /** Centavos → `"1.234,56"` (sin prefijo R$). */
 export function centavosParaTexto(centavos: number): string {
   const neg = centavos < 0;

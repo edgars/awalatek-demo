@@ -70,7 +70,9 @@ secciones editables en línea:
 - **Parâmetros regionais** (máx. 6): Código região · Fator regional · Complemento · Ativo (S/N).
 Aviso fijo: "Parâmetros informativos — o cálculo usa as tabelas legadas (D1)".
 Acciones (story 1.2, extensión fuera del legado): **Editar** (→ 4.3a) y **Desativar**
-(situación A) o **Reativar** (situación I); situación E no ofrece reactivar. Desativar y
+(situación A) o **Reativar** (situación I); situación E no ofrece editar ni reactivar
+("PROGRAMA ENCERRADO NAO PODE SER ALTERADO" si se abre `/editar`). La confirmación enfoca
+"Confirmar", Escape o Cancelar la cierran y el foco vuelve al botón que la abrió. Desativar y
 reativar piden confirmación en la página ("Desativar o programa PA01? Beneficiários deste
 programa deixam de ser pagos no lote e são inelegíveis (PROGRAMA INATIVO)."). Nunca hay
 botón de excluir. En la lista 4.1, acción de fila **Editar**.
@@ -81,7 +83,10 @@ empieza vacío, con la referencia "Valor base gravado (ajustado): R$ …": vací
 mantiene el valor gravado; informado = se recalcula FATOR-K y se graba ajustado como en la
 inclusión (D8); si cambia el fator de reajuste, el valor base es obligatorio. Tras grabar,
 `ResultadoLegado` con "Programa alterado com sucesso." (+ " VLR AJUSTADO: R$ …" si se
-recalculó). Conflicto de versión: "Programa alterado por outro usuário. Recarregue a página.".
+recalculó); el formulario se recarga con los datos gravados (valor base vacío de nuevo).
+Sin cambios: "Nenhuma alteração a gravar.". Conflicto de versión: "Programa alterado por
+outro usuário. Recarregue a página." con botón **Recarregar**. Datos gravados inválidos
+(fecha, tipo, fator) se precargan vacíos.
 
 ### 4.4 Beneficiários — lista `/beneficiarios`
 Columnas: CPF (enmascarado) · Nome · Programa · Situação (badge) · Região · Dependentes. Búsqueda por CPF o nombre. Acciones por fila: Editar · Dependentes · Descontos · Consultar.

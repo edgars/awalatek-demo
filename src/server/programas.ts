@@ -12,8 +12,10 @@ import {
   mensagemInclusao,
   mensagemSituacao,
   resultadoConsulta,
+  resumoAlteracaoPrograma,
   TABELA_AUDITORIA_PROGRAMA,
   transicaoSituacao,
+  validarAlteracaoSituacao,
   validarLimiteFaixas,
   validarLimiteParamsRegionais,
   verificarDuplicidade,
@@ -127,7 +129,11 @@ export async function incluirPrograma(
 // A diferencia de la inclusión (CADPROG no audita), aquí se registra AL en la misma
 // transacción: decisión de diseño documentada en docs/prd.md (nota de FR-PRG-01).
 
-export type ResultadoAlteracao = { ok: true; mensagem: string; numVersao: number } | (Falha & { campo?: string });
+export type ResultadoAlteracao =
+  | { ok: true; mensagem: string; numVersao: number; semAlteracao?: boolean }
+  | (Falha & { campo?: string; conflito?: boolean });
+
+const conflito = (): ResultadoAlteracao => ({ ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada, conflito: true });
 
 /** Transacción con auditoría; repetida entera si otro escritor tomó el mismo `numAuditoria`. */
 function emTransacaoAuditada<T>(db: PrismaClient, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
@@ -140,11 +146,14 @@ export async function alterarPrograma(cod: string, dados: AlteracaoPrograma, db:
   return emTransacaoAuditada(db, async (tx): Promise<ResultadoAlteracao> => {
     const atual = await tx.programaSocial.findUnique({ where: { codPrograma } });
     if (!atual) return naoEncontrado();
-    if (atual.numVersao !== dados.numVersao) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+    if (atual.numVersao !== dados.numVersao) return conflito();
+    const encerrado = validarAlteracaoSituacao(atual.sitPrograma);
+    if (encerrado) return { ok: false, mensagem: encerrado };
 
     const valor = decidirValorBase(atual, dados);
     if (!valor.ok) return { ok: false, mensagem: valor.mensagem, campo: valor.campo };
 
+    // La alteración nunca cambia la situación (un programa I sigue I); las fechas tampoco la cambian.
     const novo = {
       nomePrograma: dados.nomePrograma,
       tipoPrograma: dados.tipoPrograma,
@@ -158,15 +167,20 @@ export async function alterarPrograma(cod: string, dados: AlteracaoPrograma, db:
       // Sin valor base informado no se toca el valor gravado ni el FATOR-K (sin doble FATOR-K).
       ...(valor.recalculado ? { fatorK: valor.fatorK, vlrBaseIndividual: valor.vlrBaseIndividual } : {}),
     };
+    const resumo = resumoAlteracaoPrograma(atual, novo);
+    // Nada cambió: sin gravar, sin versión nueva y sin auditoría.
+    if (resumo.campos.length === 0) {
+      return { ok: true, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.semAlteracao, numVersao: atual.numVersao, semAlteracao: true };
+    }
+
     const { data } = hoje();
     // Control optimista: solo graba si la versión leída sigue vigente.
     const r = await tx.programaSocial.updateMany({
       where: { id: atual.id, numVersao: dados.numVersao },
       data: { ...novo, dtUltAlteracao: data, usrUltAlteracao: usuario, numVersao: { increment: 1 } },
     });
-    if (r.count === 0) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+    if (r.count === 0) return conflito();
 
-    const alterados = (Object.keys(novo) as (keyof typeof novo)[]).filter((k) => atual[k] !== novo[k]);
     await registrarEvento(
       {
         acao: "AL",
@@ -174,19 +188,14 @@ export async function alterarPrograma(cod: string, dados: AlteracaoPrograma, db:
         chave: codPrograma,
         usuario,
         descricao: DESCRICOES_AUDITORIA_PROGRAMA.alteracao,
-        valorAnterior: resumo(alterados, atual),
-        valorPosterior: resumo(alterados, novo),
+        valorAnterior: resumo.valorAnterior,
+        valorPosterior: resumo.valorPosterior,
       },
       tx,
     );
     const sufixo = valor.recalculado ? ` VLR AJUSTADO: ${formatarReais(valor.vlrBaseIndividual)}` : "";
     return { ok: true, mensagem: `${MENSAGENS_ALTERACAO_PROGRAMA.alteradoSucesso}${sufixo}`, numVersao: dados.numVersao + 1 };
   });
-}
-
-/** `campo=valor;…` de los campos alterados (datos del programa, sin datos personales). */
-function resumo(campos: readonly string[], origem: Record<string, unknown>): string | null {
-  return campos.length ? campos.map((c) => `${c}=${origem[c] ?? ""}`).join(";") : null;
 }
 
 /** Desactivar (A → I) o reactivar (I → A). Nunca borra el programa. */
@@ -201,7 +210,7 @@ export async function alterarSituacaoPrograma(
   return emTransacaoAuditada(db, async (tx): Promise<ResultadoAlteracao> => {
     const atual = await tx.programaSocial.findUnique({ where: { codPrograma }, select: { id: true, sitPrograma: true, numVersao: true } });
     if (!atual) return naoEncontrado();
-    if (atual.numVersao !== numVersao) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+    if (atual.numVersao !== numVersao) return conflito();
     const t = transicaoSituacao(atual.sitPrograma, acao);
     if (!t.ok) return t;
 
@@ -210,7 +219,7 @@ export async function alterarSituacaoPrograma(
       where: { id: atual.id, numVersao },
       data: { sitPrograma: t.nova, dtUltAlteracao: data, usrUltAlteracao: usuario, numVersao: { increment: 1 } },
     });
-    if (r.count === 0) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+    if (r.count === 0) return conflito();
     await registrarEvento(
       {
         acao: "AL",

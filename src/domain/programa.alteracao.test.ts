@@ -4,7 +4,15 @@ import {
   alteracaoProgramaSchema,
   calcularFatorK,
   calcularVlrBaseAjustado,
+  codProgramaRotaSchema,
+  dataGravadaParaFormulario,
   decidirValorBase,
+  fatorGravadoParaFormulario,
+  podeAlterarPrograma,
+  resumoAlteracaoPrograma,
+  TAMANHO_VALOR_AUDITORIA,
+  tipoGravadoParaFormulario,
+  validarAlteracaoSituacao,
   MENSAGENS_ALTERACAO_PROGRAMA,
   mensagemSituacao,
   textoConfirmacaoSituacao,
@@ -122,5 +130,91 @@ describe("transicaoSituacao", () => {
     );
     expect(mensagemSituacao("PA01", "I")).toBe("Programa PA01 desativado.");
     expect(mensagemSituacao("PA01", "A")).toBe("Programa PA01 reativado.");
+    expect(textoConfirmacaoSituacao("PA01", "reativar")).toBe(
+      "Reativar o programa PA01? Beneficiários deste programa voltam a ser considerados no lote e na elegibilidade.",
+    );
+  });
+});
+
+describe("alteração de programa encerrado e código da rota", () => {
+  it("E não é alterado; A e I sim", () => {
+    expect(validarAlteracaoSituacao("E")).toBe("PROGRAMA ENCERRADO NAO PODE SER ALTERADO");
+    expect(validarAlteracaoSituacao("A")).toBeNull();
+    expect(validarAlteracaoSituacao("I")).toBeNull();
+    expect(podeAlterarPrograma("E")).toBe(false);
+    expect(podeAlterarPrograma("I")).toBe(true);
+  });
+
+  it("código da rota: não vazio e até 4 posições; a existência é da base", () => {
+    expect(codProgramaRotaSchema.parse(" pa01 ")).toBe("PA01");
+    expect(codProgramaRotaSchema.parse("a-b")).toBe("A-B");
+    expect(codProgramaRotaSchema.safeParse("").error?.issues[0]?.message).toBe("PROGRAMA NAO ENCONTRADO");
+    expect(codProgramaRotaSchema.safeParse("ABCDE").error?.issues[0]?.message).toBe("PROGRAMA NAO ENCONTRADO");
+  });
+});
+
+describe("resumoAlteracaoPrograma", () => {
+  const atual = {
+    nomePrograma: "Nome",
+    tipoPrograma: "A",
+    dtCriacao: 20260101,
+    dtEncerramento: 0,
+    fatorReajuste: "0.045",
+    codElegibilidade: null,
+    rendaMaxPercap: 0,
+    idadeMin: 0,
+    idadeMax: 0,
+    fatorK: "1.015624",
+    vlrBaseIndividual: 15234,
+  };
+
+  it("normaliza null/vazio e a precisão dos fatores: nada muda", () => {
+    expect(resumoAlteracaoPrograma(atual, { ...atual, codElegibilidade: "", fatorReajuste: "0.0450", fatorK: "1.0156240" })).toEqual({
+      campos: [],
+      valorAnterior: null,
+      valorPosterior: null,
+    });
+  });
+
+  it("campos ausentes em `novo` não são comparados", () => {
+    const semValor: Partial<typeof atual> = { ...atual };
+    delete semValor.fatorK;
+    delete semValor.vlrBaseIndividual;
+    expect(resumoAlteracaoPrograma(atual, { ...semValor, idadeMin: 18 })).toEqual({
+      campos: ["idadeMin"],
+      valorAnterior: "idadeMin=0",
+      valorPosterior: "idadeMin=18",
+    });
+  });
+
+  it("escapa ; = % e corta no tamanho da coluna", () => {
+    const r = resumoAlteracaoPrograma(atual, { ...atual, nomePrograma: "a;b=c%d" });
+    expect(r.valorPosterior).toBe("nomePrograma=a%3Bb%3Dc%25d");
+    const longo = resumoAlteracaoPrograma(atual, { ...atual, nomePrograma: "X".repeat(60), codElegibilidade: "RD" });
+    expect(longo.campos).toEqual(["nomePrograma", "codElegibilidade"]);
+    expect(longo.valorPosterior).toHaveLength(TAMANHO_VALOR_AUDITORIA);
+    expect(longo.valorAnterior).toBe("nomePrograma=Nome;codElegibilidade=");
+  });
+});
+
+describe("pré-preenchimento com dados gravados", () => {
+  it("datas inválidas viram 0 (campo vazio)", () => {
+    expect(dataGravadaParaFormulario(20260101)).toBe(20260101);
+    expect(dataGravadaParaFormulario(0)).toBe(0);
+    expect(dataGravadaParaFormulario(20260231)).toBe(0);
+    expect(dataGravadaParaFormulario(20261399)).toBe(0);
+    expect(dataGravadaParaFormulario(123)).toBe(0);
+  });
+
+  it("fator canônico N3.4; inválido → vazio", () => {
+    expect(fatorGravadoParaFormulario("0.045")).toBe("0.0450");
+    expect(fatorGravadoParaFormulario("1")).toBe("1.0000");
+    expect(fatorGravadoParaFormulario("abc")).toBe("");
+    expect(fatorGravadoParaFormulario("-1")).toBe("");
+  });
+
+  it("tipo desconhecido → vazio", () => {
+    expect(tipoGravadoParaFormulario("P")).toBe("P");
+    expect(tipoGravadoParaFormulario("X")).toBe("");
   });
 });

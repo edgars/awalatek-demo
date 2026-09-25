@@ -75,6 +75,14 @@ año de nacimiento (sin mes/día) salvo que se diga otra cosa.
   Recarregue a página."). A diferencia de CADPROG, estas operaciones registran
   auditoría `AL` (tabla `PROGRAMA`, clave = código; "ALTERACAO PROGRAMA",
   "PROGRAMA DESATIVADO", "PROGRAMA REATIVADO") en la misma transacción.
+  Programa encerrado (E) **no se altera** ("PROGRAMA ENCERRADO NAO PODE SER ALTERADO"):
+  la UI no ofrece Editar y el servidor lo rechaza; un programa inactivo (I) sí se altera
+  y sigue I. Grabar sin cambios responde "Nenhuma alteração a gravar." sin nueva versión
+  ni auditoría. Las fechas (inicio/fin) **no cambian la situación**: no hay cambio
+  automático a E por `dtEncerramento` (fuera de alcance). Por qué cambiar el fator exige
+  informar de nuevo el valor base: solo se guarda el valor ya ajustado (× FATOR-K, D8), y
+  recuperar el valor informado dividiendo por FATOR-K no es exacto (truncamiento a
+  centavos); guardar el valor sin ajustar exigiría un cambio de esquema, descartado aquí.
 *Reglas (3):* RK-d20a15a018e6 (CADPROG:51) · RK-a1d8765eea49 (CADPROG:56) · RK-7ca3bec5e5f6 (CADPROG:117)
 
 #### FR-PRG-02 — Unicidad del código de programa

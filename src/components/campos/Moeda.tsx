@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Campo, idsCampo, type PropsCampoBase } from "./campo";
-import { centavosParaTexto, textoParaCentavos, VALOR_INVALIDO } from "./conversao";
+import { centavosParaTexto, textoParaCentavos, valorEnviadoMoeda } from "./conversao";
 
 /**
  * Valor monetario: el operador teclea `1.234,56`; el formulario envía centavos (`Int`).
@@ -33,7 +33,7 @@ export function Moeda({ defaultValue, vazioComoVazio = false, ...p }: PropsCampo
           onBlur={() => centavos !== null && texto !== "" && setTexto(centavosParaTexto(centavos))}
         />
       </div>
-      <input type="hidden" name={p.name} value={vazioComoVazio && texto.trim() === "" ? "" : (centavos ?? VALOR_INVALIDO)} />
+      <input type="hidden" name={p.name} value={valorEnviadoMoeda(texto, vazioComoVazio)} />
     </Campo>
   );
 }

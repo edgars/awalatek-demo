@@ -4,7 +4,7 @@ import { TabelaPaginada, type Coluna } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatarReais } from "@/domain/money";
-import { ROTULOS_SITUACAO, ROTULOS_TIPO, type TipoPrograma } from "@/domain/programa";
+import { podeAlterarPrograma, ROTULOS_SITUACAO, ROTULOS_TIPO, type TipoPrograma } from "@/domain/programa";
 import { listarProgramas } from "@/server/programas";
 
 export const metadata: Metadata = { title: "Programas sociais" };
@@ -34,7 +34,9 @@ const COLUNAS: readonly Coluna<Linha>[] = [
   { titulo: "Valor base (R$)", celula: (p) => formatarReais(p.vlrBaseIndividual), className: "valor text-right" },
   {
     titulo: "Ações",
-    celula: (p) => (
+    // Programa encerrado (E) no se altera: sin acción de fila.
+    celula: (p) =>
+      podeAlterarPrograma(p.sitPrograma) ? (
       <Link
         href={`/programas/${p.codPrograma}/editar`}
         aria-label={`Editar programa ${p.codPrograma}`}
@@ -42,7 +44,9 @@ const COLUNAS: readonly Coluna<Linha>[] = [
       >
         Editar
       </Link>
-    ),
+      ) : (
+        "—"
+      ),
   },
 ];
 
