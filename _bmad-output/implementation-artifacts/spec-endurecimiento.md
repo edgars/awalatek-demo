@@ -2,7 +2,8 @@
 title: 'Endurecimiento — concurrencia, LGPD en URLs, volumen y limpieza'
 type: 'chore'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'e13b542'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -52,3 +53,17 @@ deferred: []
 ## Verification
 
 - Por frente: `npm run lint && npm test && npm run build && E2E_PORT=<puerto> npx playwright test` (dos corridas) en verde; H1 además `npm run db:check`.
+
+## Review Triage Log
+
+### 2026-09-25 — Review pass (Blind + Edge por frente)
+- H1: 1 `high` patch (renovación del candado cada 100 registros; candado perdido → corrida detenida con resumen parcial), 3 `medium` (validación de `SIFAP_LOCK_EXPIRACAO_MIN`, variable en compose, `npm run lock:liberar` + liberación en SIGINT/SIGTERM), 4 `low` (tiempo inyectado, detección P2002 por campo y `comRetry` con backoff compartidos, carrera real entre dos procesos, limpieza). Decisión: sin unique `(numCpf, anoMesRef)` — CALCBENF graba sin buscar pagos previos (CALCBENF:148/167/286) y el DDM no lo declara único; el lote queda cubierto por su verificación + candado.
+- H2: 2 `high` patch (CPF por `?q=` redirigido/nunca repetido en enlaces; con `?benef=` el campo queda vacío y se muestra "Filtrando por" enmascarado), 3 `medium` (errores de resolución de clave con panel genérico, clave devuelta por la escritura, clave inexistente consistente), 3 `low` (ADR-009 excepción documentada, `chavePublica` como dato seudónimo, `Referrer-Policy: same-origin`, guarda extendida a NIS/`src/server`, test del backfill, deduplicación).
+- H3: 3 `medium` patch (falla de lectura a mitad del cursor → resumen parcial; SQL del consolidado: unicidad de `numCpf` verificada, validación zod, desborde explícito, propiedad del redondeo; prefiltro de auditoría con una sola normalización), 3 `low` (tope por programa y bandera `limiteExcedido`, helpers de falla únicos y `usuarioOperativo` en `src/server/usuario.ts`, higiene de tests).
+- Integración: conflicto H1×H3 en `lotePagamentos.ts` (candado con renovación + lectura por cursor) resuelto a mano; validación de `loteLeitura` movida antes del candado.
+
+## Auto Run Result
+
+- **Verificación (main 6629786):** lint 0; `npm test` 1088/1088 (y con `SIFAP_QUIRKS_CORRIGIDOS=ALL,D7`); build OK; e2e 81/81 (×3); `db:check` sin diferencias; `scripts/docker-smoke.sh` OK.
+- **Pendiente (decisión de negocio):** login/roles e identidad del operador; qué correcciones de quirks activar; push.
+
