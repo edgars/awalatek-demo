@@ -29,3 +29,6 @@ next-env.d.ts
 # misc
 .DS_Store
 *.log
+
+# bundles del lote/seed (npm run build:scripts)
+/dist/

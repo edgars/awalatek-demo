@@ -1,0 +1,12 @@
+{
+  "$comment": "Dependencias (de package.json) que el runner conserva además del node_modules trazado del standalone: el CLI de prisma (migrate deploy) y todo paquete externo de los bundles dist/ del lote y del seed. tests/docker-cli-deps.test.ts verifica la cobertura; el Dockerfile falla si un nombre no está en dependencies.",
+  "dependencies": [
+    "prisma",
+    "dotenv",
+    "@prisma/client",
+    "@prisma/adapter-better-sqlite3",
+    "better-sqlite3",
+    "decimal.js",
+    "zod"
+  ]
+}

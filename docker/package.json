@@ -1,0 +1,12 @@
+{
+  "name": "sifap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "node dist/prisma/seed.mjs",
+    "lote:pagamentos": "node dist/scripts/lote-pagamentos.mjs"
+  }
+}

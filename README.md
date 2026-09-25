@@ -147,6 +147,72 @@ docker compose up --build
 
 App no ar: serviço único `app` (Next.js, porta 3000), SQLite no volume `sifap-data`.
 Lote mensal: `docker compose run --rm app npm run lote:pagamentos`.
+Detalhes na seção [Deployment](#deployment-docker-compose).
+
+---
+
+## Deployment (docker-compose)
+
+ADR-007 (`docs/architecture.md` §7): um único serviço `app` — imagem multi-stage
+(`Dockerfile`, Node 24, Next.js `output: "standalone"`, usuário não-root) — e a
+base SQLite no volume nomeado `sifap-data`, montado em `/data`
+(`DATABASE_URL=file:/data/sifap.db`, fixado no `docker-compose.yml`).
+
+```bash
+cp .env.example .env              # SIFAP_USER, LEGACY_DOC_ESPECIAL_ENABLED, SIFAP_PORT
+docker compose up --build -d      # http://localhost:${SIFAP_PORT:-3000}
+docker compose logs -f app
+```
+
+- **Arranque:** `docker-entrypoint.sh` executa `prisma migrate deploy` (com lock em
+  `/data/.migrate.lock`) e depois `node server.js`. Se a migração falhar — ou `/data`
+  não for gravável — o contêiner termina com erro (código ≠ 0); o compose reinicia no
+  máximo 5 vezes (`restart: on-failure:5`).
+- **Comandos avulsos também migram:** `docker compose run …` aplica as migrações
+  pendentes antes do comando (funciona com o volume vazio). Para pular:
+  `docker compose run --rm -e SKIP_MIGRATIONS=1 app …`. Ao atualizar a imagem, **pare o
+  app antes** (`docker compose stop app`) e não rode comandos avulsos em paralelo com
+  o `up` da versão nova.
+- **Lote mensal (BATCHPGT):** `docker compose run --rm app npm run lote:pagamentos`
+  — imprime o resumo; código de saída ≠ 0 em erro. Agendável pelo cron do host:
+
+  ```cron
+  0 6 1 * * cd /opt/sifap && docker compose run -T --rm app npm run lote:pagamentos >> /var/log/sifap-lote.log 2>&1
+  ```
+
+- **Seed de demonstração (opcional, nunca automático):**
+  `docker compose run --rm app npm run db:seed` (idempotente, dados fictícios).
+- **Fuso horário:** `TZ=America/Sao_Paulo` na imagem e no compose (usado por `hoje()`).
+- **Persistência:** `docker compose down` / `up` preservam os dados; só
+  `docker compose down -v` apaga o volume `sifap-data` (nome fixo, sem prefixo de projeto).
+- **Backup** (app parado, para uma cópia consistente do SQLite e dos arquivos `-wal`/`-shm`):
+
+  ```bash
+  docker compose stop app
+  docker run --rm -v sifap-data:/data -v "$PWD:/backup" \
+    busybox tar czf /backup/sifap-data-$(date +%Y%m%d).tgz -C /data .
+  docker compose start app
+  ```
+
+- **Restauração** (pare o app; esvazie `/data`, inclusive `-wal`/`-shm`, antes de extrair;
+  extraia como o usuário `node`, uid 1000, para manter o dono dos arquivos):
+
+  ```bash
+  docker compose stop app
+  docker run --rm -u 1000:1000 -v sifap-data:/data -v "$PWD:/backup" busybox \
+    sh -c 'rm -rf /data/* /data/.[!.]* && tar xzf /backup/sifap-data-AAAAMMDD.tgz -C /data'
+  docker compose start app
+  ```
+
+- **Smoke test repetível:** `scripts/docker-smoke.sh [projeto] [porta]` (padrão
+  `sifap-smoke 3300`) — build, `up`, HTTP 200 (inclusive `/conciliacao` e um stylesheet
+  `/_next/static`), seed, lote com exit 0, migração inválida com exit ≠ 0 e persistência
+  após `down`/`up`; usa um volume próprio (`<projeto>-data`) e remove só esse projeto
+  ao final (`KEEP=1` para mantê-lo).
+
+Fora do Docker (desenvolvimento/local, com o `.env` de `.env.example`):
+`npm run db:deploy && npm run build && npm start` (`next start`; o servidor standalone
+é usado só dentro da imagem).
 
 ---
 
