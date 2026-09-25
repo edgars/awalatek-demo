@@ -74,7 +74,7 @@ development_status:
 
   epic-7: backlog
   7-1-informe-analítico-de-pagos: ready-for-dev
-  7-2-informe-consolidado-mensual: ready-for-dev
+  7-2-informe-consolidado-mensual: done
   7-3-informe-de-auditoría: ready-for-dev
   epic-7-retrospective: optional
 
