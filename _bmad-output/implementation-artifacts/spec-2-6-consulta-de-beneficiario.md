@@ -2,9 +2,10 @@
 title: 'Story 2.6 — Consulta de beneficiario'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'c9b43d6'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/bmad-context.md'
@@ -80,7 +81,28 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 33 findings — high 0, medium 3, low 16, false 14, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (edge) `?cpf=` con más de 11 dígitos truncado podía mostrar otro beneficiario real — sin truncado; devuelve no encontrado
+  - `[medium]` `[patch]` (verif) camino de error inesperado de la consulta sin test — test con error con CPF; log sin PII
+  - `[medium]` `[patch]` (verif/edge) límites de zod devolvían mensajes no legados y el test no verificaba el mensaje — truncado con semántica A1/dígitos; mensajes legados exactos en tests
+  - `[low]` `[patch]` ×3 — URL `?cpf=` desincronizada tras búsqueda manual (history.replaceState), panel no limpiado al cambiar CPF/NIS, `competenciaTexto` con 0
+  - `[low]` `[patch]` (blind/intent) comentario de `selecionarHistorico` vs `ESCAPE BOTTOM` — corregido
+  - `[low]` `[reject]` (blind/edge/verif) CPF completo en `?cpf=` y en el input — mismo diferido LGPD de 2.1 (clave opaca en rutas)
+  - `[low]` `[reject]` ×10 — NIS sin máscara (el legado lo muestra), sin control de acceso/auditoría de lecturas (auth fuera de alcance; CONSBENF no audita), `ERRO_INESPERADO` duplicado (diferido de 4.4), `aria-live`, códigos sin descripción en el historial, `key={i}`, imports dinámicos en tests, etc.
+  - `[false]` `[reject]` ×14 — título "últimos 12" con los primeros 12 (literal del legado + D21), TIPO BUSCA INVALIDO inalcanzable desde la UI (radio; regla en dominio/acción), filtro/límite duplicados en consulta y dominio (equivalente al READ), RK :72 documentada como sustituida, sin evidencia de `getRule` (`rk-verification.md`), etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3224 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** consulta de beneficiario (CONSBENF, 9 RK) en `/consulta`: búsqueda por CPF (por defecto) o NIS, ficha FR-CON-01 con status y descripción, máscara D7, historial de los primeros 12 pagos (D21), atajo `?cpf=` desde la lista.
+- **Implementado en paralelo** (worktree); integrado por merge (conflicto trivial en la lista de beneficiarios: las tres acciones de fila quedan habilitadas).
+- **Review:** 33 hallazgos — 6 patches (3 `medium`), 0 diferidos nuevos, 27 rechazados.
+- **Follow-up review recomendado:** `true` — patches: high 0, medium 3, low 3. Riesgo: superficie LGPD del CPF en URLs (diferido de producto).
+- **Verificación (tras merge):** lint 0; `npm test` 533/533; build OK; e2e 42/42.
+- **Pendiente de negocio:** D21 (título "últimos 12" muestra los primeros 12).
