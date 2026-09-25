@@ -17,7 +17,9 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `node scripts/e2e-db.mjs && npm run dev -- --port ${PORT}`,
+    // Build de produção: `next dev` compila rotas sob demanda e recarrega via HMR
+    // durante a execução paralela, o que deixava Server Actions sem resposta.
+    command: `node scripts/e2e-db.mjs && npx next build && npx next start --port ${PORT}`,
     url: `http://localhost:${PORT}`,
     // Variáveis do processo têm precedência sobre o .env (Next e dotenv não sobrescrevem).
     // D4 fixo em false: o e2e verifica o comportamento padrão, independente do .env local.

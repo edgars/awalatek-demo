@@ -20,3 +20,12 @@ for (const args of [
 ]) {
   execFileSync("npx", args, { cwd: raiz, env, stdio: "inherit" });
 }
+
+// WAL: el servidor y los clientes Prisma de los specs escriben en paralelo; con el
+// journal por defecto (delete) los lectores bloquean a los escritores y una Server
+// Action podía esperar el busy_timeout (5 s) y agotar la aserción del e2e.
+// El modo WAL queda persistido en el archivo.
+const { default: Database } = await import("better-sqlite3");
+const base = new Database(arquivo);
+base.pragma("journal_mode = WAL");
+base.close();

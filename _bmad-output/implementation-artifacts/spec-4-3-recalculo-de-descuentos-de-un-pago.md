@@ -2,7 +2,8 @@
 title: 'Story 4.3 — Recálculo de descuentos de un pago'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '5dc58db'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -72,7 +73,26 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 27 findings — high 0, medium 1, low 13, false 13, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (verif/blind/intent) e2e solo renderizaba una fila aplicada — beneficiario propio del spec con descuentos fuera de vigencia, tipo desconocido y caso de tope 30 %; aserciones por ítem rotulado
+  - `[low]` `[patch]` ×5 — orden legado pago → beneficiario (:75/:82 antes de :91) y `numPagamento` fuera de Int32, desborde del total (> Int32) con mensaje controlado, comentario + test de filas `PagamentoDesconto` vs total con tope (CALCDSCT no graba filas: detalle del modelo destino, D14), columna % solo cuando se usa, error de forma duplicado
+  - `[low]` `[reject]` ×8 — `falhaInesperada` duplicada (diferido existente), lector de `descontosRegistrados` no reutilizado, helpers de fecha, `occurrence` renumerada 1..n (spec), rótulo `C` (DDM: C=CONTRIB), `SIFAP_USER` ausente, etc.
+  - `[false]` `[reject]` ×13 — filas solo de aplicados vs "procesados" (CALCDSCT no persiste ítems; arquitectura/DESIGN dicen aplicados), `vlrLiquido` sin recálculo (D13), sin evidencia de `getRule` (`rk-verification.md`), etc.
+- integración: en `main` el e2e fallaba de forma intermitente (P1008 = SQLITE_BUSY). Causa: el adapter abre transacciones `BEGIN` DEFERRED; con escritores en otras conexiones (clientes Prisma de los specs, CLI del lote) la transacción que lee y luego escribe recibe BUSY sin esperar. Fix transversal en `src/server/db.ts`: reintento con backoff de `$transaction` ante P1008 (Proxy, sin heredar en `tx`), `maxWait` 15 s; e2e sobre `next build && next start` y `e2e.db` en WAL.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3228 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** recálculo de descuentos de un pago (CALCDSCT) en `/descontos`: precondiciones FR-DSC-01 en dominio (orden legado), `recalcularDescontos` reutiliza `calcularDescontos` (D2, D13), graba el total y las filas aplicadas en `PagamentoDesconto` en una transacción, sin auditoría.
+- **Implementado en paralelo** (worktree); integrado por merge.
+- **Review:** 27 hallazgos — 6 patches (1 `medium`), 0 diferidos nuevos, 21 rechazados.
+- **Follow-up review recomendado:** `false`.
+- **Estabilidad e2e (transversal):** reintento de transacciones ante SQLITE_BUSY + build de producción + WAL; e2e 10/10 corridas en verde.
+- **Verificación (tras merge):** lint 0; `npm test` 554/554; build OK; e2e 46/46 (×5).
+

@@ -60,7 +60,7 @@ development_status:
   epic-4: in-progress
   4-1-motor-de-cálculo-y-cálculo-individual: done
   4-2-lote-mensual-de-pagos: ready-for-dev
-  4-3-recálculo-de-descuentos-de-un-pago: ready-for-dev
+  4-3-recálculo-de-descuentos-de-un-pago: done
   4-4-consulta-de-pagos-solo-lectura: done
   epic-4-retrospective: optional
 

@@ -5,7 +5,40 @@ import { PrismaClient } from "@/generated/prisma/client";
 
 export function createPrismaClient(databaseUrl: string): PrismaClient {
   const adapter = new PrismaBetterSqlite3({ url: databaseUrl });
-  return new PrismaClient({ adapter });
+  // better-sqlite3 usa una sola conexión: las transacciones interactivas esperan su
+  // turno en un mutex, así que se amplía la espera por defecto de Prisma (2 s).
+  const client = new PrismaClient({ adapter, transactionOptions: { maxWait: 15_000, timeout: 20_000 } });
+  return conReintentoSqliteBusy(client);
+}
+
+const TENTATIVAS_BUSY = 6;
+
+/**
+ * El adapter abre las transacciones con `BEGIN` (DEFERRED): si otra conexión (CLI del
+ * lote, clientes de test) escribe entre la lectura y la escritura de la transacción,
+ * SQLite devuelve SQLITE_BUSY sin esperar el busy_timeout, que Prisma expone como
+ * P1008. La transacción ya se revirtió, así que se reintenta completa con backoff.
+ */
+export function conReintentoSqliteBusy(client: PrismaClient): PrismaClient {
+  const original = client.$transaction.bind(client) as (...args: unknown[]) => Promise<unknown>;
+  const comReintento = async (...args: unknown[]) => {
+    for (let tentativa = 1; ; tentativa++) {
+      try {
+        return await original(...args);
+      } catch (e) {
+        const codigo = (e as { code?: unknown } | null)?.code;
+        if (codigo !== "P1008" || tentativa >= TENTATIVAS_BUSY) throw e;
+        await new Promise((r) => setTimeout(r, 25 * 2 ** tentativa + Math.random() * 25));
+      }
+    }
+  };
+  // Proxy (no se modifica el cliente): los clientes de transacción que Prisma deriva
+  // del cliente real no deben heredar `$transaction`.
+  return new Proxy(client, {
+    get(alvo, prop, receptor) {
+      return prop === "$transaction" ? comReintento : Reflect.get(alvo, prop, receptor);
+    },
+  });
 }
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };

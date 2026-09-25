@@ -77,6 +77,9 @@ test("recalcula → DESCONTOS CALCULADOS, tabela com aplicado / fora de vigênci
   await page.goto("/");
   await page.getByRole("navigation", { name: "Menu principal" }).getByRole("link", { name: "Cálculo de descontos" }).click();
   await expect(page).toHaveURL(/\/descontos$/);
+  // Aguarda a hidratação: sob carga paralela o clique podia chegar antes e o form
+  // era enviado sem a Server Action ligada.
+  await page.waitForLoadState("networkidle");
   await expect(page.getByRole("heading", { level: 1, name: "Cálculo de descontos" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Cálculo de descontos" })).toHaveAttribute("aria-current", "page");
 
