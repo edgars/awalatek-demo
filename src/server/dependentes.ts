@@ -9,7 +9,7 @@ import {
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
-import { vazioParaNull } from "@/server/unicidade";
+import { vazioParaNull, violaUnico } from "@/server/unicidade";
 
 // Casos de uso de dependientes (CADDEPEND). Orquesta dominio + Prisma, sin lógica de
 // negocio propia. CADDEPEND solo incluye (no edita ni borra) y no registra auditoría.
@@ -24,18 +24,9 @@ function usuarioOperativo(): string {
   return u.slice(0, 8);
 }
 
-type ErroPrisma = {
-  code?: string;
-  meta?: { target?: string | string[]; driverAdapterError?: { cause?: { constraint?: { fields?: string[] } } } };
-};
-
 /** P2002 del unique `(beneficiarioId, cpfDependente)`; cualquier otro unique no es "CPF duplicado". */
 function ehCpfDependenteDuplicado(e: unknown): boolean {
-  const erro = e as ErroPrisma | null;
-  if (erro?.code !== "P2002") return false;
-  // Con driver adapter, los campos llegan en meta.driverAdapterError.cause.constraint.fields.
-  const campos = [erro.meta?.target ?? [], erro.meta?.driverAdapterError?.cause?.constraint?.fields ?? []].flat();
-  return campos.some((c) => c.includes("cpfDependente"));
+  return violaUnico(e, "cpfDependente");
 }
 
 /** Sinal interno para abortar a transação devolvendo uma falha de negócio. */

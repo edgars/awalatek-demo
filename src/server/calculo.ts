@@ -4,6 +4,7 @@ import { verificarPrecondicoes } from "@/domain/calculo/precondicoes";
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { prisma } from "@/server/db";
+import { camposViolados, comRetry, ehColisaoNumPagamento } from "@/server/unicidade";
 
 // Caso de uso del cálculo individual (CALCBENF, FR-CAL-01..10). Orquesta dominio
 // + Prisma sin lógica de negocio propia: las precondiciones están en
@@ -45,8 +46,13 @@ function usuarioOperativo(): string {
   return u.slice(0, 8);
 }
 
-function ehUnicoViolado(e: unknown): boolean {
-  return (e as { code?: string } | null)?.code === "P2002";
+/**
+ * Colisión de `numPagamento`: P2002 sobre ese campo, o P2002 sin campos informados
+ * (el único unique que el insert de esta transacción puede violar es `numPagamento`).
+ * Un P2002 sobre otro campo no se reintenta.
+ */
+function ehColisaoNumeracao(e: unknown): boolean {
+  return ehColisaoNumPagamento(e) || camposViolados(e)?.length === 0;
 }
 
 /**
@@ -60,9 +66,9 @@ export async function calcularBeneficioIndividual(
   competencia: number,
   { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO }: OpcoesCalculoIndividual = {},
 ): Promise<ResultadoCalculoIndividual> {
-  for (let tentativa = 1; ; tentativa++) {
-    try {
-      return await db.$transaction(async (tx) => {
+  return comRetry(
+    () =>
+      db.$transaction(async (tx) => {
         const beneficiario = /^\d{11}$/.test(numCpf) ? await tx.beneficiario.findUnique({ where: { numCpf } }) : null;
         const programa = beneficiario
           ? await tx.programaSocial.findUnique({ where: { codPrograma: beneficiario.codPrograma } })
@@ -135,10 +141,8 @@ export async function calcularBeneficioIndividual(
             tipoPgto: r.tipoPgto,
           },
         } as const;
-      });
-    } catch (e) {
-      if (ehUnicoViolado(e) && tentativa < TENTATIVAS_NUMERACAO) continue;
-      throw e;
-    }
-  }
+      }),
+    ehColisaoNumeracao,
+    TENTATIVAS_NUMERACAO,
+  );
 }

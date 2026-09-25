@@ -15,6 +15,7 @@ import {
   type ParamRegional,
 } from "@/domain/programa";
 import { prisma } from "@/server/db";
+import { violaUnico } from "@/server/unicidade";
 
 // Casos de uso de programas (CADPROG). Orquesta dominio + Prisma, sin lógica de
 // negocio propia. CADPROG no registra auditoría: aquí no se llama a registrarEvento.
@@ -105,7 +106,7 @@ export async function incluirPrograma(
     });
   } catch (e) {
     // Carrera entre la verificación y el insert: la restricción única decide.
-    if ((e as { code?: string }).code === "P2002") return { ok: false, mensagem: verificarDuplicidade(true)! };
+    if (violaUnico(e, "codPrograma")) return { ok: false, mensagem: verificarDuplicidade(true)! };
     throw e;
   }
   return {

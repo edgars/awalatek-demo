@@ -9,11 +9,12 @@ import { completaDv } from "@/domain/cpf";
 import { inclusaoProgramaSchema } from "@/domain/programa";
 import { registrarEvento } from "@/server/auditoria";
 import { incluirBeneficiario } from "@/server/beneficiarios";
+import { calcularBeneficioIndividual } from "@/server/calculo";
 import { conciliarRetorno } from "@/server/conciliacao";
 import { createPrismaClient } from "@/server/db";
 import { incluirDependente } from "@/server/dependentes";
 import { incluirPrograma } from "@/server/programas";
-import { camposViolados, ehColisaoNumAuditoria, vazioParaNull, violaUnico } from "@/server/unicidade";
+import { camposViolados, comRetry, ehColisaoNumAuditoria, vazioParaNull, violaUnico } from "@/server/unicidade";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 import { arquivoRetorno } from "./fixtures/cnab240";
 
@@ -284,6 +285,58 @@ describe("P2002 em inclusões concorrentes → mensagem legada de duplicado", ()
     });
     expect(await incluirBeneficiario(beneficiario(), corrida)).toEqual({ ok: false, mensagem: "BENEFICIARIO JA CADASTRADO" });
     expect(await prisma.beneficiario.count({ where: { numCpf: CPF_NOVO } })).toBe(1);
+  });
+});
+
+describe("reintento por campo (comRetry)", () => {
+  it("repete só enquanto o predicado aceita, até o limite, chamando antesDeRepetir entre tentativas", async () => {
+    let chamadas = 0;
+    let preparos = 0;
+    const colisao = { code: "P2002", meta: { target: ["numAuditoria"] } };
+    const r = await comRetry(
+      async () => {
+        if (++chamadas < 3) throw colisao;
+        return "ok";
+      },
+      ehColisaoNumAuditoria,
+      5,
+      async () => {
+        preparos++;
+      },
+    );
+    expect([r, chamadas, preparos]).toEqual(["ok", 3, 2]);
+    chamadas = 0;
+    await expect(comRetry(async () => { chamadas++; throw colisao; }, ehColisaoNumAuditoria, 4)).rejects.toBe(colisao);
+    expect(chamadas).toBe(4);
+    chamadas = 0;
+    await expect(comRetry(async () => { chamadas++; throw { code: "P2002", meta: { target: ["nis"] } }; }, ehColisaoNumAuditoria, 4)).rejects.toMatchObject({ code: "P2002" });
+    expect(chamadas).toBe(1);
+  });
+
+  it("cálculo individual: P2002 em outro campo não é repetido", async () => {
+    let chamadas = 0;
+    const db = new Proxy(prisma, {
+      get(alvo, prop, receptor) {
+        if (prop !== "$transaction") return Reflect.get(alvo, prop, receptor);
+        return () => {
+          chamadas++;
+          return Promise.reject({ code: "P2002", meta: { target: ["numCpf"] } });
+        };
+      },
+    });
+    await expect(calcularBeneficioIndividual(CPF_MARIA, 202609, { db })).rejects.toMatchObject({ code: "P2002" });
+    expect(chamadas).toBe(1);
+  });
+
+  it("incluirBeneficiario: P2002 de campo não reconhecido é relançado", async () => {
+    const erro = { code: "P2002", meta: { target: ["outroCampo"] } };
+    const db = new Proxy(prisma, {
+      get(alvo, prop, receptor) {
+        if (prop !== "beneficiario") return Reflect.get(alvo, prop, receptor);
+        return new Proxy(alvo.beneficiario, { get: (m, p, r) => (p === "create" ? () => Promise.reject(erro) : Reflect.get(m, p, r)) });
+      },
+    });
+    await expect(incluirBeneficiario(beneficiario(), db)).rejects.toBe(erro);
   });
 });
 

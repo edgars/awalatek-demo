@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 // o `docker compose run --rm app npm run lote:pagamentos` fallaría al resolverlo.
 
 const RAIZ = path.resolve(import.meta.dirname, "..");
-const ENTRADAS = ["scripts/lote-pagamentos.ts", "prisma/seed.ts"];
+const ENTRADAS = ["scripts/lote-pagamentos.ts", "scripts/liberar-lock.ts", "prisma/seed.ts"];
 
 const lerJson = (rel: string) => JSON.parse(readFileSync(path.join(RAIZ, rel), "utf8"));
 const cliDeps: string[] = lerJson("docker/cli-deps.json").dependencies;

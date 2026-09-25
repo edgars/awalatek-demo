@@ -22,8 +22,8 @@ import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { registrarEvento } from "@/server/auditoria";
 import { prisma } from "@/server/db";
-import { comLock, LOCK_CONCILIACAO, lockAtivo } from "@/server/processoLock";
-import { ehColisaoNumAuditoria } from "@/server/unicidade";
+import { comLock, LOCK_CONCILIACAO, renovadorPorPassos, type LockAdquirido } from "@/server/processoLock";
+import { comRetry, ehColisaoNumAuditoria } from "@/server/unicidade";
 
 // Caso de uso de la conciliación del retorno CNAB 240 (BATCHCON, FR-CNB-01..04).
 // Orquesta dominio (`domain/cnab240.ts`) + Prisma sin lógica de negocio propia.
@@ -34,6 +34,10 @@ import { ehColisaoNumAuditoria } from "@/server/unicidade";
 // nuevos eventos CO/DV; no se mira el sitPagamento actual (el legado hace lo mismo).
 
 export const MSG_CONCILIACAO_EM_EXECUCAO = "Conciliação já em execução.";
+/** El candado se perdió a mitad de la corrida (expiró y otro lo tomó, o se liberó a la fuerza). */
+export const MSG_CONCILIACAO_CANDADO_PERDIDO = "CONCILIACAO INTERROMPIDA: CANDADO PERDIDO";
+/** Renovación del candado cada N líneas leídas. */
+const RENOVAR_LOCK_A_CADA = 100;
 
 /**
  * `ok: false` sin `resumo`: no corrió (ya había una en ejecución).
@@ -57,15 +61,12 @@ export interface OpcoesConciliacao {
   agora?: Date;
   /** Correcciones activas (D23), leídas una vez por la acción; default = legado. */
   quirks?: QuirksConciliacao;
+  /** Candado: expiración (ms) y renovación cada N líneas; default = entorno / 100. Para tests. */
+  lock?: { expiracaoMs?: number; renovarACada?: number };
 }
 
 /** Reintentos si otro escritor tomó el mismo `numAuditoria` (unique) dentro de la transacción del registro. */
 const TENTATIVAS_NUMERACAO = 5;
-
-/** true si hay una conciliación en ejecución en cualquier proceso (candado ProcessoLock vigente). */
-export async function conciliacaoEmExecucao(db: PrismaClient = prisma): Promise<boolean> {
-  return lockAtivo(db, LOCK_CONCILIACAO);
-}
 
 function registrarFalha(e: unknown): void {
   // Solo tipo y código: nada de datos personales en el log (NFR-04).
@@ -83,15 +84,29 @@ function registrarFalha(e: unknown): void {
 export async function conciliarRetorno(entrada: EntradaConciliacao, opcoes: OpcoesConciliacao = {}): Promise<ResultadoConciliacao> {
   // Candado entre procesos en la base; se libera en `finally` (comLock). Un candado
   // huérfano (proceso caído) expira según SIFAP_LOCK_EXPIRACAO_MIN.
-  return comLock<ResultadoConciliacao>(opcoes.db ?? prisma, LOCK_CONCILIACAO, () => ({ ok: false, mensagem: MSG_CONCILIACAO_EM_EXECUCAO }), () => processar(entrada, opcoes));
+  // Se renueva cada RENOVAR_LOCK_A_CADA líneas; si se perdió, se detiene.
+  return comLock<ResultadoConciliacao>(
+    opcoes.db ?? prisma,
+    LOCK_CONCILIACAO,
+    () => ({ ok: false, mensagem: MSG_CONCILIACAO_EM_EXECUCAO }),
+    (lock) => processar(entrada, opcoes, lock),
+    { agora: opcoes.agora, expiracaoMs: opcoes.lock?.expiracaoMs },
+  );
 }
 
-async function processar({ competencia, conteudo }: EntradaConciliacao, { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO }: OpcoesConciliacao): Promise<ResultadoConciliacao> {
+async function processar(
+  { competencia, conteudo }: EntradaConciliacao,
+  { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO, lock: cfgLock }: OpcoesConciliacao,
+  lock: LockAdquirido,
+): Promise<ResultadoConciliacao> {
+  const manterLock = renovadorPorPassos(lock, cfgLock?.renovarACada ?? RENOVAR_LOCK_A_CADA, "conciliacao");
   // BATCHCON:79-80 — *DATN / *TIMN una sola vez: todos los eventos con el mismo momento.
   const momento = hoje(agora);
   const resumo = novoResumo(competencia);
 
   for (const linha of linhasArquivo(conteudo)) {
+    // Renovación periódica del candado: si se perdió, otra conciliación puede estar corriendo.
+    if (!(await manterLock(resumo.lidos))) return { ok: false, mensagem: MSG_CONCILIACAO_CANDADO_PERDIDO, resumo };
     resumo.lidos += 1; // BATCHCON:108 — antes del filtro de tipo (cuenta header y trailer)
     const reg = parseLinhaCnab(linha);
     if (!reg) continue; // RK-7747831dca9a (en el dominio)
@@ -99,7 +114,12 @@ async function processar({ competencia, conteudo }: EntradaConciliacao, { db = p
 
     let decisao: DecisaoConciliacao;
     try {
-      decisao = await conRetryNumAuditoria(() => db.$transaction((tx) => conciliarRegistro(tx, reg, competencia, momento, quirks)));
+      // P2002 sobre numAuditoria: la transacción del registro ya se revirtió entera; se repite (relee el máximo).
+      decisao = await comRetry(
+        () => db.$transaction((tx) => conciliarRegistro(tx, reg, competencia, momento, quirks)),
+        ehColisaoNumAuditoria,
+        TENTATIVAS_NUMERACAO,
+      );
     } catch (e) {
       // El legado abendaría: se detiene sin perder el resumen de lo ya grabado.
       registrarFalha(e);
@@ -109,20 +129,6 @@ async function processar({ competencia, conteudo }: EntradaConciliacao, { db = p
   }
 
   return { ok: true, resumo };
-}
-
-/**
- * P2002 sobre `numAuditoria` (otro escritor tomó el número entre el máx. y el insert):
- * la transacción del registro ya se revirtió entera, se repite (relee el máximo).
- */
-async function conRetryNumAuditoria<T>(fn: () => Promise<T>): Promise<T> {
-  for (let tentativa = 1; ; tentativa++) {
-    try {
-      return await fn();
-    } catch (e) {
-      if (!ehColisaoNumAuditoria(e) || tentativa >= TENTATIVAS_NUMERACAO) throw e;
-    }
-  }
 }
 
 /** Un registro de detalle dentro de su transacción: búsqueda, decisión, update y auditoría. */

@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { hoje } from "@/domain/legacyDate";
 import { prisma } from "@/server/db";
-import { ehColisaoNumAuditoria } from "@/server/unicidade";
+import { comRetry, ehColisaoNumAuditoria } from "@/server/unicidade";
 
 // ADR-009 — único escritor de la tabla Auditoria. Append-only: este módulo no
 // expone (ni debe exponer) funciones de actualización o borrado.
@@ -91,13 +91,7 @@ export async function registrarEvento(evento: EventoAuditoria, cliente: ClienteA
   if (!usuario) throw new Error("usuário de auditoria não informado (SIFAP_USER)");
 
   if (ehClienteCompleto(cliente)) {
-    for (let tentativa = 1; ; tentativa++) {
-      try {
-        return await cliente.$transaction((tx) => gravar(tx, evento, usuario));
-      } catch (e) {
-        if (!ehColisaoNumAuditoria(e) || tentativa >= TENTATIVAS_NUMERACAO) throw e;
-      }
-    }
+    return comRetry(() => cliente.$transaction((tx) => gravar(tx, evento, usuario)), ehColisaoNumAuditoria, TENTATIVAS_NUMERACAO);
   }
   return gravar(cliente, evento, usuario);
 }

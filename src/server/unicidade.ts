@@ -1,6 +1,7 @@
-// Reconocimiento de violaciones de unicidad (P2002) por campo. Con el driver adapter
-// los campos vienen en `meta.driverAdapterError.cause.constraint.fields`; sin él, en
-// `meta.target` (lista de campos o nombre del índice, p. ej. "Auditoria_numAuditoria_key").
+// Reconocimiento de violaciones de unicidad (P2002) por campo y reintento común. Con el
+// driver adapter los campos vienen en `meta.driverAdapterError.cause.constraint.fields`;
+// sin él, en `meta.target` (lista de campos o nombre del índice, p. ej.
+// "Auditoria_numAuditoria_key").
 
 /** Campos (o nombre de índice) informados por un P2002; `null` si no es un P2002. */
 export function camposViolados(e: unknown): string[] | null {
@@ -21,6 +22,33 @@ export function violaUnico(e: unknown, campo: string): boolean {
 /** P2002 sobre `numAuditoria` (máx.+1 tomado por otro escritor); otro unique → false. */
 export function ehColisaoNumAuditoria(e: unknown): boolean {
   return violaUnico(e, "numAuditoria");
+}
+
+/** P2002 sobre `numPagamento` (máx.+1 tomado por otro escritor); otro unique → false. */
+export function ehColisaoNumPagamento(e: unknown): boolean {
+  return violaUnico(e, "numPagamento");
+}
+
+/**
+ * Ejecuta `fn` y la repite (hasta `tentativas` veces en total) mientras el error cumpla
+ * `deveRepetir`, con una espera corta con jitter entre intentos. `antesDeRepetir` corre
+ * antes de cada nuevo intento (p. ej. releer el máximo); si falla, su error sube.
+ */
+export async function comRetry<T>(
+  fn: () => Promise<T>,
+  deveRepetir: (e: unknown) => boolean,
+  tentativas: number,
+  antesDeRepetir?: () => Promise<void>,
+): Promise<T> {
+  for (let tentativa = 1; ; tentativa++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!deveRepetir(e) || tentativa >= tentativas) throw e;
+    }
+    await new Promise((r) => setTimeout(r, 2 * tentativa + Math.random() * 8));
+    if (antesDeRepetir) await antesDeRepetir();
+  }
 }
 
 /**

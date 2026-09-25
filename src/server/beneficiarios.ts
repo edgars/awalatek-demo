@@ -15,7 +15,7 @@ import { anoDe, hoje } from "@/domain/legacyDate";
 import { MENSAGENS_PROGRAMA } from "@/domain/programa";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
-import { vazioParaNull } from "@/server/unicidade";
+import { vazioParaNull, violaUnico } from "@/server/unicidade";
 
 // Casos de uso de beneficiarios (CADBENEF). Orquesta dominio + Prisma, sin lógica
 // de negocio propia. CADBENEF no registra auditoría: aquí no se llama a registrarEvento.
@@ -80,10 +80,6 @@ export async function obterBeneficiario(numCpf: string, db: PrismaClient = prism
   return db.beneficiario.findUnique({ where: { numCpf } });
 }
 
-function ehUnicoViolado(e: unknown): boolean {
-  return (e as { code?: string }).code === "P2002";
-}
-
 /** `quirks`: flags LEGACY-QUIRK (D5); por defecto, legado (QUIRKS_PADRAO); la acción/página lee el entorno y los pasa. */
 export async function incluirBeneficiario(
   dados: InclusaoBeneficiario,
@@ -135,10 +131,8 @@ export async function incluirBeneficiario(
     });
   } catch (e) {
     // Carrera entre la verificación y el insert: la restricción única decide.
-    if (ehUnicoViolado(e)) {
-      const cpfExiste = await db.beneficiario.findUnique({ where: { numCpf: dados.numCpf }, select: { id: true } });
-      return falha(cpfExiste ? MENSAGENS_CADBENEF.jaCadastrado : MENSAGENS_SISTEMA.nisDuplicado);
-    }
+    if (violaUnico(e, "numCpf")) return falha(MENSAGENS_CADBENEF.jaCadastrado);
+    if (violaUnico(e, "nis")) return falha(MENSAGENS_SISTEMA.nisDuplicado);
     throw e;
   }
   return { ok: true, mensagem: MENSAGENS_CADBENEF.incluidoSucesso, numCpf: dados.numCpf, status, suspensoPorIdade, numVersao: 1 };

@@ -175,13 +175,30 @@ docker compose logs -f app
   o `up` da versão nova.
 - **Lote mensal (BATCHPGT):** `docker compose run --rm app npm run lote:pagamentos`
   — imprime o resumo; código de saída ≠ 0 em erro ou se já houver um lote em execução
-  (web ou CLI: o cadeado fica na base, tabela `ProcessoLock`; um cadeado órfão de um
-  processo caído expira após `SIFAP_LOCK_EXPIRACAO_MIN`, padrão 120). Agendável pelo cron do host:
+  (web ou CLI: o cadeado fica na base, tabela `ProcessoLock`). `--data=AAAAMMDD`
+  (`npm run lote:pagamentos -- --data=20260901`) fixa a data de execução; Ctrl+C /
+  `docker stop` (SIGINT/SIGTERM) libera o cadeado antes de sair (código 130/143). Agendável pelo cron do host:
 
   ```cron
   0 6 1 * * cd /opt/sifap && docker compose run -T --rm app npm run lote:pagamentos >> /var/log/sifap-lote.log 2>&1
   ```
 
+- **Cadeados do lote e da conciliação (runbook):** lote (web e CLI) e conciliação
+  bancária rodam com exclusão entre processos (`ProcessoLock`, nomes `LOTE-PAGAMENTOS`
+  e `CONCILIACAO`). Quem roda renova o cadeado a cada 100 beneficiários/linhas; se o
+  perder, para com `LOTE INTERROMPIDO: CANDADO PERDIDO` /
+  `CONCILIACAO INTERROMPIDA: CANDADO PERDIDO` e resumo parcial. Um cadeado órfão
+  (processo morto com `kill -9`, queda do host) expira após `SIFAP_LOCK_EXPIRACAO_MIN`
+  minutos (inteiro de 1 a 10080; padrão 120). Para liberar antes — **só com certeza de
+  que nada está rodando** — e ver o que foi removido:
+
+  ```bash
+  npm run lock:liberar -- LOTE-PAGAMENTOS      # ou CONCILIACAO
+  docker compose run --rm app npm run lock:liberar -- LOTE-PAGAMENTOS
+  ```
+
+  Depois, rode de novo o lote (os pagamentos já gerados na competência são ignorados)
+  ou a conciliação (reaplica o arquivo; ver TODO(review) em `src/server/conciliacao.ts`).
 - **Seed de demonstração (opcional, nunca automático):**
   `docker compose run --rm app npm run db:seed` (idempotente, dados fictícios).
 - **Fuso horário:** `TZ=America/Sao_Paulo` na imagem e no compose (usado por `hoje()`).
