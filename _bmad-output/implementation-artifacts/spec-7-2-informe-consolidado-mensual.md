@@ -2,14 +2,19 @@
 title: 'Story 7.2 — Informe consolidado mensual'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: 'e6dbeb9'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-7-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: Consolidado por agregación en SQL (groupBy) en lugar de cargar todos los pagos del mes en memoria.
+    evidence: `findMany` sin límite + lectura de regiones por lotes; riesgo de memoria/latencia en meses de alto volumen.
+  - summary: Test unitario de los helpers `falhaInesperada` de las páginas de solo lectura (retorno genérico y log sin PII).
+    evidence: `src/app/relatorios/consolidado/falha.ts` y `src/app/pagamentos/falha.ts` sin test.
 ---
 
 <intent-contract>
@@ -74,7 +79,25 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 27 findings — high 0, medium 1, low 12, false 14, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (verif) lote de CPF (500) nunca probado más allá del primer lote — tamaño inyectable + tests con lote 3 y con 501 CPF
+  - `[low]` `[patch]` ×3 — competencia presente pero inválida → "Competência inválida." (el aviso solo sin parámetro), `formatarCompetencia` compartido en `legacyDate.ts` + e2e "01/1994", comentario de D11 inerte sobre centavos enteros
+  - `[low]` `[defer]` ×2 — agregación en SQL por volumen, test de `falhaInesperada`
+  - `[low]` `[reject]` ×7 — CSS de impresión dependiente del layout (se unifica con 7.1), `PAG: 1` (BATCHREL imprime una sola cabecera), bruto negativo / desborde de enteros, PRAGMA en el test (adapter de una sola conexión), test de exports de solo lectura, etc.
+  - `[false]` `[reject]` ×14 — D11 sin efecto observable en centavos (documentado en el contexto de la épica), bruto crudo por status (asimetría del legado BATCHREL:146), sin evidencia de `getRule` (`rk-verification.md`), etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3232 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** consolidado mensual (BATCHREL, 9 RK) en `/relatorios/consolidado`: totales por región (D10), por status (desconocido → GERADO) y generales, bruto redondeado antes de sumar (D11, inerte sobre centavos), versión imprimible.
+- **Implementado en paralelo** (worktree); integrado por merge.
+- **Review:** 27 hallazgos — 4 patches (1 `medium`), 2 diferidos, 21 rechazados.
+- **Follow-up review recomendado:** `false`.
+- **Verificación (tras merge):** lint 0; `npm test` 652/652; build OK; e2e 57/57 (×3).
+
