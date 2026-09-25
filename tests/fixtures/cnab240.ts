@@ -10,10 +10,16 @@ export interface DetalheCnab {
   numDoc: number | string;
   /** Centavos. */
   valor: number;
+  /** Data de pagamento como o BB devolve: DDMMAAAA (LEGACY-QUIRK D23). */
   dtPgto?: string;
   codRet?: string;
   tipo?: string;
+  /** Nome do favorecido nas posições 14–43 (antes de CPF, valor e código). */
+  nome?: string;
 }
+
+/** Data padrão das fixtures (DDMMAAAA, formato do BB). */
+export const DT_PGTO_PADRAO = "25092026";
 
 /** Registro de detalhe (tipo 3 por padrão) com 240 posições. */
 export function linhaDetalhe(d: DetalheCnab): string {
@@ -21,10 +27,11 @@ export function linhaDetalhe(d: DetalheCnab): string {
   poe(reg, 1, "001");
   poe(reg, 4, "0001");
   poe(reg, 8, d.tipo ?? "3");
+  if (d.nome) poe(reg, 14, d.nome.slice(0, 30));
   poe(reg, 44, d.cpf.padStart(11, "0"));
   poe(reg, 74, String(d.numDoc).padStart(10, "0"));
   poe(reg, 120, String(d.valor).padStart(15, "0"));
-  poe(reg, 140, d.dtPgto ?? "20260925");
+  poe(reg, 140, d.dtPgto ?? DT_PGTO_PADRAO);
   poe(reg, 231, d.codRet ?? "00");
   return reg.join("");
 }

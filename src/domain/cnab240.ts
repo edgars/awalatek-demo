@@ -52,13 +52,23 @@ function numerico(campo: string): number {
 }
 
 /**
- * Divide el contenido del archivo en registros, como `READ WORK FILE ... TYPE 'ASCII'`.
- * Las líneas vacías del final (salto de línea al final del archivo) no son registros;
- * las intermedias sí (se leen y se descartan por tipo).
+ * Decodifica el archivo de retorno byte a byte (Latin-1; el WHATWG lo trata como
+ * windows-1252): un carácter por byte, así que las posiciones del SUBSTR no se
+ * desplazan con nombres acentuados (en UTF-8, "é" ocuparía 2 bytes → 1 carácter).
+ */
+export function decodificarArquivo(bytes: ArrayBuffer | Uint8Array): string {
+  return new TextDecoder("latin1").decode(bytes);
+}
+
+/**
+ * Divide el contenido del archivo en registros, como `READ WORK FILE ... TYPE 'ASCII'`
+ * (fin de línea CRLF, LF o CR). Solo las líneas vacías del FINAL del archivo (salto de
+ * línea al final) no son registros; las vacías o en blanco intermedias sí (se leen,
+ * cuentan en REGISTROS LIDOS y se descartan por tipo).
  */
 export function linhasArquivo(conteudo: string): string[] {
-  const linhas = conteudo.replace(/^﻿/, "").split(/\r?\n/);
-  while (linhas.length > 0 && (linhas.at(-1) ?? "").trim() === "") linhas.pop();
+  const linhas = conteudo.replace(/^﻿/, "").split(/\r\n|\r|\n/);
+  while (linhas.length > 0 && linhas.at(-1) === "") linhas.pop();
   return linhas;
 }
 
@@ -89,8 +99,10 @@ export function parseLinhaCnab(linha: string): RegistroCnab | null {
     cpfNum: String(numerico(cnabCpf)).padStart(11, "0"), // MOVE #CNAB-CPF TO #CPF-NUM (N11)
     numPgto: numerico(cnabNumDoc),
     vlrRetorno,
-    // TODO(review): la fecha se graba tal cual viene (el BB puede enviarla DDMMAAAA y
-    // DT-PAGAMENTO es AAAAMMDD); el legado no valida ni reordena (BATCHCON:134, 175).
+    // LEGACY-QUIRK(D23): el BB devuelve la fecha de pago como DDMMAAAA y el legado la
+    // graba sin conversión en DT-PAGAMENTO (BATCHCON:134, 175), aunque el resto del
+    // modelo usa AAAAMMDD. Se replica tal cual.
+    // TODO(review): decisión de negocio — dtPagamento puede quedar en DDMMAAAA.
     dtPgto: numerico(cnabDtPgto),
     codRet: cnabCodRet,
   };
@@ -251,6 +263,15 @@ export function chaveAuditoria(numPagamento: number): string {
 // Resumen (BATCHCON:227-235).
 
 export const TITULO_RESUMO = "BATCHCON - RESUMO CONCILIACAO";
+/**
+ * Rótulo de la competencia en el resumen de la pantalla. Solo UI: BATCHCON no la
+ * imprime en el resumen (sí en el encabezado, BATCHCON:100).
+ */
+export const ROTULO_COMPETENCIA_TELA = "COMPETENCIA";
+/** Título del resumen cuando la corrida se interrumpió (solo UI). */
+export const TITULO_RESUMO_PARCIAL = "BATCHCON - RESUMO PARCIAL";
+/** Mensaje de corrida interrumpida por un error inesperado (el legado abendaría). */
+export const MSG_CONCILIACAO_INTERROMPIDA = "CONCILIACAO INTERROMPIDA: ERRO INESPERADO";
 export const ROTULOS_RESUMO = {
   lidos: "REGISTROS LIDOS........:",
   conciliados: "CONCILIADOS............:",

@@ -78,8 +78,14 @@ test("menu → tela; cancelar a confirmação não executa", async ({ page }) =>
 
   await enviar(page, arquivoRetorno([{ cpf: CPF_NOSSO, numDoc: PGTO_OK, valor: 15000 }]));
   await expect(page.getByRole("alertdialog")).toContainText("competência 01/1992");
+  // Com a confirmação aberta, os campos ficam bloqueados e o foco vai para "Confirmar".
+  await expect(page.getByRole("button", { name: "Confirmar" })).toBeFocused();
+  await expect(page.locator('input[type="file"][name="arquivo"]')).toBeDisabled();
+  await expect(page.locator("#campo-competencia")).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Conciliar" })).toBeDisabled();
   await page.getByRole("button", { name: "Cancelar" }).click();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Conciliar" })).toBeFocused();
   await expect(page.getByTestId("resumo-processo")).toHaveCount(0);
   expect(await db.pagamento.findUniqueOrThrow({ where: { numPagamento: PGTO_OK } })).toMatchObject({ sitPagamento: "G" });
 });
@@ -94,13 +100,35 @@ test("arquivo sem detalhe → resumo com 0 conciliados e aviso", async ({ page }
   await expect(valorResumo(page, "CONCILIADOS")).toHaveText("0");
 });
 
+test("arquivo de ~2 MB (acima do limite padrão de 1 MB das Server Actions) → resumo", async ({ page }) => {
+  // Preenchido com registros de controle (não tocam a base) + 1 detalhe não encontrado.
+  const controles = Array.from({ length: 8800 }, () => linhaControle("1"));
+  const conteudo = [linhaControle("0"), ...controles, arquivoRetorno([{ cpf: CPF_NOSSO, numDoc: DOC_INEXISTENTE, valor: 100 }]).trimEnd()].join("\r\n") + "\r\n";
+  expect(Buffer.byteLength(conteudo, "latin1")).toBeGreaterThan(2 * 1024 * 1024);
+  await page.goto("/conciliacao");
+  await enviar(page, conteudo, "grande.ret");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Confirmar" }).click();
+  await expect(page.getByTestId("resumo-processo")).toContainText("BATCHCON - RESUMO CONCILIACAO", { timeout: 30_000 });
+  await expect(valorResumo(page, "REGISTROS LIDOS")).toHaveText(String(1 + 8800 + 5));
+  await expect(valorResumo(page, "NAO ENCONTRADOS")).toHaveText("1");
+});
+
+test("arquivo acima de 5 MB → mensagem no campo, sem enviar", async ({ page }) => {
+  await page.goto("/conciliacao");
+  await enviar(page, "0".repeat(5 * 1024 * 1024 + 1), "enorme.ret");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.getByText("O arquivo de retorno excede o limite de 5 MB.").first()).toBeVisible();
+  await expect(page.getByTestId("resumo-processo")).toHaveCount(0);
+});
+
 test("conciliado + divergente + não encontrado → resumo, tabelas e auditoria", async ({ page }) => {
   await page.goto("/conciliacao");
   await enviar(
     page,
     arquivoRetorno([
-      { cpf: CPF_NOSSO, numDoc: PGTO_OK, valor: 15000, codRet: "00", dtPgto: "19920110" },
-      { cpf: CPF_NOSSO, numDoc: PGTO_DIV, valor: 20002 },
+      // Data DDMMAAAA como o BB devolve; nome acentuado em Latin-1 antes das colunas lidas.
+      { cpf: CPF_NOSSO, numDoc: PGTO_OK, valor: 15000, codRet: "00", dtPgto: "10011992", nome: "JOSÉ DA CONCEIÇÃO" },
+      { cpf: CPF_NOSSO, numDoc: PGTO_DIV, valor: 20002, nome: "MARIA JOÃO" },
       { cpf: CPF_NOSSO, numDoc: DOC_INEXISTENTE, valor: 10000 },
     ]),
   );
@@ -127,7 +155,7 @@ test("conciliado + divergente + não encontrado → resumo, tabelas e auditoria"
 
   const pagos = await db.pagamento.findMany({ where: { numPagamento: { in: NUMS } }, orderBy: { numPagamento: "asc" } });
   expect(pagos.map((p) => [p.numPagamento, p.sitPagamento, p.dtPagamento, p.codBanco, p.codRetornoBanco])).toEqual([
-    [PGTO_OK, "P", 19920110, "1", "00"],
+    [PGTO_OK, "P", 10011992, "1", "00"], // LEGACY-QUIRK(D23): gravada sem conversão
     [PGTO_DIV, "G", null, null, null],
   ]);
   const eventos = await db.auditoria.findMany({ where: { tipoEntidade: "PAGAMENTO", idEntidade: { in: CHAVES } }, orderBy: { numAuditoria: "asc" } });

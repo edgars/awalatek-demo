@@ -7,7 +7,10 @@ import {
   atualizacaoPorCodigo,
   chaveAuditoria,
   decidirConciliacao,
+  decodificarArquivo,
   descricaoConciliado,
+  MSG_CONCILIACAO_INTERROMPIDA,
+  ROTULO_COMPETENCIA_TELA,
   diferencaCentavos,
   ehDivergente,
   linhasArquivo,
@@ -58,7 +61,7 @@ describe("parseLinhaCnab (FR-CNB-01)", () => {
       cpfNum: CPF,
       numPgto: 96101,
       vlrRetorno: 10000,
-      dtPgto: 25092026, // TODO(review): gravada sem conversão
+      dtPgto: 25092026, // LEGACY-QUIRK(D23): DDMMAAAA do BB, gravada sem conversão
       codRet: "01",
     });
   });
@@ -93,6 +96,38 @@ describe("linhasArquivo", () => {
     expect(linhasArquivo("A\n\nB\n\n\n")).toEqual(["A", "", "B"]);
     expect(linhasArquivo("")).toEqual([]);
     expect(linhasArquivo("﻿A\r\nB")).toEqual(["A", "B"]);
+  });
+
+  it("aceita CR, LF e CRLF (também misturados)", () => {
+    expect(linhasArquivo("A\rB\rC\r")).toEqual(["A", "B", "C"]);
+    expect(linhasArquivo("A\r\nB\nC\rD")).toEqual(["A", "B", "C", "D"]);
+    expect(linhasArquivo(arquivoRetorno([{ cpf: CPF, numDoc: 1, valor: 1 }]).replace(/\r\n/g, "\r"))).toHaveLength(5);
+  });
+
+  it("linhas vazias ou em branco no meio contam como lidas; só as vazias do fim são descartadas", () => {
+    expect(linhasArquivo("A\r\n\r\n   \r\nB\r\n\r\n")).toEqual(["A", "", "   ", "B"]);
+    expect(linhasArquivo("A\n   ")).toEqual(["A", "   "]);
+  });
+});
+
+describe("decodificarArquivo (Latin-1)", () => {
+  it("um caractere por byte: nome acentuado antes das colunas 44/120/231 não desloca os campos", () => {
+    const linha = linhaDetalhe({ cpf: CPF, numDoc: 96101, valor: 12345, codRet: "02", nome: "JOSÉ CONCEIÇÃO" });
+    const bytes = Buffer.from(linha, "latin1");
+    expect(bytes).toHaveLength(240);
+    const texto = decodificarArquivo(bytes);
+    expect(texto).toHaveLength(240);
+    expect(texto.slice(13, 27)).toBe("JOSÉ CONCEIÇÃO");
+    expect(parseLinhaCnab(texto)).toMatchObject({ cpfNum: CPF, numPgto: 96101, vlrRetorno: 12345, codRet: "02" });
+  });
+
+  it("bytes que formariam UTF-8 válido (C3 A9) continuam sendo 2 caracteres", () => {
+    const linha = Buffer.from(linhaDetalhe({ cpf: CPF, numDoc: 96101, valor: 500, codRet: "01" }), "latin1");
+    linha[20] = 0xc3;
+    linha[21] = 0xa9;
+    expect(parseLinhaCnab(decodificarArquivo(linha))).toMatchObject({ numPgto: 96101, vlrRetorno: 500, codRet: "01" });
+    // Em UTF-8 os dois bytes viram 1 caractere e todas as posições seguintes se deslocam.
+    expect(parseLinhaCnab(new TextDecoder("utf-8").decode(linha))?.codRet).not.toBe("01");
   });
 });
 
@@ -192,6 +227,8 @@ describe("resumo", () => {
 
   it("título e rótulos literais do legado", () => {
     expect(TITULO_RESUMO).toBe("BATCHCON - RESUMO CONCILIACAO");
+    expect(ROTULO_COMPETENCIA_TELA).toBe("COMPETENCIA"); // só UI
+    expect(MSG_CONCILIACAO_INTERROMPIDA).toBe("CONCILIACAO INTERROMPIDA: ERRO INESPERADO");
     expect(Object.values(ROTULOS_RESUMO)).toEqual([
       "REGISTROS LIDOS........:",
       "CONCILIADOS............:",

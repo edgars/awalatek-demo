@@ -188,11 +188,66 @@ describe("conciliarRetorno", () => {
     expect(r.resumo.mensagens).toEqual([`COD RETORNO DESCONHECIDO: CPF=${CPF_MARIA}`]);
   });
 
-  it("erro inesperado propaga e libera o cadeado", async () => {
+  it("erro inesperado no 2.º detalhe → para, o 1.º fica gravado, resumo parcial; só nome/código no log", async () => {
     await pagamento(1, 10000);
-    const quebrado = { $transaction: () => Promise.reject(new Error("falha")) } as unknown as PrismaClient;
-    await expect(conciliarRetorno({ competencia: COMP, conteudo: arquivoRetorno([det(1, 10000)]) }, { db: quebrado })).rejects.toThrow("falha");
-    expect((await conciliar(arquivoRetorno([det(1, 10000)]))).ok).toBe(true);
+    await pagamento(2, 10000);
+    await pagamento(3, 10000);
+    let chamadas = 0;
+    const falhaNoSegundo = new Proxy(prisma, {
+      get(alvo, prop, receptor) {
+        if (prop !== "$transaction") return Reflect.get(alvo, prop, receptor);
+        return (...args: unknown[]) => {
+          chamadas += 1;
+          if (chamadas === 2) return Promise.reject(Object.assign(new Error(`dados ${CPF_MARIA}`), { code: "P9999" }));
+          return (alvo.$transaction as (...a: unknown[]) => unknown)(...args);
+        };
+      },
+    });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await conciliarRetorno(
+        { competencia: COMP, conteudo: arquivoRetorno([det(1, 10000), det(2, 10000), det(3, 10000)]) },
+        { db: falhaNoSegundo, agora: AGORA },
+      );
+      expect(r).toMatchObject({
+        ok: false,
+        mensagem: "CONCILIACAO INTERROMPIDA: ERRO INESPERADO",
+        resumo: { lidos: 4, detalhes: 2, conciliados: 1, auditoria: 1, divergentes: 0, naoEncontrados: 0 },
+      });
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls[0]).toEqual(["[conciliacao] erro inesperado:", "Error", "P9999"]);
+      expect(JSON.stringify(log.mock.calls)).not.toContain(CPF_MARIA);
+    } finally {
+      log.mockRestore();
+    }
+    const ps = await prisma.pagamento.findMany({ orderBy: { numPagamento: "asc" } });
+    expect(ps.map((p) => p.sitPagamento)).toEqual(["P", "G", "G"]);
+    expect(await prisma.auditoria.findMany()).toMatchObject([{ idEntidade: "1", codAcao: "CO" }]);
+    // O cadeado foi liberado.
+    expect((await conciliar(arquivoRetorno([det(2, 10000)]))).ok).toBe(true);
+  });
+
+  it("o mesmo pagamento duas vezes no arquivo (00 e depois 01) → situação final D, dois CO", async () => {
+    await pagamento(1, 10000);
+    const r = await conciliar(arquivoRetorno([det(1, 10000, { codRet: "00" }), det(1, 10000, { codRet: "01" })]));
+    expect(r).toMatchObject({ ok: true, resumo: { conciliados: 2, auditoria: 2 } });
+    // O 00 gravou data e banco; o 01 só troca situação e código (não limpa os demais).
+    expect(await prisma.pagamento.findUniqueOrThrow({ where: { numPagamento: 1 } })).toMatchObject({
+      sitPagamento: "D",
+      codRetornoBanco: "01",
+      dtPagamento: 25092026,
+      codBanco: "1",
+    });
+    expect((await prisma.auditoria.findMany({ orderBy: { numAuditoria: "asc" } })).map((a) => [a.codAcao, a.desAcao])).toEqual([
+      ["CO", "CONCILIADO COD RET=00"],
+      ["CO", "CONCILIADO COD RET=01"],
+    ]);
+  });
+
+  it("arquivo só com CR e linhas em branco no meio → todas lidas", async () => {
+    await pagamento(1, 10000);
+    const conteudo = [linhaControle("0"), "", "   ", linhaDetalhe(det(1, 10000)), linhaControle("9")].join("\r") + "\r";
+    expect(await conciliar(conteudo)).toMatchObject({ ok: true, resumo: { lidos: 5, detalhes: 1, conciliados: 1 } });
   });
 });
 
@@ -234,5 +289,14 @@ describe("conciliarRetornoAction", () => {
     expect(r.resumo.listaNaoEncontrados).toEqual([{ cpf: "***.***.678-90", documento: "0000000003" }]);
     expect(r.resumo.avisos).toEqual(["COD RETORNO DESCONHECIDO: 77 CPF=***.***.678-90"]);
     expect(JSON.stringify(r)).not.toContain(CPF_MARIA);
+  });
+
+  it("decodifica o upload como Latin-1: nome acentuado não desloca as posições", async () => {
+    await pagamento(1, 10000);
+    const conteudo = arquivoRetorno([det(1, 10000, { nome: "JOÃO DA CONCEIÇÃO", codRet: "02" })]);
+    const bytes = Buffer.from(conteudo, "latin1");
+    const r = await conciliarRetornoAction(null, form("199201", new File([bytes], "retorno.ret")));
+    expect(r).toMatchObject({ ok: true, resumo: { conciliados: 1, naoEncontrados: 0, avisos: [] } });
+    expect(await prisma.pagamento.findUniqueOrThrow({ where: { numPagamento: 1 } })).toMatchObject({ sitPagamento: "E", codRetornoBanco: "02" });
   });
 });

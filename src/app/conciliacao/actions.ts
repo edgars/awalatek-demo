@@ -2,10 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { mensagemCodigoDesconhecido, type ResumoConciliacao } from "@/domain/cnab240";
+import { decodificarArquivo, mensagemCodigoDesconhecido, type ResumoConciliacao } from "@/domain/cnab240";
 import { mascaraCpfLista } from "@/domain/cpf";
 import { conciliarRetorno } from "@/server/conciliacao";
 import type { CampoConciliacao, EstadoConciliacao, ResumoConciliacaoTela } from "./estado";
+import { LIMITE_ARQUIVO_BYTES, MSG_ARQUIVO_GRANDE } from "./limite";
 
 // Server Action de /conciliacao (BATCHCON). Valida la forma de la entrada con zod
 // (competencia + upload, que reemplaza la ruta #ARQ-RETORNO del legado); las reglas
@@ -13,8 +14,6 @@ import type { CampoConciliacao, EstadoConciliacao, ResumoConciliacaoTela } from 
 
 const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 const RE_COMPETENCIA = /^\d{4}(0[1-9]|1[0-2])$/;
-/** Límite del archivo de retorno. */
-const LIMITE_ARQUIVO = 5 * 1024 * 1024;
 
 const entradaConciliacaoSchema = z.object({
   competencia: z.string().regex(RE_COMPETENCIA, "Informe a competência (mês/ano).").transform(Number),
@@ -22,7 +21,7 @@ const entradaConciliacaoSchema = z.object({
     .instanceof(File, { message: "Selecione o arquivo de retorno (.ret ou .txt)." })
     .refine((f) => f.size > 0 && f.name !== "", "Selecione o arquivo de retorno (.ret ou .txt).")
     .refine((f) => /\.(ret|txt)$/i.test(f.name), "O arquivo de retorno deve ter extensão .ret ou .txt.")
-    .refine((f) => f.size <= LIMITE_ARQUIVO, "O arquivo de retorno excede o limite de 5 MB."),
+    .refine((f) => f.size <= LIMITE_ARQUIVO_BYTES, MSG_ARQUIVO_GRANDE),
 });
 
 function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
@@ -62,14 +61,16 @@ export async function conciliarRetornoAction(_anterior: EstadoConciliacao, dados
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   try {
-    const conteudo = await parsed.data.arquivo.text();
+    // Latin-1: un carácter por byte, las posiciones del CNAB no se desplazan.
+    const conteudo = decodificarArquivo(await parsed.data.arquivo.arrayBuffer());
     const r = await conciliarRetorno({ competencia: parsed.data.competencia, conteudo });
-    if (!r.ok) return r;
-    if (r.resumo.auditoria > 0) {
-      // La consulta y el detalle de pagos muestran el status y el código de retorno.
+    // Cada CO/DV es un registro grabado (update + auditoría): la consulta y el
+    // detalle de pagos muestran el status y el código de retorno.
+    if (r.resumo && r.resumo.auditoria > 0) {
       revalidatePath("/pagamentos");
       revalidatePath("/pagamentos/[num]", "page");
     }
+    if (!r.ok) return r.resumo ? { ok: false, mensagem: r.mensagem, resumo: paraTela(r.resumo) } : { ok: false, mensagem: r.mensagem };
     return { ok: true, resumo: paraTela(r.resumo) };
   } catch (e) {
     return falhaInesperada(e);

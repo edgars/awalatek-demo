@@ -14,10 +14,13 @@ export interface ResumoConciliacaoTela {
   avisos: string[];
 }
 
-/** `campo`: controle rejeitado pela validação de forma (zod). */
+/**
+ * `campo`: controle rejeitado pela validação de forma (zod).
+ * `ok: false` com `resumo`: conciliação interrompida por erro inesperado (resumo parcial).
+ */
 export type EstadoConciliacao =
   | { ok: true; resumo: ResumoConciliacaoTela }
-  | { ok: false; mensagem: string; campo?: CampoConciliacao }
+  | { ok: false; mensagem: string; campo?: CampoConciliacao; resumo?: ResumoConciliacaoTela }
   | null;
 
 export type CampoConciliacao = "competencia" | "arquivo";

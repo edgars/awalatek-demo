@@ -56,6 +56,16 @@ async function gravar(tx: Prisma.TransactionClient, evento: EventoAuditoria, usu
   });
 }
 
+/** `data` AAAAMMDD plausible (8 dígitos, mes 01–12, día 01–31) y `hora` HHMMSS (≤ 235959, mm/ss ≤ 59). */
+function momentoValido({ data, hora }: { data: number; hora: number }): boolean {
+  if (!Number.isInteger(data) || data < 10000101 || data > 99991231) return false;
+  const mes = Math.floor(data / 100) % 100;
+  const dia = data % 100;
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return false;
+  if (!Number.isInteger(hora) || hora < 0 || hora > 235959) return false;
+  return Math.floor(hora / 100) % 100 <= 59 && hora % 100 <= 59;
+}
+
 function ehClienteCompleto(c: ClienteAuditoria): c is PrismaClient {
   return typeof (c as PrismaClient).$transaction === "function";
 }
@@ -68,8 +78,7 @@ export async function registrarEvento(evento: EventoAuditoria, cliente: ClienteA
   if (!ACOES_AUDITORIA.includes(evento.acao)) {
     throw new Error(`ação de auditoria inválida: ${String(evento.acao)}`);
   }
-  const m = evento.momento;
-  if (m && !(Number.isSafeInteger(m.data) && Number.isSafeInteger(m.hora) && m.data >= 0 && m.hora >= 0)) {
+  if (evento.momento && !momentoValido(evento.momento)) {
     throw new Error("momento de auditoria inválido");
   }
   const usuario = evento.usuario?.trim() || process.env.SIFAP_USER?.trim() || "";
