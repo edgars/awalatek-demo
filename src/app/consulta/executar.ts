@@ -1,4 +1,5 @@
 import { entradaConsultaSchema } from "@/domain/beneficiario/consulta";
+import { lerQuirks } from "@/domain/quirks";
 import { consultarBeneficiario, type ResultadoConsulta } from "@/server/consulta";
 
 // Ejecución común de la consulta (Server Action y carga inicial por `?cpf=`).
@@ -17,8 +18,17 @@ function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
 export async function executarConsulta(tipo: string, valor: string): Promise<ResultadoConsulta> {
   const parsed = entradaConsultaSchema.safeParse({ tipo, valor });
   if (!parsed.success) return { ok: false, mensagem: parsed.error.issues[0]?.message ?? ERRO_INESPERADO };
+  // LEGACY-QUIRK(D7/D21): la configuración se lee una vez por solicitud y se inyecta en el dominio.
+  let quirks;
   try {
-    return await consultarBeneficiario(parsed.data);
+    quirks = lerQuirks();
+  } catch {
+    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
+    console.error("[consulta] configuração LEGACY-QUIRK inválida (SIFAP_QUIRKS_CORRIGIDOS)");
+    return { ok: false, mensagem: ERRO_INESPERADO };
+  }
+  try {
+    return await consultarBeneficiario(parsed.data, undefined, quirks);
   } catch (e) {
     return falhaInesperada(e);
   }

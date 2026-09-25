@@ -3,6 +3,8 @@
 // VALBENEF (190–236) y VALDOCS (114–140) repiten el mismo cálculo que CADBENEF (237–266):
 // se citan todas las fuentes.
 
+import { corrige, QUIRKS_PADRAO, type Quirks } from "./quirks";
+
 // RK-bc7d67f3dad4 (CADBENEF:113) — mensaje literal cuando el CPF no es válido.
 export const MSG_CPF_INVALIDO = "CPF INVALIDO - DIGITO VERIFICADOR INCORRETO";
 
@@ -128,13 +130,16 @@ export function mascaraCpfLista(cpf: string): string {
 /**
  * Máscara de CPF de la consulta (CONSBENF, FR-CON-04). Recibe el CPF N11; se
  * normaliza con ceros a la izquierda, como `#CPF-STR` (A11) tras el MOVE del N11.
+ * `quirks` (default = legado) decide si se corrige D7.
  */
-export function mascaraCpfConsulta(cpf: string): string {
+export function mascaraCpfConsulta(cpf: string, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): string {
   const str = normalizaCpfNumerico(cpf).slice(-11);
   // RK-cfd080c8d910 (CONSBENF:177) — IF BENEFICIARIO-V.CPF < 10000000000.
   // LEGACY-QUIRK(D7): con cero a la izquierda la máscara muestra los 3 PRIMEROS dígitos
   // (`XXX.***.***-**`) en lugar de los últimos. "NAO CORRIGIR SEM APROVACAO DA AUDITORIA".
-  if (Number(str) < 10000000000) {
+  // CORRECAO(D7): con D7 corregido la rama no se aplica: siempre `***.***.XXX-XX`
+  // (dígitos 7–9 y 10–11 del CPF de 11 con ceros). Activarlo requiere aprobación de auditoría.
+  if (!corrige(quirks, "D7") && Number(str) < 10000000000) {
     return `${str.slice(0, 3)}.***.***-**`;
   }
   // Si no: `***.***.XXX-XX` con SUBSTR(#CPF-STR,7,3) y SUBSTR(#CPF-STR,10,2).

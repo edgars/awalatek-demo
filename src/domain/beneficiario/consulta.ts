@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { mascaraCpfConsulta, normalizaCpfNumerico } from "../cpf";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "../quirks";
 
 // Reglas del programa legado CONSBENF (FR-CON-01..04): consulta de beneficiario
 // por CPF o NIS con ficha cadastral e historial de pagos. Solo lectura: CONSBENF
@@ -84,14 +85,26 @@ export type PagamentoConsulta = {
 
 export type LinhaHistorico = Pick<PagamentoConsulta, "anoMesRef" | "vlrBruto" | "vlrLiquido" | "sitPagamento" | "tipoPgto">;
 
-export type Historico = { linhas: LinhaHistorico[]; mensagem: string | null };
+/**
+ * `maisRecentesPrimeiro` solo aparece con D21 corregido: las líneas son los últimos
+ * 12 pagos (mayor `numPagamento`) del más reciente al más antiguo.
+ */
+export type Historico = { linhas: LinhaHistorico[]; mensagem: string | null; maisRecentesPrimeiro?: true };
 
 /**
  * Historial de pagos del CPF (FR-CON-03). Recorre en orden de inserción
  * (`numPagamento` ascendente como aproximación del ISN de Adabas).
+ * `quirks` (default = legado) decide si se corrige D21.
  */
-export function selecionarHistorico(numCpf: string, pagamentos: readonly PagamentoConsulta[]): Historico {
-  const ordenados = [...pagamentos].sort((a, b) => a.numPagamento - b.numPagamento);
+export function selecionarHistorico(
+  numCpf: string,
+  pagamentos: readonly PagamentoConsulta[],
+  quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO,
+): Historico {
+  const recentes = corrige(quirks, "D21");
+  // LEGACY-QUIRK(D21): orden de inserción (numPagamento ascendente).
+  // CORRECAO(D21): numPagamento DESCENDENTE → los últimos 12, del más reciente al más antiguo.
+  const ordenados = [...pagamentos].sort((a, b) => (recentes ? b.numPagamento - a.numPagamento : a.numPagamento - b.numPagamento));
   const linhas: LinhaHistorico[] = [];
   for (const p of ordenados) {
     // RK-e17f09d66201 (CONSBENF:152) — READ BY CPF-BENEF + IF CPF-BENEF NE BENEFICIARIO-V.CPF → ESCAPE BOTTOM:
@@ -101,11 +114,13 @@ export function selecionarHistorico(numCpf: string, pagamentos: readonly Pagamen
     // RK-0550647253b2 (CONSBENF:156) — ADD 1 TO #QTD-HIST; IF #QTD-HIST > 12 → ESCAPE BOTTOM.
     // LEGACY-QUIRK(D21): se muestran los PRIMEROS 12 pagos leídos (orden de inserción),
     // no los últimos, aunque el título diga "ÚLTIMOS 12".
+    // CORRECAO(D21): con el orden descendente, el mismo corte deja los ÚLTIMOS 12.
     if (linhas.length + 1 > MAX_HISTORICO) break;
     linhas.push({ anoMesRef: p.anoMesRef, vlrBruto: p.vlrBruto, vlrLiquido: p.vlrLiquido, sitPagamento: p.sitPagamento, tipoPgto: p.tipoPgto });
   }
   // RK-95a55083feb2 (CONSBENF:166) — IF #QTD-HIST = 0 → 'NENHUM PAGAMENTO ENCONTRADO'.
-  return { linhas, mensagem: linhas.length === 0 ? MSG_NENHUM_PAGAMENTO : null };
+  const mensagem = linhas.length === 0 ? MSG_NENHUM_PAGAMENTO : null;
+  return recentes ? { linhas, mensagem, maisRecentesPrimeiro: true } : { linhas, mensagem };
 }
 
 export type BeneficiarioConsulta = {
@@ -129,9 +144,10 @@ export type BeneficiarioConsulta = {
 /** Ficha FR-CON-01. El CPF sale solo enmascarado (NFR-04). */
 export type FichaConsulta = Omit<BeneficiarioConsulta, "numCpf"> & { cpfMascarado: string; statusDescricao: string };
 
-export function montarFicha(b: BeneficiarioConsulta): FichaConsulta {
+export function montarFicha(b: BeneficiarioConsulta, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): FichaConsulta {
   return {
-    cpfMascarado: mascaraCpfConsulta(b.numCpf),
+    // LEGACY-QUIRK(D7) / CORRECAO(D7): la máscara depende de la configuración.
+    cpfMascarado: mascaraCpfConsulta(b.numCpf, quirks),
     nomeCompleto: b.nomeCompleto,
     dtNascimento: b.dtNascimento,
     sexo: b.sexo,

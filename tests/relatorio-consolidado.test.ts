@@ -2,12 +2,14 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Beneficiario, PrismaClient } from "@/generated/prisma/client";
 import { completaDv } from "@/domain/cpf";
 import { createPrismaClient } from "@/server/db";
 import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import * as modulo from "@/server/relatorioConsolidado";
+import RelatorioConsolidadoPage from "@/app/relatorios/consolidado/page";
+import { ERRO_INESPERADO } from "@/app/relatorios/consolidado/falha";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 // Informe consolidado mensual (story 7.2) contra una base SQLite temporal.
@@ -57,7 +59,14 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  // Configuração explícita: os testes existentes rodam em modo legado mesmo com
+  // SIFAP_QUIRKS_CORRIGIDOS=ALL no ambiente; os de correção a sobrescrevem.
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
   await prisma.pagamento.deleteMany();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("relatorioConsolidado", () => {
@@ -153,5 +162,70 @@ describe("relatorioConsolidado — lotes de CPFs", () => {
 
   it("lote inválido → erro", async () => {
     await expect(relatorioConsolidado(COMP, prisma, { loteCpfs: 0 })).rejects.toThrow();
+  });
+});
+
+describe("relatorioConsolidado — correções configuráveis (SIFAP_QUIRKS_CORRIGIDOS)", () => {
+  async function criarPorRegiao() {
+    let n = 1;
+    for (const r of REGIOES) await prisma.pagamento.create({ data: pagamento(n++, cpfRegiao(r), { vlrBruto: 10000 + r }) });
+    await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
+    try {
+      await prisma.pagamento.create({ data: pagamento(n++, completaDv("772999999")) });
+    } finally {
+      await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON");
+    }
+  }
+
+  it("CORRECAO(D10): 22 → CENTRO-OESTE; 99 e inexistente → NAO CLASSIFICADA (6 linhas)", async () => {
+    await criarPorRegiao();
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D10");
+    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA });
+    expect(r.regioes.map((x) => [x.nome, x.qtd])).toEqual([
+      ["NORTE", 1],
+      ["NORDESTE", 1],
+      ["SUDESTE", 1],
+      ["SUL", 1],
+      ["CENTRO-OESTE", 1],
+      ["NAO CLASSIFICADA", 2],
+    ]);
+    expect(r.regioes[5]).toEqual({ nome: "NAO CLASSIFICADA", qtd: 2, bruto: 10099 + 10000, desconto: 1000, liquido: 19000 });
+    expect(r.total.qtd).toBe(7);
+  });
+
+  it("CORRECAO(D11): bruto de região/geral = soma do bruto cru (fecha com o total por status)", async () => {
+    await criarPorRegiao();
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D11");
+    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA });
+    const cru = REGIOES.reduce((s, x) => s + 10000 + x, 0) + 10000;
+    expect(r.total.bruto).toBe(cru);
+    expect(r.status.reduce((s, x) => s + x.bruto, 0)).toBe(cru);
+    // Só D11: continuam 5 linhas, com 22/99/inexistente em CENTRO-OESTE.
+    expect(r.regioes).toHaveLength(5);
+    expect(r.regioes[4]?.qtd).toBe(3);
+  });
+
+  it("configuração explícita prevalece sobre o ambiente", async () => {
+    await criarPorRegiao();
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL");
+    const r = await relatorioConsolidado(201101, prisma, { agora: AGORA, quirks: { corrigidos: new Set() } });
+    expect(r.regioes).toHaveLength(5);
+  });
+
+  it("página: configuração inválida → mensagem genérica e log de configuração sem dados", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D99");
+    const erroLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const el = await RelatorioConsolidadoPage({ searchParams: Promise.resolve({ competencia: "201101" }) });
+      expect(JSON.stringify(el)).toContain(ERRO_INESPERADO);
+      expect(erroLog).toHaveBeenCalledWith(expect.stringContaining("configuração LEGACY-QUIRK inválida"));
+    } finally {
+      erroLog.mockRestore();
+    }
+  });
+
+  it("configuração inválida → erro de configuração", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D99");
+    await expect(relatorioConsolidado(201101, prisma, { agora: AGORA })).rejects.toThrow(/configuração LEGACY-QUIRK inválida/);
   });
 });

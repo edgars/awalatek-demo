@@ -2,13 +2,14 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { consultarBeneficiarioAction } from "@/app/consulta/actions";
 import { ERRO_INESPERADO } from "@/app/consulta/executar";
 import ConsultaPage from "@/app/consulta/page";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/server/db";
 import { consultarBeneficiario } from "@/server/consulta";
+import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 // Story 2.6 — consulta CONSBENF contra uma base SQLite temporária.
@@ -58,6 +59,15 @@ afterAll(async () => {
   await globalPrisma.prisma?.$disconnect();
   delete globalPrisma.prisma;
   rmSync(dir, { recursive: true, force: true });
+});
+
+// Configuração explícita: os testes existentes rodam em modo legado mesmo com
+// SIFAP_QUIRKS_CORRIGIDOS=ALL no ambiente; os de correção a sobrescrevem.
+beforeEach(() => {
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 function form(campos: Record<string, string>): FormData {
@@ -211,5 +221,50 @@ describe("página /consulta?cpf=", () => {
     const p = await inicialDaPagina(`${CPF_MARIA}7`);
     expect(p.inicial).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ENCONTRADO" });
     expect(p.cpfInicial).toBe("");
+  });
+});
+
+describe("correções configuráveis (SIFAP_QUIRKS_CORRIGIDOS)", () => {
+  it("CORRECAO(D7): a Server Action lê a configuração → máscara ***.***.XXX-XX também com zero à esquerda", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D7");
+    const r = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }));
+    expect(r?.ok && r.ficha.cpfMascarado).toBe(`***.***.${CPF_MARIA.slice(6, 9)}-${CPF_MARIA.slice(9)}`);
+    expect(JSON.stringify(r)).not.toContain(CPF_MARIA);
+    // Só D7: o histórico continua legado.
+    const jose = await consultarBeneficiario({ tipo: "C", valor: CPF_JOSE }, prisma);
+    expect(jose.ok && jose.historico.linhas.map((l) => l.vlrBruto)).toEqual(Array.from({ length: 12 }, (_, i) => 60001 + i));
+  });
+
+  it("CORRECAO(D21): 14 pagamentos → os 12 de maior numPagamento, do mais recente ao mais antigo", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D21");
+    const r = await consultarBeneficiario({ tipo: "C", valor: CPF_JOSE }, prisma);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.historico.maisRecentesPrimeiro).toBe(true);
+    expect(r.historico.linhas.map((l) => l.vlrBruto)).toEqual(Array.from({ length: 12 }, (_, i) => 60014 - i));
+    const ana = await consultarBeneficiario({ tipo: "C", valor: CPF_ANA }, prisma);
+    expect(ana.ok && ana.historico.linhas.map((l) => l.vlrBruto)).toEqual([60015]);
+    // Só D21: a máscara continua legada.
+    const maria = await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }));
+    expect(maria?.ok && maria.ficha.cpfMascarado).toBe("012.***.***-**");
+    expect(maria?.ok && maria.historico).toEqual({ linhas: [], mensagem: "NENHUM PAGAMENTO ENCONTRADO", maisRecentesPrimeiro: true });
+  });
+
+  it("configuração explícita no servidor prevalece sobre o ambiente", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL");
+    const r = await consultarBeneficiario({ tipo: "C", valor: CPF_MARIA }, prisma, QUIRKS_PADRAO);
+    expect(r.ok && r.ficha.cpfMascarado).toBe("012.***.***-**");
+  });
+
+  it("configuração inválida → mensagem genérica e log sem PII", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D99");
+    const erroLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await consultarBeneficiarioAction(null, form({ tipo: "C", valor: CPF_MARIA }))).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
+      expect(erroLog).toHaveBeenCalledWith(expect.stringContaining("configuração LEGACY-QUIRK inválida"));
+      expect(JSON.stringify(erroLog.mock.calls)).not.toContain(CPF_MARIA);
+    } finally {
+      erroLog.mockRestore();
+    }
   });
 });

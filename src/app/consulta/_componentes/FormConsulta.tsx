@@ -99,8 +99,13 @@ function TabelaHistorico({ h }: { h: Historico }) {
   return (
     <Card>
       <CardHeader>
-        {/* LEGACY-QUIRK(D21): o título legado diz "últimos 12", mas são os 12 primeiros por ordem de inserção. */}
-        <CardTitle>Histórico de pagamentos (últimos 12)</CardTitle>
+        {h.maisRecentesPrimeiro ? (
+          // CORRECAO(D21): são de fato os 12 últimos, do mais recente ao mais antigo.
+          <CardTitle>Histórico de pagamentos (últimos 12, do mais recente ao mais antigo)</CardTitle>
+        ) : (
+          // LEGACY-QUIRK(D21): o título legado diz "últimos 12", mas são os 12 primeiros por ordem de inserção.
+          <CardTitle>Histórico de pagamentos (últimos 12)</CardTitle>
+        )}
       </CardHeader>
       <CardContent>
         {h.mensagem ? (

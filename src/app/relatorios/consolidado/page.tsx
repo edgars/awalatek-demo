@@ -3,18 +3,26 @@ import { Competencia, ResultadoLegado } from "@/components/campos";
 import { Button } from "@/components/ui/button";
 import { formatarCompetencia } from "@/domain/legacyDate";
 import { CABECALHO_CONSOLIDADO, lerFiltroConsolidado, MENSAGEM_COMPETENCIA_INVALIDA } from "@/domain/relatorios/consolidado";
+import { lerQuirks } from "@/domain/quirks";
 import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
 import { TabelasConsolidado } from "./_componentes/TabelasConsolidado";
-import { falhaInesperada } from "./falha";
+import { falhaConfiguracao, falhaInesperada } from "./falha";
 
 export const metadata: Metadata = { title: "Relatório consolidado" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
 async function carregar(competencia: number) {
+  // LEGACY-QUIRK(D10/D11): la configuración se lee una vez por solicitud y se inyecta en el dominio.
+  let quirks;
   try {
-    return { ok: true as const, relatorio: await relatorioConsolidado(competencia) };
+    quirks = lerQuirks();
+  } catch {
+    return falhaConfiguracao();
+  }
+  try {
+    return { ok: true as const, relatorio: await relatorioConsolidado(competencia, undefined, { quirks }) };
   } catch (e) {
     return falhaInesperada("consolidado", e);
   }

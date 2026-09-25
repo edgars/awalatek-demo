@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { hoje } from "@/domain/legacyDate";
 import { consolidar, type Consolidado } from "@/domain/relatorios/consolidado";
+import { lerQuirks, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 
 // Informe consolidado mensual (BATCHREL, story 7.2). Solo lectura: lee los pagos
@@ -14,7 +15,12 @@ export type RelatorioConsolidado = Consolidado & { dataEmissao: number };
 export async function relatorioConsolidado(
   competencia: number,
   db: PrismaClient = prisma,
-  { agora = new Date(), loteCpfs = LOTE_CPFS }: { agora?: Date; loteCpfs?: number } = {},
+  {
+    agora = new Date(),
+    loteCpfs = LOTE_CPFS,
+    // Configuración LEGACY-QUIRK (D10, D11): la pasa la página; si falta, se lee aquí.
+    quirks = lerQuirks(),
+  }: { agora?: Date; loteCpfs?: number; quirks?: Pick<Quirks, "corrigidos"> } = {},
 ): Promise<RelatorioConsolidado> {
   if (!Number.isSafeInteger(loteCpfs) || loteCpfs < 1) throw new Error("tamanho de lote inválido");
   // READ PAGAMENTO-V BY COMPETENCIA = #COMPETENCIA (el filtro exacto vive en el dominio).
@@ -40,5 +46,5 @@ export async function relatorioConsolidado(
     for (const b of beneficiarios) regiaoPorCpf.set(b.numCpf, b.codRegiao);
   }
   const linhas = pagamentos.map(({ numCpf, ...p }) => ({ ...p, codRegiao: regiaoPorCpf.get(numCpf) ?? null }));
-  return { ...consolidar(competencia, linhas), dataEmissao: hoje(agora).data };
+  return { ...consolidar(competencia, linhas, quirks), dataEmissao: hoje(agora).data };
 }

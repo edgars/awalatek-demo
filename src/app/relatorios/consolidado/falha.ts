@@ -9,3 +9,9 @@ export function falhaInesperada(contexto: string, e: unknown): { ok: false; mens
   console.error(`[relatorio-consolidado] ${contexto}:`, nome, typeof codigo === "string" ? codigo : "");
   return { ok: false, mensagem: ERRO_INESPERADO };
 }
+
+/** Configuración LEGACY-QUIRK inválida: se registra el motivo (sin datos personales) y se muestra el mensaje genérico. */
+export function falhaConfiguracao(): { ok: false; mensagem: string } {
+  console.error("[relatorio-consolidado] configuração LEGACY-QUIRK inválida (SIFAP_QUIRKS_CORRIGIDOS)");
+  return { ok: false, mensagem: ERRO_INESPERADO };
+}
