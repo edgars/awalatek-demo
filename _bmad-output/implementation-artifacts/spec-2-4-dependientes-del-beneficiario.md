@@ -2,14 +2,29 @@
 title: 'Story 2.4 — Dependientes del beneficiario'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '5a787f9'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: >-
+      Bloqueo por límite D6 en la página de dependientes sin test de UI al cargar.
+    evidence: |-
+      El servidor impone el límite en cada envío (test); falta e2e que abra la página con 6 dependientes y verifique el formulario deshabilitado.
+    location: >-
+      src/app/beneficiarios/[cpf]/dependentes/page.tsx
+    severity: medium
+  - summary: >-
+      E2E comparten beneficiarios del seed y corren en paralelo (fullyParallel): el e2e de dependientes lleva a MARIA a 6 dependientes, lo que cambia el factor familiar que asume el e2e de cálculo (4.1).
+    evidence: |-
+      Suite completa en verde tras el merge, pero el resultado depende del orden de ejecución entre archivos. Usar titulares creados por cada spec o serializar los specs que mutan el seed.
+    location: >-
+      tests/e2e/dependentes.spec.ts
+    severity: medium
 ---
 
 <intent-contract>
@@ -79,6 +94,41 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 31 findings — high 0, medium 3, low 14, false 14, maybe-false 0
+- findings:
+  - `[low]` `[reject]` (blind) Server Action sin autorización — auth/SSO fuera de alcance (igual que 2.1)
+  - `[low]` `[reject]` (blind) CPF completo en la ruta — ya diferido en 2.1 (decisión LGPD de producto)
+  - `[low]` `[patch]` (blind) todo P2002 reportado como CPF duplicado — solo si `meta.target` incluye `cpfDependente`
+  - `[false]` `[reject]` (blind) filas huérfanas sobre n bloquean CPF — decisión de arquitectura "único por titular"; el legado lo permitía, documentado en el spec
+  - `[medium]` `[patch]` (blind) guard de concurrencia sin test — test con contador obsoleto
+  - `[low]` `[patch]` (blind) "Incluir outro" ofrecido al llegar al límite — condicionado al estado actualizado
+  - `[low]` `[patch]` (blind) prompt literal S/N no mostrado y `continuarInclusao` sin uso — prompt visible y botones vía `continuarInclusao`
+  - `[false]` `[reject]` (blind) e2e no re-ejecutable — `scripts/e2e-db.mjs` recrea `e2e.db` en cada corrida
+  - `[low]` `[reject]` (blind) limpieza frágil del test de integración — improbable
+  - `[low]` `[reject]` (blind) validación en dos rondas (zod vs legado) — errores de formato son validación adicional del borde
+  - `[low]` `[reject]` (blind) `dataBr` duplicado / fechas inválidas — solo se graban fechas desde el selector
+  - `[low]` `[reject]` (blind) guard de CPF en log solo parcialmente probado — `falhaInesperada` solo registra `name`/`code`
+  - `[medium]` `[patch]` (edge) upsert hereda `sitDependente`/`indDeficiencia` de la fila sobrescrita — todas las columnas se escriben
+  - `[low]` `[reject]` (edge) `numDependentes` negativo — solo lo escriben 2.1 (zod ≥ 0) y esta historia
+  - `[low]` `[reject]` (edge) nombre con ß cerca de 60 — improbable
+  - `[low]` `[patch]` (edge) P2002 de otro índice como CPF duplicado — mismo patch
+  - `[low]` `[reject]` (edge) timeout de transacción SQLite (P2028/P2034) — diferido de concurrencia entre procesos ya registrado
+  - `[low]` `[patch]` (edge) página obsoleta tras fallo — `revalidatePath` también en fallo
+  - `[low]` `[reject]` (edge) fecha de nacimiento parcial en la tabla — ver arriba
+  - `[false]` `[reject]` (edge) claim duplicado solo sobre 1..n — dominio replica 1..n; el unique de base es decisión de arquitectura
+  - `[false]` `[reject]` (edge) claim upsert mezcla datos viejos — resuelto por el patch de columnas
+  - `[false]` `[reject]` (intent) sin evidencia de `getRule` — `rk-verification.md` 289/289
+  - `[false]` `[reject]` (intent) checkboxes de la historia sin marcar — gestión del workflow (sprint-status)
+  - `[false]` `[reject]` (intent) límite reverificado en el loop de UI sin e2e — servidor reverifica en cada envío (test)
+  - `[low]` `[patch]` (intent) RK-db6fc93c9e4c probada en función no usada — mismo patch del prompt S/N
+  - `[false]` `[reject]` (intent) unique de base rechaza copias sobre n — ver arriba
+  - `[false]` `[reject]` (intent) CPF "0" tratado como vacío — FR-DEP-04 del PRD (CPF ≠ 0)
+  - `[false]` `[reject]` (intent) e2e fuera de `npm test` — el pipeline de verificación corre Playwright aparte
+  - `[false]` `[reject]` (intent) transacción sin test de concurrencia — mismo patch
+  - `[medium]` `[patch]` (verif) guard de concurrencia sin test — mismo patch
+  - `[medium]` `[defer]` (verif) bloqueo por límite D6 en la página sin test — el servidor lo impone; requiere seed e2e con 6 dependientes
+
 ## Verification
 
 **Commands:**
@@ -86,3 +136,11 @@ deferred: []
 - `npm test` -- expected: todos en verde
 - `npm run build` -- expected: OK
 - `E2E_PORT=3221 npx playwright test` -- expected: todos en verde
+
+## Auto Run Result
+
+- **Resumen:** dependientes (CADDEPEND) en `/beneficiarios/[cpf]/dependentes`: titular válido (no C/D), límite D6 (> 5), validaciones con mensajes literales, CPF duplicado sobre 1..n, inclusión transaccional con sobrescritura de la ocurrencia n+1 (semántica PE) y guard de concurrencia, prompt legado "INCLUIR OUTRO DEPENDENTE? (S/N)".
+- **Implementado en paralelo** (worktree, ola A); integrado por merge.
+- **Review:** 31 hallazgos — 7 patches (2 `medium`: herencia de columnas en la sobrescritura, test del guard de concurrencia; 5 `low`), 2 diferidos, 22 rechazados.
+- **Follow-up review recomendado:** `true` — patches: high 0, medium 2, low 5. Riesgo: e2e compartiendo seed en paralelo.
+- **Verificación (tras merge):** lint 0; `npm test` 400/400; build OK; e2e 23/23.
