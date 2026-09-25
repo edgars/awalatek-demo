@@ -15,6 +15,7 @@ import {
 import { calcular, competenciaDaData, type QuirksMotor, type ResultadoCalculo } from "@/domain/calculo/motor";
 import { hoje } from "@/domain/legacyDate";
 import { corrige, QUIRKS_PADRAO } from "@/domain/quirks";
+import { registrarFalha } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 
 // Caso de uso del lote mensual (BATCHPGT, FR-LOT-01..04). Orquesta dominio +
@@ -81,13 +82,6 @@ export function ehColisaoNumPagamento(e: unknown): boolean {
   return campos.some((c) => typeof c === "string" && (c === "numPagamento" || c.includes("numPagamento")));
 }
 
-function registrarFalha(e: unknown): void {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[lote] erro inesperado:", nome, typeof codigo === "string" ? codigo : "");
-}
-
 /** Tamaño de cada lectura de beneficiarios del lote (volumen: no se cargan todos en memoria). */
 export const LOTE_LEITURA_BENEFICIARIOS = 500;
 
@@ -104,11 +98,11 @@ const CAMPOS_BENEFICIARIO_LOTE = {
 /**
  * READ BENEFICIARIO-V BY CPF en lecturas de `tamanho` filas, por cursor de clave
  * (`numCpf > último leído`, único): mismo orden ascendente que la lectura completa.
- * Como el READ del legado, cada lectura ve la base del momento: un beneficiario incluido
- * durante la corrida con CPF mayor que el último leído también se procesa.
+ * Comportamiento nuevo respecto de la lectura única previa (igual al READ del legado):
+ * cada lectura ve la base del momento, así que un beneficiario incluido durante la
+ * corrida con CPF mayor que el último leído también se procesa.
  */
 async function* lerBeneficiariosPorCpf(db: PrismaClient, tamanho: number) {
-  if (!Number.isSafeInteger(tamanho) || tamanho < 1) throw new Error("tamanho de leitura inválido");
   let ultimo: string | undefined;
   for (;;) {
     const lote = await db.beneficiario.findMany({
@@ -155,6 +149,8 @@ async function processar({
   quirks = QUIRKS_PADRAO,
   loteLeitura = LOTE_LEITURA_BENEFICIARIOS,
 }: OpcoesLote): Promise<ResultadoLote> {
+  // Validado antes de cualquier acceso a la base.
+  if (!Number.isSafeInteger(loteLeitura) || loteLeitura < 1) throw new Error("tamanho de leitura inválido");
   const momento = hoje(agora);
   const dataExecucao = dtHoje ?? momento.data;
   // FR-LOT-01 — RK-275ebe83e773 / RK-af5872bb5b6c / RK-8b46847de08b (BATCHPGT:108-110, en motor.ts).
@@ -174,7 +170,23 @@ async function processar({
   let fatorRendaAnterior: string | undefined;
 
   // FR-LOT-02 — READ BENEFICIARIO-V BY CPF (los sistemas downstream dependen de este orden).
-  for await (const b of lerBeneficiariosPorCpf(db, loteLeitura)) {
+  const leitura = lerBeneficiariosPorCpf(db, loteLeitura);
+  for (;;) {
+    let proximo: Awaited<ReturnType<typeof leitura.next>>;
+    try {
+      proximo = await leitura.next();
+    } catch (e) {
+      // Falla en la primera lectura: antes del recorrido, se propaga (como la lectura única).
+      if (cpfAnterior === null) throw e;
+      // Falla en una lectura posterior: mismo contrato que un error a mitad de corrida —
+      // se interrumpe con el resumen parcial; el CPF (enmascarado) es el último leído.
+      registrarFalha("lote", "erro inesperado", e);
+      const mensagem = mensagemLoteInterrompido(cpfAnterior);
+      log(mensagem);
+      return { ok: false, mensagem, resumo };
+    }
+    if (proximo.done) break;
+    const b = proximo.value;
     resumo.processados += 1; // BATCHPGT:184
     const anterior = cpfAnterior;
     cpfAnterior = b.numCpf; // BATCHPGT:192 (solo tras pasar el control de duplicados; mismo efecto)
@@ -264,7 +276,7 @@ async function processar({
           }
         }
         // Error inesperado: el legado abendaría. Se interrumpe sin perder el resumen parcial.
-        registrarFalha(falha);
+        registrarFalha("lote", "erro inesperado", falha);
         const mensagem = mensagemLoteInterrompido(b.numCpf);
         log(mensagem);
         return { ok: false, mensagem, resumo };

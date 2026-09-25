@@ -14,8 +14,8 @@ import {
 import { anoDe, hoje } from "@/domain/legacyDate";
 import { MENSAGENS_PROGRAMA } from "@/domain/programa";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
-import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Casos de uso de beneficiarios (CADBENEF). Orquesta dominio + Prisma, sin lógica
 // de negocio propia. CADBENEF no registra auditoría: aquí no se llama a registrarEvento.

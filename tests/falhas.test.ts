@@ -8,9 +8,9 @@ import {
   falhaInesperadaMensagens,
   identificacaoErro,
   registrarFalha,
-  usuarioOperativo,
 } from "@/lib/falhas";
-import { ERRO_INESPERADO as ERRO_QUIRKS } from "@/server/quirksConfig";
+import * as quirksConfig from "@/server/quirksConfig";
+import { usuarioOperativo } from "@/server/usuario";
 
 // H3 — módulo único de falhas inesperadas: mensagem genérica literal e log só com nome e
 // código do erro (NFR-04, LGPD), nunca a mensagem nem os metadados (que trazem PII).
@@ -33,9 +33,9 @@ afterEach(() => {
 });
 
 describe("falhas inesperadas", () => {
-  it("mensagem genérica literal, única (quirksConfig reexporta a mesma)", () => {
+  it("mensagem genérica literal, sem reexportações (quirksConfig não a exporta)", () => {
     expect(ERRO_INESPERADO).toBe("Erro inesperado ao processar a solicitação. Tente novamente.");
-    expect(ERRO_QUIRKS).toBe(ERRO_INESPERADO);
+    expect(Object.keys(quirksConfig)).not.toContain("ERRO_INESPERADO");
   });
 
   it("falhaInesperada: devolve a mensagem genérica e registra só [módulo] contexto, nome e código", () => {
@@ -88,24 +88,37 @@ function arquivos(dir: string): string[] {
   });
 }
 
-describe("sem cópias (fonte única em src/lib/falhas.ts)", () => {
-  const fontes = arquivos(path.join(RAIZ, "src")).filter((f) => !f.endsWith(path.join("lib", "falhas.ts")));
+describe("sem cópias (fonte única em src/lib/falhas.ts e src/server/usuario.ts)", () => {
+  const rel = (f: string) => path.relative(RAIZ, f).split(path.sep).join("/");
+  const fontes = arquivos(path.join(RAIZ, "src"));
+  const ler = (f: string) => readFileSync(f, "utf8");
 
-  it("nenhum outro módulo define a mensagem, falhaInesperada local ou usuarioOperativo", () => {
-    const achados = fontes.filter((f) => {
-      const s = readFileSync(f, "utf8");
-      return (
-        s.includes('"Erro inesperado ao processar a solicitação. Tente novamente."') ||
-        /function usuarioOperativo\s*\(/.test(s) ||
-        // Os `falha.ts` de pagamentos/relatórios só delegam ao módulo único.
-        (/function falhaInesperada\s*\(/.test(s) && !s.includes("falhaInesperadaCompartilhada("))
-      );
-    });
-    expect(achados.map((f) => path.relative(RAIZ, f))).toEqual([]);
+  it("a mensagem genérica só é definida em src/lib/falhas.ts", () => {
+    const achados = fontes.filter((f) => ler(f).includes('"Erro inesperado ao processar a solicitação. Tente novamente."')).map(rel);
+    expect(achados).toEqual(["src/lib/falhas.ts"]);
   });
 
-  it("src/app não registra a mensagem do erro (e.message) no log", () => {
-    const achados = fontes.filter((f) => f.includes(`${path.sep}app${path.sep}`) && /console\.(error|log|warn)\([^)]*\.message/.test(readFileSync(f, "utf8")));
-    expect(achados.map((f) => path.relative(RAIZ, f))).toEqual([]);
+  it("falhaInesperada/registrarFalha só são definidas em src/lib/falhas.ts; usuarioOperativo só em src/server/usuario.ts", () => {
+    const falhas = fontes.filter((f) => /function (falhaInesperada\w*|registrarFalha)\s*\(/.test(ler(f))).map(rel);
+    expect(falhas).toEqual(["src/lib/falhas.ts"]);
+    const usuario = fontes.filter((f) => /function usuarioOperativo\s*\(/.test(ler(f))).map(rel);
+    expect(usuario).toEqual(["src/server/usuario.ts"]);
+  });
+
+  it("sem reexportações da mensagem genérica (imports apontam para o módulo único)", () => {
+    const achados = fontes.filter((f) => /export\s*\{[^}]*\bERRO_INESPERADO\b[^}]*\}/.test(ler(f))).map(rel);
+    expect(achados).toEqual([]);
+  });
+
+  it("nenhum console.* em src registra a mensagem do erro (.message), inclusive em chamadas de várias linhas", () => {
+    const achados = fontes.filter((f) => [...ler(f).matchAll(/console\.(error|log|warn|info)\(([\s\S]*?)\);/g)].some((m) => /\.message\b/.test(m[2] ?? ""))).map(rel);
+    expect(achados).toEqual([]);
+  });
+
+  it("src/lib/falhas.ts não lê process.env e nenhum componente cliente importa src/server/usuario", () => {
+    expect(ler(path.join(RAIZ, "src/lib/falhas.ts"))).not.toContain("process.env");
+    const clientes = fontes.filter((f) => /^\s*["']use client["']/m.test(ler(f)));
+    expect(clientes.length).toBeGreaterThan(0);
+    expect(clientes.filter((f) => ler(f).includes("@/server/usuario")).map(rel)).toEqual([]);
   });
 });

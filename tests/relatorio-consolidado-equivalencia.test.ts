@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Beneficiario, PrismaClient } from "@/generated/prisma/client";
 import { completaDv } from "@/domain/cpf";
 import type { Quirks } from "@/domain/quirks";
-import { consolidar, consolidarGrupos } from "@/domain/relatorios/consolidado";
+import { brutoRelatorioCentavos, consolidar, consolidarGrupos } from "@/domain/relatorios/consolidado";
 import { createPrismaClient } from "@/server/db";
 import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
@@ -95,6 +95,8 @@ beforeAll(async () => {
       hrGeracao: 101500,
     };
   });
+  // PRAGMA por conexão: o adapter better-sqlite3 usa UMA conexão (sem pool; ver
+  // src/server/db.ts), então o PRAGMA vale para os inserts seguintes deste cliente.
   await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
   try {
     for (let i = 0; i < pagamentos.length; i += 500) await prisma.pagamento.createMany({ data: pagamentos.slice(i, i + 500) });
@@ -163,5 +165,77 @@ describe("consolidarGrupos (domínio)", () => {
   it("grupo inconsistente → erro", () => {
     expect(() => consolidarGrupos(201101, [g({ brutoNegativo: -100, qtd: 2, bruto: -300 })])).toThrow();
     expect(() => consolidarGrupos(201101, [g({ brutoNegativo: 5, qtd: 1, bruto: 5 })])).toThrow();
+  });
+});
+
+describe("consolidado: premissas e guardas da agregação SQL", () => {
+  it("Beneficiario.numCpf tem índice UNIQUE (o LEFT JOIN não multiplica pagamentos)", async () => {
+    const indices = await prisma.$queryRawUnsafe<{ name: string; unique: number | bigint }[]>(`PRAGMA index_list("Beneficiario")`);
+    const unicosSoNumCpf = [];
+    for (const i of indices.filter((x) => Number(x.unique) === 1)) {
+      const cols = await prisma.$queryRawUnsafe<{ name: string }[]>(`PRAGMA index_info("${i.name}")`);
+      if (cols.length === 1 && cols[0]?.name === "numCpf") unicosSoNumCpf.push(i.name);
+    }
+    expect(unicosSoNumCpf).toContain("Beneficiario_numCpf_key");
+  });
+
+  it("brutoRelatorioCentavos(x) === x para inteiros não negativos até MAX_SAFE_INTEGER (arredondar o grupo ≡ arredondar cada pagamento)", () => {
+    const rnd = prng(31337);
+    const amostras = [0, 1, 99, 100, 101, 999, 2 ** 31 - 1, 2 ** 31, 2 ** 52, Number.MAX_SAFE_INTEGER - 1, Number.MAX_SAFE_INTEGER];
+    for (let i = 0; i < 3000; i++) {
+      // Magnitudes log-uniformes de 1 a 2^53.
+      amostras.push(Math.min(Number.MAX_SAFE_INTEGER, Math.floor(2 ** (rnd() * 53))));
+    }
+    for (const x of amostras) expect(brutoRelatorioCentavos(x), String(x)).toBe(x);
+  });
+
+  async function competenciaComBrutos(competencia: number, brutos: bigint[]) {
+    const cpf = cpfComDv(BENEFICIARIOS_SEED[0].base);
+    await prisma.pagamento.deleteMany({ where: { anoMesRef: competencia } });
+    const maior = (await prisma.pagamento.aggregate({ _max: { numPagamento: true } }))._max.numPagamento ?? 0;
+    for (const [i, bruto] of brutos.entries()) {
+      const p = await prisma.pagamento.create({
+        data: { numPagamento: maior + i + 1, numCpf: cpf, codPrograma: "PA01", anoMesRef: competencia, vlrBruto: 0, vlrLiquido: 0, tipoPgto: "N", sitPagamento: "G", dtGeracao: 20110101, hrGeracao: 1 },
+      });
+      // Valores acima de Int (32 bits) do Prisma: gravados direto no SQLite (INTEGER de 64 bits).
+      await prisma.$executeRaw`UPDATE "Pagamento" SET "vlrBruto" = ${bruto} WHERE "id" = ${p.id}`;
+    }
+  }
+
+  it("soma acima dos inteiros seguros → erro explícito (sem valor impreciso)", async () => {
+    await competenciaComBrutos(209901, [2n ** 52n, 2n ** 52n]);
+    await expect(relatorioConsolidado(209901, prisma)).rejects.toThrow("total do consolidado fora do intervalo de inteiros seguros");
+  });
+
+  it("estouro do SUM do SQLite (int64) → mesmo erro explícito", async () => {
+    await competenciaComBrutos(209902, [2n ** 62n, 2n ** 62n]);
+    await expect(relatorioConsolidado(209902, prisma)).rejects.toThrow("total do consolidado fora do intervalo de inteiros seguros");
+  });
+
+  it("somas entre grupos acima dos inteiros seguros → erro explícito no domínio", () => {
+    const g = { codRegiao: 1, brutoNegativo: null, qtd: 1, bruto: Number.MAX_SAFE_INTEGER, desconto: 0, liquido: 0 };
+    expect(() => consolidarGrupos(201101, [{ ...g, sitPagamento: "G" }, { ...g, sitPagamento: "P" }])).toThrow("fora do intervalo");
+  });
+
+  it("formato inesperado das linhas cruas → erro (validação zod)", async () => {
+    const falso = new Proxy(prisma, {
+      get(alvo, prop, receptor) {
+        if (prop === "$queryRaw") return async () => [{ codRegiao: "1", sitPagamento: "G", brutoNegativo: null, qtd: 1n, bruto: 1n, desconto: 0n, liquido: 0n }];
+        return Reflect.get(alvo, prop, receptor);
+      },
+    });
+    await expect(relatorioConsolidado(201101, falso)).rejects.toThrow("formato inesperado");
+  });
+
+  it("colunas de soma NULL são aceitas como 0", async () => {
+    const falso = new Proxy(prisma, {
+      get(alvo, prop, receptor) {
+        if (prop === "$queryRaw") return async () => [{ codRegiao: null, sitPagamento: "G", brutoNegativo: null, qtd: 1n, bruto: null, desconto: null, liquido: null }];
+        return Reflect.get(alvo, prop, receptor);
+      },
+    });
+    const r = await relatorioConsolidado(201101, falso);
+    expect(r.total).toEqual({ qtd: 1, bruto: 0, desconto: 0, liquido: 0 });
+    expect(r.regioes[4]?.qtd).toBe(1); // legado: beneficiário inexistente → CENTRO-OESTE
   });
 });

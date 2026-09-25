@@ -8,8 +8,8 @@ import {
 } from "@/domain/beneficiario/dependentes";
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
-import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Casos de uso de dependientes (CADDEPEND). Orquesta dominio + Prisma, sin lógica de
 // negocio propia. CADDEPEND solo incluye (no edita ni borra) y no registra auditoría.

@@ -4,8 +4,8 @@ import { calcularLiquido } from "@/domain/calculo/motor";
 import { MSG_PAGAMENTO_NAO_ENCONTRADO, verificarBeneficiario, verificarPagamento } from "@/domain/calculo/precondicoesDescontos";
 import { hoje } from "@/domain/legacyDate";
 import { corrige, QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
-import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Caso de uso del recálculo de descuentos de un pago (CALCDSCT, FR-DSC-01..06).
 // Orquesta dominio + Prisma sin lógica de negocio propia: las precondiciones

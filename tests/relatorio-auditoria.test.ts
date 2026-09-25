@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { ERRO_INESPERADO, falhaInesperada } from "@/app/relatorios/auditoria/falha";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { registrarEvento, type EventoAuditoria } from "@/server/auditoria";
 import { createPrismaClient } from "@/server/db";
@@ -17,6 +17,12 @@ import * as modulo from "@/server/relatorioAuditoria";
 
 let dir: string;
 let prisma: PrismaClient;
+
+/** Informe completo (dentro do limite de linhas); falha o teste se o limite foi excedido. */
+function completo<T extends { limiteExcedido: boolean }>(r: T): Extract<T, { limiteExcedido: false }> {
+  if (r.limiteExcedido) throw new Error("limite de linhas excedido");
+  return r as Extract<T, { limiteExcedido: false }>;
+}
 const AGORA = new Date("2026-09-25T12:00:00Z"); // 20260925 em qualquer TZ de UTC-11 a UTC+11
 const VAZIA = { dtIni: 0, dtFim: 0, acao: "", usuario: "", tabela: "", saida: "" };
 const ANO_2011 = { ...VAZIA, dtIni: 20110101, dtFim: 20111231 };
@@ -47,7 +53,7 @@ describe("falhaInesperada (relatório de auditoria)", () => {
     const erro = Object.assign(new Error("falha na consulta usrEvento = MARIA"), { name: "PrismaClientKnownRequestError", code: "P2025" });
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      expect(falhaInesperada("relatorio", erro)).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
+      expect(falhaInesperada("relatorio-auditoria", "relatorio", erro)).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
       const args = JSON.stringify(spy.mock.calls[0]);
       expect(args).toContain("PrismaClientKnownRequestError");
       expect(args).toContain("P2025");
@@ -64,7 +70,7 @@ describe("relatorioAuditoria", () => {
     await evento(19970101, 80000, { acao: "AL" });
     await evento(20110315, 90503, { acao: "EX" });
     await evento(20260925, 110000, { acao: "CO", tabela: "PAGAMENTO" });
-    const r = await relatorioAuditoria(VAZIA, prisma, AGORA);
+    const r = completo(await relatorioAuditoria(VAZIA, prisma, AGORA));
     expect(r.filtros).toEqual({ ...VAZIA, dtIni: 19970101, dtFim: 20260925, saida: "T" });
     expect(r.dataEmissao).toBe(20260925);
     expect(r.saida).toBe("T");
@@ -80,7 +86,7 @@ describe("relatorioAuditoria", () => {
     await evento(20110316, 100000, { acao: "DV", usuario: "BATCH", tabela: "PAGAMENTO" });
     await evento(20110317, 100000, { acao: "CO", usuario: "MARIA", tabela: "PAGAMENTO" });
     await evento(20110318, 100000, { acao: "CO", usuario: "BATCH", tabela: "BENEFICIARIO" });
-    const r = await relatorioAuditoria({ ...ANO_2011, acao: "CO", usuario: "BATCH", tabela: "PAGAMENTO", saida: "I" }, prisma, AGORA);
+    const r = completo(await relatorioAuditoria({ ...ANO_2011, acao: "CO", usuario: "BATCH", tabela: "PAGAMENTO", saida: "I" }, prisma, AGORA));
     expect(r.saida).toBe("I");
     expect(r.linhas).toEqual([
       { numAuditoria: 1, dtEvento: 20110315, hora: "09:05:03", usuario: "BATCH", codAcao: "CO", acaoDesc: "CONCILIACAO", tabela: "PAGAMENTO", chave: "01234567890", descricao: "CONCILIADO" },
@@ -90,14 +96,14 @@ describe("relatorioAuditoria", () => {
 
   it("60 eventos no período → páginas de 54 e 6", async () => {
     for (let i = 0; i < 60; i++) await evento(20110401, 100000 + i);
-    const r = await relatorioAuditoria(ANO_2011, prisma, AGORA);
+    const r = completo(await relatorioAuditoria(ANO_2011, prisma, AGORA));
     expect(r.paginas.map((p) => p.length)).toEqual([54, 6]);
     expect(r.linhas.map((l) => l.numAuditoria)).toEqual(Array.from({ length: 60 }, (_, i) => i + 1));
   });
 
   it("período invertido → vazio", async () => {
     await evento(20110315, 100000);
-    const r = await relatorioAuditoria({ ...VAZIA, dtIni: 20111231, dtFim: 20110101 }, prisma, AGORA);
+    const r = completo(await relatorioAuditoria({ ...VAZIA, dtIni: 20111231, dtFim: 20110101 }, prisma, AGORA));
     expect(r).toMatchObject({ linhas: [], paginas: [], resumo: { total: 0, exibidos: 0, filtrados: 0 } });
   });
 

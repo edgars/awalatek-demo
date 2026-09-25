@@ -3,8 +3,6 @@ import { consultarBeneficiario, type ResultadoConsulta } from "@/server/consulta
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
-export { ERRO_INESPERADO };
-
 // Ejecución común de la consulta (Server Action y carga inicial por `?cpf=`).
 // Solo lectura: CONSBENF no graba ni audita.
 

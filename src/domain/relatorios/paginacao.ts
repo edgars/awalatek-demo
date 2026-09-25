@@ -55,5 +55,9 @@ export function paginar<T>(itens: readonly T[], opcoes: OpcoesPaginacao<T>): T[]
  */
 export const LIMITE_LINHAS_RELATORIO = 20000;
 
-/** Mensaje de la pantalla cuando la consulta supera `LIMITE_LINHAS_RELATORIO`. */
-export const MSG_LIMITE_LINHAS_RELATORIO = "Período com mais de 20.000 registros. Refine o filtro.";
+/**
+ * Mensaje de la pantalla cuando la consulta supera `LIMITE_LINHAS_RELATORIO`. "Consulta" y
+ * no "Período" (texto del spec): el conteo ya aplica los filtros (programa en 7.1; acción,
+ * usuario y tabela en 7.3), así que refinar cualquiera de ellos reduce el volumen.
+ */
+export const MSG_LIMITE_LINHAS_RELATORIO = "Consulta com mais de 20.000 registros. Refine o filtro.";

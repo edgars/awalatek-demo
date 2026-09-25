@@ -3,8 +3,8 @@ import { calcular, type QuirksMotor, type TipoPgto } from "@/domain/calculo/moto
 import { verificarPrecondicoes } from "@/domain/calculo/precondicoes";
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
-import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Caso de uso del cálculo individual (CALCBENF, FR-CAL-01..10). Orquesta dominio
 // + Prisma sin lógica de negocio propia: las precondiciones están en

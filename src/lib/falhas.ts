@@ -1,6 +1,6 @@
-// Módulo único de falhas inesperadas e do usuário operativo (antes duplicados em cada
-// Server Action, página e caso de uso). Sem dependências de servidor: os componentes
-// cliente importam apenas `ERRO_INESPERADO`.
+// Módulo único de falhas inesperadas (antes duplicado em cada Server Action, página e
+// caso de uso). Sem dependências de servidor nem variáveis de ambiente: os componentes cliente
+// importam `ERRO_INESPERADO` daqui. O usuário operativo está em `src/server/usuario.ts`.
 
 /** Mensagem genérica ao usuário (configuração inválida ou erro inesperado). */
 export const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
@@ -31,11 +31,4 @@ export function falhaInesperada(modulo: string, contexto: string, e: unknown): {
 export function falhaInesperadaMensagens(modulo: string, contexto: string, e: unknown): { ok: false; mensagens: string[] } {
   registrarFalha(modulo, contexto, e);
   return { ok: false, mensagens: [ERRO_INESPERADO] };
-}
-
-/** Usuário operativo (`SIFAP_USER`, 8 posições). Ausente → erro (tratado como falha inesperada). */
-export function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
 }

@@ -2,9 +2,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@/generated/prisma/client";
-import { completaDv } from "@/domain/cpf";
+import { completaDv, mascaraCpfLista } from "@/domain/cpf";
 import type { QuirksMotor } from "@/domain/calculo/motor";
 import { createPrismaClient } from "@/server/db";
 import { ejecutarLotePagamentos, LOTE_LEITURA_BENEFICIARIOS } from "@/server/lotePagamentos";
@@ -102,7 +102,95 @@ describe("lote: leitura por cursor", () => {
     expect(legado.pagamentos.map((p) => p.vlrBruto)).not.toEqual(d17.pagamentos.map((p) => p.vlrBruto));
   });
 
-  it("tamanho inválido → erro", async () => {
-    await expect(ejecutarLotePagamentos({ dtHoje: DT_HOJE, agora: AGORA, db: prisma, log: () => {}, loteLeitura: 0 })).rejects.toThrow();
+  it("tamanho inválido → erro antes de qualquer acesso à base", async () => {
+    const acessos: PropertyKey[] = [];
+    const semBase = new Proxy(prisma, {
+      get(_alvo, prop) {
+        acessos.push(prop);
+        throw new Error("acesso à base");
+      },
+    });
+    for (const loteLeitura of [0, -1, 1.5, Number.NaN]) {
+      await expect(ejecutarLotePagamentos({ dtHoje: DT_HOJE, agora: AGORA, db: semBase, log: () => {}, loteLeitura })).rejects.toThrow("tamanho de leitura inválido");
+    }
+    expect(acessos).toEqual([]);
+  });
+});
+
+/** Cliente que delega em `prisma`, com `beneficiario.findMany` interceptado (n = nº da leitura). */
+function comLeitura(interceptar: (n: number, real: () => Promise<unknown>) => Promise<unknown>): PrismaClient {
+  let n = 0;
+  const beneficiario = new Proxy(prisma.beneficiario, {
+    get(alvo, prop, receptor) {
+      if (prop === "findMany") {
+        return (args: Parameters<PrismaClient["beneficiario"]["findMany"]>[0]) => interceptar(++n, () => prisma.beneficiario.findMany(args));
+      }
+      return Reflect.get(alvo, prop, receptor);
+    },
+  });
+  return new Proxy(prisma, {
+    get(alvo, prop, receptor) {
+      return prop === "beneficiario" ? beneficiario : Reflect.get(alvo, prop, receptor);
+    },
+  });
+}
+
+describe("lote: leitura por cursor — falhas e inclusões durante a corrida", () => {
+  it("falha na 2.ª leitura → interrompe com resumo parcial, mensagem com o último CPF lido (mascarado), log só nome/código", async () => {
+    await prisma.pagamento.deleteMany();
+    const primeiros = await prisma.beneficiario.findMany({ orderBy: { numCpf: "asc" }, take: 7, select: { numCpf: true } });
+    const ultimoLido = primeiros[6]?.numCpf ?? "";
+    const db = comLeitura(async (n, real) => {
+      if (n === 2) throw Object.assign(new Error(`falha lendo numCpf > ${ultimoLido}`), { name: "PrismaClientKnownRequestError", code: "P1001" });
+      return real();
+    });
+    const logs: string[] = [];
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = await ejecutarLotePagamentos({ dtHoje: DT_HOJE, agora: AGORA, db, log: (l) => logs.push(l), quirks: { corrigidos: new Set() }, loteLeitura: 7 });
+      expect(r.ok).toBe(false);
+      if (r.ok) return;
+      expect(r.mensagem).toBe(`LOTE INTERROMPIDO: ERRO INESPERADO CPF=${mascaraCpfLista(ultimoLido)}`);
+      expect(logs.at(-1)).toBe(r.mensagem);
+      // Resumo parcial: os 7 da primeira leitura processados; os pagamentos gerados ficam gravados.
+      expect(r.resumo?.processados).toBe(7);
+      expect(await prisma.pagamento.count({ where: { anoMesRef: 202603 } })).toBe(r.resumo?.gerados);
+      expect(erro).toHaveBeenCalledWith("[lote] erro inesperado:", "PrismaClientKnownRequestError", "P1001");
+      expect(JSON.stringify(erro.mock.calls)).not.toContain(ultimoLido);
+    } finally {
+      erro.mockRestore();
+    }
+  });
+
+  it("falha na 1.ª leitura (antes do recorrido) → propaga, como a leitura única anterior", async () => {
+    const db = comLeitura(async () => {
+      throw new Error("base indisponível");
+    });
+    await expect(ejecutarLotePagamentos({ dtHoje: DT_HOJE, agora: AGORA, db, log: () => {} })).rejects.toThrow("base indisponível");
+  });
+
+  it("beneficiário incluído durante a corrida com CPF maior que o último lido → também é processado (como o READ do legado)", async () => {
+    await prisma.pagamento.deleteMany();
+    const novo = completaDv("999999990");
+    await prisma.beneficiario.deleteMany({ where: { numCpf: novo } });
+    const total = await prisma.beneficiario.count();
+    const db = comLeitura(async (n, real) => {
+      const lote = await real();
+      if (n === 1) {
+        await prisma.beneficiario.create({
+          data: { numCpf: novo, nomeCompleto: "INCLUIDO DURANTE", dtNascimento: 19850412, sexo: "F", codRegiao: 1, codPrograma: "PA01", dtCadastro: 20250101, sitBeneficiario: "A", vlrRendaFamiliar: 120000 },
+        });
+      }
+      return lote;
+    });
+    try {
+      const r = await ejecutarLotePagamentos({ dtHoje: DT_HOJE, agora: AGORA, db, log: () => {}, loteLeitura: 5 });
+      if (!r.ok) throw new Error(r.mensagem);
+      expect(r.resumo.processados).toBe(total + 1);
+      expect(await prisma.pagamento.count({ where: { numCpf: novo, anoMesRef: 202603 } })).toBe(1);
+    } finally {
+      await prisma.pagamento.deleteMany({ where: { numCpf: novo } });
+      await prisma.beneficiario.deleteMany({ where: { numCpf: novo } });
+    }
   });
 });

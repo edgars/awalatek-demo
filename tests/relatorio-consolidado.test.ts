@@ -9,7 +9,7 @@ import { createPrismaClient } from "@/server/db";
 import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import * as modulo from "@/server/relatorioConsolidado";
 import RelatorioConsolidadoPage from "@/app/relatorios/consolidado/page";
-import { ERRO_INESPERADO } from "@/app/relatorios/consolidado/falha";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 import { renderToStaticMarkup } from "react-dom/server";
 import { redondear } from "@/domain/money";
 import { consolidar } from "@/domain/relatorios/consolidado";
@@ -229,7 +229,21 @@ describe("relatorioConsolidado — correções configuráveis (SIFAP_QUIRKS_CORR
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
     espiao.mockClear();
     const legado = await paginaHtml();
-    expect(espiao).toHaveBeenCalledTimes(7); // um por grupo região × status (aqui, um por pagamento; região e geral compartilham #VLR-ARR)
+    // Um arredondamento por GRUPO região × status (não por pagamento): aqui 7 grupos
+    // (6 regiões + beneficiário inexistente, todos status G); região e geral compartilham #VLR-ARR.
+    expect(espiao).toHaveBeenCalledTimes(7);
+    // Um 2.º pagamento num grupo existente (região 3, status G) não soma chamada.
+    await prisma.pagamento.create({ data: pagamento(90, cpfRegiao(3)) });
+    espiao.mockClear();
+    const legadoMais = await paginaHtml();
+    expect(espiao).toHaveBeenCalledTimes(7);
+    // Um pagamento com outro status na mesma região abre um grupo novo.
+    await prisma.pagamento.create({ data: pagamento(91, cpfRegiao(3), { sitPagamento: "P" }) });
+    espiao.mockClear();
+    await paginaHtml();
+    expect(espiao).toHaveBeenCalledTimes(8);
+    await prisma.pagamento.deleteMany({ where: { numPagamento: { in: [90, 91] } } });
+    expect(legadoMais).not.toBe(legado);
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D11");
     espiao.mockClear();
     const corrigido = await paginaHtml();

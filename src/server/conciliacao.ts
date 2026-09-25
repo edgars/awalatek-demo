@@ -21,6 +21,7 @@ import {
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { registrarEvento } from "@/server/auditoria";
+import { registrarFalha } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 
 // Caso de uso de la conciliación del retorno CNAB 240 (BATCHCON, FR-CNB-01..04).
@@ -65,13 +66,6 @@ export function conciliacaoEmExecucao(): boolean {
   return estado.__sifapConciliacaoEmExecucao === true;
 }
 
-function registrarFalha(e: unknown): void {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[conciliacao] erro inesperado:", nome, typeof codigo === "string" ? codigo : "");
-}
-
 /**
  * FR-CNB — concilia el retorno CNAB 240 contra los pagos de la competencia.
  * Devuelve `{ ok: false, mensagem: "Conciliação já em execução." }` si ya hay una
@@ -105,7 +99,7 @@ async function processar({ competencia, conteudo }: EntradaConciliacao, { db = p
       decisao = await db.$transaction((tx) => conciliarRegistro(tx, reg, competencia, momento, quirks));
     } catch (e) {
       // El legado abendaría: se detiene sin perder el resumen de lo ya grabado.
-      registrarFalha(e);
+      registrarFalha("conciliacao", "erro inesperado", e);
       return { ok: false, mensagem: MSG_CONCILIACAO_INTERROMPIDA, resumo };
     }
     acumularDecisao(resumo, reg, decisao);

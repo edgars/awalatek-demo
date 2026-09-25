@@ -197,41 +197,39 @@ export function ordenarLeituraAuditoria<T extends Pick<EventoAuditoriaLido, "dtE
   return [...eventos].sort((a, b) => a.dtEvento - b.dtEvento || a.hrEvento - b.hrEvento || a.numAuditoria - b.numAuditoria);
 }
 
+/**
+ * Valores informados de los filtros de acción/usuario/tabela tal como los compara
+ * `motivoFiltro` (campo A: sin espacios finales); "" = no informado. La lectura acotada
+ * en la base (H3) exige que el campo EMPIECE con el valor: condición necesaria de
+ * `campoA(campo) === valor`, así que la base devuelve un superconjunto y `motivoFiltro`
+ * sigue decidiendo cada evento. Fuente única de la normalización: `motivoFiltro` la usa.
+ */
+export function valoresFiltroAuditoria(f: Pick<FiltrosRelatorioAuditoria, "acao" | "usuario" | "tabela">): { acao: string; usuario: string; tabela: string } {
+  return { acao: campoA(f.acao), usuario: campoA(f.usuario), tabela: campoA(f.tabela) };
+}
+
 /** Motivo por el que el evento no se muestra (`null` = se muestra). Un evento cuenta una sola vez. */
 export function motivoFiltro(e: EventoAuditoriaLido, f: FiltrosRelatorioAuditoria): "EX" | "acao" | "usuario" | "tabela" | null {
   // RK-2e5c9f06f325 (RELAUDIT:105) — IF ACAO = 'EX' → ADD 1 TO #QTD-FILTRADOS; ESCAPE TOP.
   // Antes que cualquier otro filtro: las exclusiones nunca se muestran.
   if (campoA(e.codAcao) === ACAO_EXCLUSAO) return "EX";
-  const acao = campoA(f.acao);
+  const { acao, usuario, tabela } = valoresFiltroAuditoria(f);
   // RK-b3ac1f6f4ede (RELAUDIT:111) — IF #ACAO-FILTRO NE ' ' (filtro informado)…
   if (acao !== "") {
     // RK-be935d51d847 (RELAUDIT:112) — …IF ACAO NE #ACAO-FILTRO → filtrados +1; ESCAPE TOP.
     if (campoA(e.codAcao) !== acao) return "acao";
   }
-  const usuario = campoA(f.usuario);
   // RK-78771795cd8b (RELAUDIT:119) — IF #USUARIO-FILTRO NE ' ' (filtro informado)…
   if (usuario !== "") {
     // RK-bea2ff075a6c (RELAUDIT:120) — …IF USUARIO NE #USUARIO-FILTRO → filtrados +1; ESCAPE TOP.
     if (campoA(e.usrEvento) !== usuario) return "usuario";
   }
-  const tabela = campoA(f.tabela);
   // RK-60326023cab9 (RELAUDIT:127) — IF #TABELA-FILTRO NE ' ' (filtro informado)…
   if (tabela !== "") {
     // RK-7f232f1dd913 (RELAUDIT:128) — …IF TABELA-REF NE #TABELA-FILTRO → filtrados +1; ESCAPE TOP.
     if (campoA(e.tipoEntidade) !== tabela) return "tabela";
   }
   return null;
-}
-
-/**
- * Valores informados de los filtros de acción/usuario/tabela tal como los compara
- * `motivoFiltro` (campo A: sin espacios finales); "" = no informado. La lectura acotada
- * en la base (H3) exige que el campo EMPIECE con el valor: condición necesaria de
- * `campoA(campo) === valor`, así que la base devuelve un superconjunto y `motivoFiltro`
- * sigue decidiendo cada evento.
- */
-export function valoresFiltroAuditoria(f: Pick<FiltrosRelatorioAuditoria, "acao" | "usuario" | "tabela">): { acao: string; usuario: string; tabela: string } {
-  return { acao: campoA(f.acao), usuario: campoA(f.usuario), tabela: campoA(f.tabela) };
 }
 
 /** Línea de detalle según la salida (FR-AUD-06). */

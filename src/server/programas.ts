@@ -14,8 +14,8 @@ import {
   type InclusaoPrograma,
   type ParamRegional,
 } from "@/domain/programa";
-import { usuarioOperativo } from "@/lib/falhas";
 import { prisma } from "@/server/db";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Casos de uso de programas (CADPROG). Orquesta dominio + Prisma, sin lógica de
 // negocio propia. CADPROG no registra auditoría: aquí no se llama a registrarEvento.

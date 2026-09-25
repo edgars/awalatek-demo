@@ -9,7 +9,8 @@ import { MENSAGENS_CADDEPEND, ROTULOS_PARENTESCO, verificarLimite, verificarTitu
 import { mascaraCpfLista } from "@/domain/cpf";
 import { corrige } from "@/domain/quirks";
 import { listarDependentes } from "@/server/dependentes";
-import { ERRO_INESPERADO, lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO } from "@/lib/falhas";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import { incluirDependenteAction } from "./actions";
 import { InclusaoDependentes } from "./_componentes/InclusaoDependentes";
 

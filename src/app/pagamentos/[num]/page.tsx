@@ -19,7 +19,7 @@ import {
   varianteSituacaoPagamento,
 } from "@/domain/pagamento";
 import { obterPagamento } from "@/server/pagamentos";
-import { falhaInesperada } from "../falha";
+import { falhaInesperada } from "@/lib/falhas";
 
 type Props = { params: Promise<{ num: string }> };
 
@@ -71,7 +71,7 @@ async function carregar(num: number | null) {
   try {
     return await obterPagamento(num);
   } catch (e) {
-    return falhaInesperada("detalhe", e);
+    return falhaInesperada("pagamentos", "detalhe", e);
   }
 }
 

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { consultarBeneficiarioAction } from "@/app/consulta/actions";
-import { ERRO_INESPERADO } from "@/app/consulta/executar";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 import ConsultaPage from "@/app/consulta/page";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { createPrismaClient } from "@/server/db";

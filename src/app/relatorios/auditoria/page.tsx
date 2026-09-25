@@ -14,12 +14,12 @@ import {
   type FiltrosTelaRelatorioAuditoria,
 } from "@/domain/relatorios/auditoria";
 import { MSG_LIMITE_LINHAS_RELATORIO } from "@/domain/relatorios/paginacao";
-import { relatorioAuditoria, type ResultadoRelatorioAuditoria } from "@/server/relatorioAuditoria";
+import { relatorioAuditoria, type RelatorioAuditoriaCompleto } from "@/server/relatorioAuditoria";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
 import { Filtros, type ValoresFiltrosAuditoria } from "./_componentes/Filtros";
 import { ResumoAuditoriaBloco, TabelaAuditoria } from "./_componentes/TabelaAuditoria";
 import { VersaoImpressao } from "./_componentes/VersaoImpressao";
-import { falhaInesperada } from "./falha";
+import { falhaInesperada } from "@/lib/falhas";
 
 export const metadata: Metadata = { title: "Relatório de auditoria" };
 
@@ -43,7 +43,7 @@ async function carregar(f: FiltrosRelatorioAuditoria, agora: Date) {
   try {
     return { ok: true as const, relatorio: await relatorioAuditoria(f, undefined, agora) };
   } catch (e) {
-    return falhaInesperada("relatorio", e);
+    return falhaInesperada("relatorio-auditoria", "relatorio", e);
   }
 }
 
@@ -139,7 +139,7 @@ export default async function RelatorioAuditoriaPage({ searchParams }: { searchP
   );
 }
 
-function TelaRelatorio({ f, paginaPedida, relatorio }: { f: FiltrosRelatorioAuditoria; paginaPedida: number; relatorio: ResultadoRelatorioAuditoria }) {
+function TelaRelatorio({ f, paginaPedida, relatorio }: { f: FiltrosRelatorioAuditoria; paginaPedida: number; relatorio: RelatorioAuditoriaCompleto }) {
   const totalPaginas = relatorio.paginas.length;
   const pagina = Math.min(paginaPedida, Math.max(1, totalPaginas));
   const linhas = relatorio.paginas[pagina - 1] ?? [];

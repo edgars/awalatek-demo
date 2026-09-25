@@ -250,6 +250,10 @@ export function consolidarGrupos(
     total.qtd += g.qtd;
   }
 
+  // Sumas entre grupos: fuera de los enteros seguros el resultado ya no es exacto.
+  const valores = [...regioes, ...status, total].flatMap((l) => Object.values(l).filter((v): v is number => typeof v === "number"));
+  if (!valores.every(Number.isSafeInteger)) throw new Error("total do consolidado fora do intervalo de inteiros seguros");
+
   return { competencia, regioes, status, total };
 }
 
