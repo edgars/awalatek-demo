@@ -95,3 +95,22 @@ export const FAIXAS_CONTRIBUICAO: readonly FaixaContribuicao[] = [
   { teto: 200000, aliquota: "0.07" },
   { teto: 999999, aliquota: "0.09" },
 ];
+
+/** Un año de `#ANO-TAB (N4/10)` + `#IPCA-ANO (N3.6/10,12)`. */
+export interface IpcaAno {
+  /** Año (`#ANO-TAB`). */
+  readonly ano: number;
+  /** IPCA mensual ene→dic como string decimal (N3.6); índice 0 = enero. */
+  readonly meses: readonly string[];
+}
+
+/**
+ * LEGACY-QUIRK(D9): tabla IPCA fija de CALCCORR:54-96 — solo 2010–2012 (las
+ * posiciones 4–10 de `#ANO-TAB` quedan en 0). Competencias de otros años no se
+ * corrigen (índice 1). Se replica tal cual; no se agregan años.
+ */
+export const TAB_IPCA: readonly IpcaAno[] = [
+  { ano: 2010, meses: ["0.0075", "0.0078", "0.0052", "0.0057", "0.0043", "0.0000", "0.0001", "0.0004", "0.0045", "0.0075", "0.0083", "0.0063"] },
+  { ano: 2011, meses: ["0.0083", "0.0080", "0.0079", "0.0077", "0.0047", "0.0015", "0.0016", "0.0037", "0.0053", "0.0043", "0.0052", "0.0050"] },
+  { ano: 2012, meses: ["0.0056", "0.0045", "0.0021", "0.0064", "0.0036", "0.0008", "0.0043", "0.0041", "0.0054", "0.0059", "0.0060", "0.0079"] },
+];
