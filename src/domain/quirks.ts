@@ -45,9 +45,12 @@ const listaCorrigidos = z
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if (itens.length === 1 && itens[0]?.toUpperCase() === "ALL") return new Set<QuirkCorrigivel>(QUIRKS_CORRIGIVEIS);
-    const validos = new Set<QuirkCorrigivel>();
+    // ALL no incluye D7: cambiar la máscara de CPF exige aprobación de auditoría
+    // (docs/prd.md §5), así que debe listarse explícitamente ("ALL,D7").
+    const todos = itens.some((i) => i.toUpperCase() === "ALL");
+    const validos = new Set<QuirkCorrigivel>(todos ? QUIRKS_CORRIGIVEIS.filter((q) => q !== "D7") : []);
     for (const item of itens) {
+      if (item.toUpperCase() === "ALL") continue;
       const id = QUIRKS_CORRIGIVEIS.find((q) => q.toUpperCase() === item.toUpperCase());
       if (!id) {
         ctx.addIssue({
@@ -108,3 +111,14 @@ export function lerQuirks(env: Record<string, string | undefined> = process.env)
 export function corrige(quirks: Pick<Quirks, "corrigidos">, id: QuirkCorrigivel): boolean {
   return quirks.corrigidos.has(id);
 }
+
+/**
+ * Mensaje de log para una configuración LEGACY-QUIRK inválida. El error de
+ * `lerQuirks` solo contiene nombres de variables y valores de configuración (sin
+ * datos personales), así que se registra para señalar la variable real.
+ */
+export function detalheErroQuirks(e: unknown): string {
+  const msg = e instanceof Error ? e.message : "";
+  return msg.startsWith("configuração LEGACY-QUIRK inválida") ? msg : "configuração LEGACY-QUIRK inválida";
+}
+

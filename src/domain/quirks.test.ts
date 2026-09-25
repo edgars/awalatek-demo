@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { corrige, lerQuirks, QUIRKS_CORRIGIVEIS, QUIRKS_PADRAO } from "./quirks";
+import { corrige, detalheErroQuirks, lerQuirks, QUIRKS_CORRIGIVEIS, QUIRKS_PADRAO } from "./quirks";
 
 describe("quirks — LEGACY_DOC_ESPECIAL_ENABLED (D4)", () => {
   it("ausente → false", () => {
@@ -43,8 +43,23 @@ describe("quirks — SIFAP_QUIRKS_CORRIGIDOS", () => {
     expect(corrige(q, "D6")).toBe(false);
   });
 
-  it("ALL → todas as correções", () => {
-    expect(lerQuirks({ SIFAP_QUIRKS_CORRIGIDOS: "all" }).corrigidos.size).toBe(QUIRKS_CORRIGIVEIS.length);
+  it("ALL → todas as correções exceto D7 (exige aprovação da auditoria: listar explicitamente)", () => {
+    const todos = lerQuirks({ SIFAP_QUIRKS_CORRIGIDOS: "all" }).corrigidos;
+    expect(todos.size).toBe(QUIRKS_CORRIGIVEIS.length - 1);
+    expect(todos.has("D7")).toBe(false);
+    const comD7 = lerQuirks({ SIFAP_QUIRKS_CORRIGIDOS: "ALL,D7" }).corrigidos;
+    expect(comD7.size).toBe(QUIRKS_CORRIGIVEIS.length);
+  });
+
+  it("detalheErroQuirks nomeia a variável inválida", () => {
+    let erro: unknown;
+    try {
+      lerQuirks({ LEGACY_DOC_ESPECIAL_ENABLED: "sim" });
+    } catch (e) {
+      erro = e;
+    }
+    expect(detalheErroQuirks(erro)).toMatch(/LEGACY_DOC_ESPECIAL_ENABLED/);
+    expect(detalheErroQuirks(new Error("outro 12345678909"))).toBe("configuração LEGACY-QUIRK inválida");
   });
 
   it("id desconhecido, D4/D18 (flags próprias) ou D14/D15 (modelo) → erro de configuração", () => {
