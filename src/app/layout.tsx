@@ -38,7 +38,7 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
               <UsuarioOperativo />
             </Suspense>
           </header>
-          <main className="mx-auto w-full max-w-6xl flex-1 p-6 print:max-w-none print:p-0">{children}</main>
+          <main className="w-full flex-1 p-6 print:p-0">{children}</main>
         </div>
       </body>
     </html>
