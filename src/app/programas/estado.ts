@@ -8,4 +8,6 @@ export type EstadoAcao = {
   codPrograma?: string;
   /** Versión gravada tras una alteración/cambio de situación (control optimista). */
   numVersao?: number;
+  /** Versión desactualizada: la pantalla ofrece "Recarregar". */
+  conflito?: boolean;
 } | null;

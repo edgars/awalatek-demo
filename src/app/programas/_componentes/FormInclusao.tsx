@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { Campo, Codigo, DataLegada, Fator, Moeda, ResultadoLegado, idsCampo, useAcaoFormulario } from "@/components/campos";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,9 +38,11 @@ type Props =
 export function FormInclusao({ alteracao }: Props) {
   const { estado, onSubmit, pendente } = useAcaoFormulario<EstadoAcao>(alteracao?.acao ?? incluirProgramaAction, null);
   const inicial = alteracao?.inicial;
-  // Versión vigente: la de la página o la devuelta por la última alteración gravada.
-  const [versao, setVersao] = useState(inicial?.numVersao ?? 0);
-  if (estado?.ok && estado.numVersao && estado.numVersao !== versao) setVersao(estado.numVersao);
+  // Versión vigente: la de la página (revalidada) o la devuelta por la última alteración gravada.
+  const versao = Math.max(inicial?.numVersao ?? 0, estado?.ok ? (estado.numVersao ?? 0) : 0);
+  // Tras gravar, el formulario se remonta con los datos gravados (valor base vacío,
+  // referencia del valor ajustado, fator y fechas tal como quedaron en la base).
+  const chaveFormulario = inicial ? `${versao}-${inicial.numVersao}` : "novo";
 
   const erro = (campo: string) => (estado && !estado.ok ? estado.erros?.[campo] : undefined);
   const tipo = { name: "tipoPrograma", erro: erro("tipoPrograma") };
@@ -55,7 +56,7 @@ export function FormInclusao({ alteracao }: Props) {
     <div className="grid gap-4">
       <Card>
         <CardContent>
-          <form onSubmit={onSubmit} noValidate className="grid gap-4 md:grid-cols-2" aria-label="Dados do programa">
+          <form key={chaveFormulario} onSubmit={onSubmit} noValidate className="grid gap-4 md:grid-cols-2" aria-label="Dados do programa">
             {inicial ? (
               <Campo {...codigo} label="Código do programa">
                 {/* Sin `name`: el código es inmutable y el servidor lo toma de la ruta. */}
@@ -122,6 +123,11 @@ export function FormInclusao({ alteracao }: Props) {
 
       {estado ? (
         <ResultadoLegado variante={estado.ok ? "sucesso" : "erro"} mensagens={estado.mensagens}>
+          {estado.conflito ? (
+            <Button type="button" variant="outline" size="sm" onClick={() => window.location.reload()}>
+              Recarregar
+            </Button>
+          ) : null}
           {estado.ok && estado.codPrograma ? (
             <Link href={`/programas/${estado.codPrograma}`} className="font-medium text-primary underline underline-offset-4">
               Ver programa {estado.codPrograma}

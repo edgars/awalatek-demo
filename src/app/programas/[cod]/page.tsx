@@ -19,21 +19,13 @@ import { consultarPrograma } from "@/server/programas";
 import { alterarSituacaoProgramaAction, salvarFaixasAction, salvarParamsRegionaisAction } from "../actions";
 import { EditorGrupo, type ColunaGrupo } from "../_componentes/EditorGrupo";
 import { SituacaoPrograma } from "../_componentes/SituacaoPrograma";
+import { decodificarSegmento } from "../rota";
 
 type Props = { params: Promise<{ cod: string }> };
 
-/** Decodifica el segmento; con escapes malformados (`100%`) usa el valor bruto → "PROGRAMA NAO ENCONTRADO". */
-function decodificar(cod: string): string {
-  try {
-    return decodeURIComponent(cod);
-  } catch {
-    return cod;
-  }
-}
-
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { cod } = await params;
-  return { title: `Programa ${decodificar(cod).toUpperCase()}` };
+  return { title: `Programa ${decodificarSegmento(cod).toUpperCase()}` };
 }
 
 const COLUNAS_FAIXAS: readonly ColunaGrupo[] = [
@@ -73,7 +65,7 @@ function Item({ rotulo, children }: { rotulo: string; children: ReactNode }) {
  */
 export default async function ProgramaPage({ params }: Props) {
   const { cod: codBruto } = await params;
-  const cod = decodificar(codBruto);
+  const cod = decodificarSegmento(codBruto);
   const op = validarOperacao("C");
   const r = op.ok ? await consultarPrograma(cod) : { ok: false as const, mensagem: op.mensagem };
 

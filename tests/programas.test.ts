@@ -15,7 +15,10 @@ import {
   salvarFaixas,
   salvarParamsRegionais,
 } from "@/server/programas";
-import { seed } from "../prisma/seed";
+import { MENSAGENS_VALELEG } from "@/domain/elegibilidade";
+import { verificarElegibilidade } from "@/server/elegibilidade";
+import { ejecutarLotePagamentos } from "@/server/lotePagamentos";
+import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 // Casos de uso de programas (story 1.1) contra uma base SQLite temporária.
 
@@ -266,7 +269,7 @@ describe("alterarPrograma", () => {
   it("versão desatualizada → conflito, nada gravado nem auditado", async () => {
     await alterarPrograma("PX01", alteracao(1, { nomePrograma: "Primeiro" }), prisma);
     const r = await alterarPrograma("PX01", alteracao(1, { nomePrograma: "Segundo" }), prisma);
-    expect(r).toEqual({ ok: false, mensagem: "Programa alterado por outro usuário. Recarregue a página." });
+    expect(r).toEqual({ ok: false, mensagem: "Programa alterado por outro usuário. Recarregue a página.", conflito: true });
     expect((await px01()).nomePrograma).toBe("Primeiro");
     expect(await prisma.auditoria.count()).toBe(1);
   });
@@ -274,6 +277,38 @@ describe("alterarPrograma", () => {
   it("inexistente → PROGRAMA NAO ENCONTRADO", async () => {
     expect(await alterarPrograma("ZZZZ", alteracao(1), prisma)).toEqual({ ok: false, mensagem: "PROGRAMA NAO ENCONTRADO" });
     expect(await prisma.auditoria.count()).toBe(0);
+  });
+
+  it("sem mudanças → Nenhuma alteração a gravar., sem versão nova nem auditoria", async () => {
+    // Mesmos dados (fator com outra precisão e elegibilidade vazia normalizados).
+    const r = await alterarPrograma("PX01", alteracao(1, { fatorReajuste: "0.045" }), prisma);
+    expect(r).toEqual({ ok: true, mensagem: "Nenhuma alteração a gravar.", numVersao: 1, semAlteracao: true });
+    // Valor base informado que resulta no mesmo valor ajustado também não é mudança.
+    expect(await alterarPrograma("PX01", alteracao(1, { vlrBase: "15000" }), prisma)).toMatchObject({ semAlteracao: true });
+    expect(await px01()).toMatchObject({ numVersao: 1, dtUltAlteracao: expect.any(Number) });
+    expect(await prisma.auditoria.count()).toBe(0);
+  });
+
+  it("encerrado (E) não é alterado; inativo (I) é alterado e continua I", async () => {
+    await prisma.programaSocial.update({ where: { codPrograma: "PX01" }, data: { sitPrograma: "E" } });
+    expect(await alterarPrograma("PX01", alteracao(1, { nomePrograma: "X" }), prisma)).toEqual({
+      ok: false,
+      mensagem: "PROGRAMA ENCERRADO NAO PODE SER ALTERADO",
+    });
+    expect((await px01()).nomePrograma).toBe("Programa de Renda Teste");
+
+    await prisma.programaSocial.update({ where: { codPrograma: "PX01" }, data: { sitPrograma: "I" } });
+    expect(await alterarPrograma("PX01", alteracao(1, { nomePrograma: "Inativo Alterado" }), prisma)).toMatchObject({ ok: true });
+    expect(await px01()).toMatchObject({ nomePrograma: "Inativo Alterado", sitPrograma: "I" });
+  });
+
+  it("auditoria do recálculo: fator, fatorK e valor ajustado, com separadores escapados", async () => {
+    await alterarPrograma("PX01", alteracao(1, { vlrBase: "20000", fatorReajuste: "0.0500", nomePrograma: "A;B=C" }), prisma);
+    const [a] = await prisma.auditoria.findMany();
+    expect(a).toMatchObject({ codAcao: "AL", desAcao: "ALTERACAO PROGRAMA" });
+    expect(a!.valorAnterior).toBe("nomePrograma=Programa de Renda Teste;fatorReajuste=0.0450;fat".slice(0, 60));
+    expect(a!.valorPosterior).toBe("nomePrograma=A%3BB%3DC;fatorReajuste=0.0500;fatorK=1.017360;vl".slice(0, 60));
+    expect(a!.valorAnterior!.length).toBeLessThanOrEqual(60);
   });
 });
 
@@ -310,11 +345,36 @@ describe("alterarSituacaoPrograma", () => {
     expect(await alterarSituacaoPrograma("PX01", "reativar", 1, prisma)).toEqual({
       ok: false,
       mensagem: "Programa alterado por outro usuário. Recarregue a página.",
+      conflito: true,
     });
     expect((await prisma.programaSocial.findUniqueOrThrow({ where: { codPrograma: "PX01" } })).sitPrograma).toBe("I");
   });
 
   it("inexistente → PROGRAMA NAO ENCONTRADO", async () => {
     expect(await alterarSituacaoPrograma("ZZZZ", "desativar", 1, prisma)).toEqual({ ok: false, mensagem: "PROGRAMA NAO ENCONTRADO" });
+  });
+});
+
+describe("efeito da desativação (lote e elegibilidade)", () => {
+  const CPF_MARIA = cpfComDv(BENEFICIARIOS_SEED[0].base); // único A do seed, programa PA01
+
+  it("PA01 desativado: lote ignora o beneficiário e elegibilidade → PROGRAMA INATIVO; reativado volta", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+    const versao = (await prisma.programaSocial.findUniqueOrThrow({ where: { codPrograma: "PA01" } })).numVersao;
+    expect(await alterarSituacaoPrograma("PA01", "desativar", versao, prisma)).toMatchObject({ ok: true });
+    try {
+      const r = await ejecutarLotePagamentos({ dtHoje: 20261201, agora: new Date("2026-12-01T12:00:00Z"), db: prisma, log: () => {} });
+      if (!r.ok) throw new Error(r.mensagem);
+      expect(r.resumo).toMatchObject({ gerados: 0 });
+      expect(r.resumo.ignoradosPorMotivo.PROGRAMA_INATIVO).toBe(1);
+      expect(await verificarElegibilidade(CPF_MARIA, "PA01", prisma, 2026)).toEqual({
+        tipo: "precondicao",
+        mensagem: MENSAGENS_VALELEG.programaInativo,
+      });
+    } finally {
+      await alterarSituacaoPrograma("PA01", "reativar", versao + 1, prisma);
+    }
+    expect((await prisma.programaSocial.findUniqueOrThrow({ where: { codPrograma: "PA01" } })).sitPrograma).toBe("A");
+    expect(await verificarElegibilidade(CPF_MARIA, "PA01", prisma, 2026)).not.toMatchObject({ mensagem: MENSAGENS_VALELEG.programaInativo });
   });
 });

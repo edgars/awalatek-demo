@@ -210,7 +210,29 @@ export const MENSAGENS_ALTERACAO_PROGRAMA = {
   jaAtivo: "Programa já está ativo.",
   encerradoNaoReativa: "Programa encerrado não pode ser reativado.",
   somenteAtivoDesativa: "Somente programa ativo pode ser desativado.",
+  semAlteracao: "Nenhuma alteração a gravar.",
+  encerradoNaoAltera: "PROGRAMA ENCERRADO NAO PODE SER ALTERADO",
 } as const;
+
+/**
+ * Código recibido en la ruta de alteración/situación: solo no vacío y ≤ 4 posiciones;
+ * la existencia la decide la búsqueda en la base ("PROGRAMA NAO ENCONTRADO").
+ */
+export const codProgramaRotaSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .min(1, { error: MENSAGENS_PROGRAMA.naoEncontrado })
+  .max(4, { error: MENSAGENS_PROGRAMA.naoEncontrado });
+
+/** Programa encerrado (E) no se altera; A e I sí (la alteración no cambia la situación). */
+export function validarAlteracaoSituacao(sit: string): string | null {
+  return sit === "E" ? MENSAGENS_ALTERACAO_PROGRAMA.encerradoNaoAltera : null;
+}
+
+export function podeAlterarPrograma(sit: string): boolean {
+  return validarAlteracaoSituacao(sit) === null;
+}
 
 /** Textos de la auditoría (AL, tabla PROGRAMA). */
 export const TABELA_AUDITORIA_PROGRAMA = "PROGRAMA";
@@ -294,4 +316,107 @@ export function textoConfirmacaoSituacao(cod: string, acao: AcaoSituacao): strin
 
 export function mensagemSituacao(cod: string, nova: "A" | "I"): string {
   return nova === "I" ? `Programa ${cod} desativado.` : `Programa ${cod} reativado.`;
+}
+
+// ---------------------------------------------------------------------------
+// Resumen de auditoría de la alteración
+
+/** Campos alterables del programa, en el orden del resumen de auditoría. */
+export const CAMPOS_ALTERAVEIS_PROGRAMA = [
+  "nomePrograma",
+  "tipoPrograma",
+  "dtCriacao",
+  "dtEncerramento",
+  "fatorReajuste",
+  "codElegibilidade",
+  "rendaMaxPercap",
+  "idadeMin",
+  "idadeMax",
+  "fatorK",
+  "vlrBaseIndividual",
+] as const;
+export type CampoAlteravelPrograma = (typeof CAMPOS_ALTERAVEIS_PROGRAMA)[number];
+export type DadosAlteraveisPrograma = { [K in CampoAlteravelPrograma]?: string | number | null };
+
+/**
+ * Longitud de VLR-ANTERIOR / VLR-NOVO en la auditoría.
+ * TODO(review): el DDM no fija el tamaño en el PRD/arquitectura; se asume A60 (ver conciliación).
+ */
+export const TAMANHO_VALOR_AUDITORIA = 60;
+
+function fatorNormalizado(v: string, casas: number): string {
+  try {
+    return fatorParaString(v, casas);
+  } catch {
+    return v;
+  }
+}
+
+/** Forma canónica para comparar: null/""/undefined iguales; factores con casas fijas. */
+function normalizarCampo(campo: CampoAlteravelPrograma, v: string | number | null | undefined): string {
+  if (v == null) return "";
+  const s = String(v).trim();
+  if (s === "") return "";
+  if (campo === "fatorReajuste") return fatorNormalizado(s, 4);
+  if (campo === "fatorK") return fatorNormalizado(s, 6);
+  return s;
+}
+
+/** Escapa los separadores del resumen (`%`, `;`, `=`) con percent-encoding. */
+function escaparValor(v: string): string {
+  return v.replace(/[%;=]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
+}
+
+/**
+ * Campos que cambian (comparación normalizada) y el resumen `campo=valor;…` de cada lado,
+ * con los valores escapados y cortado a `TAMANHO_VALOR_AUDITORIA`. Sin cambios → `campos` vacío.
+ */
+export function resumoAlteracaoPrograma(
+  anterior: DadosAlteraveisPrograma,
+  novo: DadosAlteraveisPrograma,
+): { campos: CampoAlteravelPrograma[]; valorAnterior: string | null; valorPosterior: string | null } {
+  const campos = CAMPOS_ALTERAVEIS_PROGRAMA.filter(
+    (c) => c in novo && normalizarCampo(c, anterior[c]) !== normalizarCampo(c, novo[c]),
+  );
+  const resumo = (origem: DadosAlteraveisPrograma) =>
+    campos.length
+      ? campos
+          .map((c) => `${c}=${escaparValor(normalizarCampo(c, origem[c]))}`)
+          .join(";")
+          .slice(0, TAMANHO_VALOR_AUDITORIA)
+      : null;
+  return { campos, valorAnterior: resumo(anterior), valorPosterior: resumo(novo) };
+}
+
+// ---------------------------------------------------------------------------
+// Precarga del formulario de alteración con datos gravados (legados o inconsistentes)
+
+/** Fecha AAAAMMDD gravada → la misma si es una fecha de calendario válida; si no, 0 (campo vacío). */
+export function dataGravadaParaFormulario(dt: number): number {
+  try {
+    const iso = intParaData(dt);
+    if (!iso) return 0;
+    const d = new Date(`${iso}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === iso ? dt : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Fator gravado → N3.4 canónico; inválido → vacío. */
+export function fatorGravadoParaFormulario(fator: string): string {
+  const s = fator.trim();
+  if (!RE_FATOR_N3_4.test(s)) {
+    try {
+      return RE_FATOR_N3_4.test(fatorParaString(s, 4)) ? fatorParaString(s, 4) : "";
+    } catch {
+      return "";
+    }
+  }
+  return fatorParaString(s, 4);
+}
+
+/** Tipo gravado → el mismo si es A/P/T; si no, vacío (opción "Selecione…"). */
+export function tipoGravadoParaFormulario(tipo: string): TipoPrograma | "" {
+  return (TIPOS_PROGRAMA as readonly string[]).includes(tipo) ? (tipo as TipoPrograma) : "";
 }
