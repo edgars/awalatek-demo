@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { centavosParaTexto, dataIntParaIso, fatorParaTexto, isoParaDataInt, textoParaCentavos, textoParaFator } from "./conversao";
+import { competenciaIntParaMes, mesParaCompetenciaInt } from "./conversao";
 
 describe("conversão dos campos", () => {
   it("Moeda → centavos", () => {
@@ -60,5 +61,13 @@ describe("máscaras de CPF e CEP", async () => {
     expect(mascararCep("01310100")).toBe("01310-100");
     expect(mascararCep("0131")).toBe("0131");
     expect(somenteDigitos("a1b2c3", 2)).toBe("12");
+  });
+
+  it("Competência ↔ AAAAMM", () => {
+    expect(mesParaCompetenciaInt("2026-09")).toBe(202609);
+    expect(mesParaCompetenciaInt("")).toBe(0);
+    expect(mesParaCompetenciaInt("2026-9")).toBeNull();
+    expect(competenciaIntParaMes(202612)).toBe("2026-12");
+    expect(competenciaIntParaMes(0)).toBe("");
   });
 });
