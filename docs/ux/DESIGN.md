@@ -69,6 +69,19 @@ secciones editables en línea:
 - **Faixas de cálculo** (máx. 5): Renda início · Renda fim · Fator multiplicador · Valor adicional · Acumulativo (S/N).
 - **Parâmetros regionais** (máx. 6): Código região · Fator regional · Complemento · Ativo (S/N).
 Aviso fijo: "Parâmetros informativos — o cálculo usa as tabelas legadas (D1)".
+Acciones (story 1.2, extensión fuera del legado): **Editar** (→ 4.3a) y **Desativar**
+(situación A) o **Reativar** (situación I); situación E no ofrece reactivar. Desativar y
+reativar piden confirmación en la página ("Desativar o programa PA01? Beneficiários deste
+programa deixam de ser pagos no lote e são inelegíveis (PROGRAMA INATIVO)."). Nunca hay
+botón de excluir. En la lista 4.1, acción de fila **Editar**.
+
+### 4.3a Programa — alteración `/programas/[cod]/editar` (story 1.2, fuera del legado)
+Mismo formulario de 4.2, precargado. Código solo lectura (inmutable). **Valor base**
+empieza vacío, con la referencia "Valor base gravado (ajustado): R$ …": vacío = se
+mantiene el valor gravado; informado = se recalcula FATOR-K y se graba ajustado como en la
+inclusión (D8); si cambia el fator de reajuste, el valor base es obligatorio. Tras grabar,
+`ResultadoLegado` con "Programa alterado com sucesso." (+ " VLR AJUSTADO: R$ …" si se
+recalculó). Conflicto de versión: "Programa alterado por outro usuário. Recarregue a página.".
 
 ### 4.4 Beneficiários — lista `/beneficiarios`
 Columnas: CPF (enmascarado) · Nome · Programa · Situação (badge) · Região · Dependentes. Búsqueda por CPF o nombre. Acciones por fila: Editar · Dependentes · Descontos · Consultar.

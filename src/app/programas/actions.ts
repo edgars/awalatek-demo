@@ -1,20 +1,28 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import type { z } from "zod";
+import { z } from "zod";
 import {
+  alteracaoProgramaSchema,
   codProgramaSchema,
   faixaCalculoSchema,
   inclusaoProgramaSchema,
   paramRegionalSchema,
   validarOperacao,
 } from "@/domain/programa";
-import { incluirPrograma, salvarFaixas, salvarParamsRegionais } from "@/server/programas";
+import {
+  alterarPrograma,
+  alterarSituacaoPrograma,
+  incluirPrograma,
+  salvarFaixas,
+  salvarParamsRegionais,
+} from "@/server/programas";
 import type { EstadoAcao } from "./estado";
 import { falhaInesperadaMensagens } from "@/lib/falhas";
 
 // Server Actions de /programas: validación zod en el borde; reglas en el dominio.
-// Solo inclusión y consulta (+ grupos): el legado no altera ni excluye programas.
+// Inclusión y consulta (+ grupos) del legado; alteración y desactivar/reactivar son
+// funcionalidad nueva (story 1.2). Nunca se excluye un programa.
 
 const CAMPOS_INCLUSAO = [
   "codPrograma",
@@ -59,6 +67,50 @@ export async function incluirProgramaAction(_anterior: EstadoAcao, dados: FormDa
     return { ok: true, mensagens: [r.mensagem], codPrograma: r.dados.codPrograma };
   } catch (e) {
     return falhaInesperadaMensagens("programas", "inclusão", e);
+  }
+}
+
+const CAMPOS_ALTERACAO = [...CAMPOS_INCLUSAO.filter((c) => c !== "codPrograma"), "numVersao"] as const;
+
+/** Story 1.2 — alteración (el código es inmutable: viene de la ruta, no del formulario). */
+export async function alterarProgramaAction(codBruto: string, _anterior: EstadoAcao, dados: FormData): Promise<EstadoAcao> {
+  const cod = codProgramaSchema.safeParse(codBruto);
+  if (!cod.success) return falhaValidacao(cod.error);
+  const bruto = Object.fromEntries(CAMPOS_ALTERACAO.map((c) => [c, texto(dados, c)]));
+  const parsed = alteracaoProgramaSchema.safeParse(bruto);
+  if (!parsed.success) return falhaValidacao(parsed.error);
+
+  try {
+    const r = await alterarPrograma(cod.data, parsed.data);
+    if (!r.ok) return { ok: false, mensagens: [r.mensagem], erros: r.campo ? { [r.campo]: r.mensagem } : undefined };
+    revalidatePath("/programas");
+    revalidatePath(`/programas/${cod.data}`);
+    return { ok: true, mensagens: [r.mensagem], codPrograma: cod.data, numVersao: r.numVersao };
+  } catch (e) {
+    return falhaInesperadaMensagens("programas", "alteração", e);
+  }
+}
+
+const situacaoSchema = z.object({
+  acao: z.enum(["desativar", "reativar"], { error: "Ação inválida" }),
+  numVersao: alteracaoProgramaSchema.shape.numVersao,
+});
+
+/** Story 1.2 — desativar (A → I) / reativar (I → A), tras la confirmación en la página. */
+export async function alterarSituacaoProgramaAction(codBruto: string, _anterior: EstadoAcao, dados: FormData): Promise<EstadoAcao> {
+  const cod = codProgramaSchema.safeParse(codBruto);
+  if (!cod.success) return falhaValidacao(cod.error);
+  const parsed = situacaoSchema.safeParse({ acao: texto(dados, "acao"), numVersao: texto(dados, "numVersao") });
+  if (!parsed.success) return falhaValidacao(parsed.error);
+
+  try {
+    const r = await alterarSituacaoPrograma(cod.data, parsed.data.acao, parsed.data.numVersao);
+    if (!r.ok) return { ok: false, mensagens: [r.mensagem] };
+    revalidatePath("/programas");
+    revalidatePath(`/programas/${cod.data}`);
+    return { ok: true, mensagens: [r.mensagem], codPrograma: cod.data, numVersao: r.numVersao };
+  } catch (e) {
+    return falhaInesperadaMensagens("programas", "situação", e);
   }
 }
 

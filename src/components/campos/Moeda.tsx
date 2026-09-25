@@ -5,8 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Campo, idsCampo, type PropsCampoBase } from "./campo";
 import { centavosParaTexto, textoParaCentavos, VALOR_INVALIDO } from "./conversao";
 
-/** Valor monetario: el operador teclea `1.234,56`; el formulario envía centavos (`Int`). Vacío → 0. */
-export function Moeda({ defaultValue, ...p }: PropsCampoBase & { defaultValue?: number }) {
+/**
+ * Valor monetario: el operador teclea `1.234,56`; el formulario envía centavos (`Int`).
+ * Vacío → 0, o `""` con `vazioComoVazio` (campo opcional: "no informado" ≠ R$ 0,00).
+ */
+export function Moeda({ defaultValue, vazioComoVazio = false, ...p }: PropsCampoBase & { defaultValue?: number; vazioComoVazio?: boolean }) {
   const [texto, setTexto] = useState(defaultValue != null ? centavosParaTexto(defaultValue) : "");
   const centavos = textoParaCentavos(texto);
   const { id, describedBy } = idsCampo(p);
@@ -30,7 +33,7 @@ export function Moeda({ defaultValue, ...p }: PropsCampoBase & { defaultValue?: 
           onBlur={() => centavos !== null && texto !== "" && setTexto(centavosParaTexto(centavos))}
         />
       </div>
-      <input type="hidden" name={p.name} value={centavos ?? VALOR_INVALIDO} />
+      <input type="hidden" name={p.name} value={vazioComoVazio && texto.trim() === "" ? "" : (centavos ?? VALOR_INVALIDO)} />
     </Campo>
   );
 }

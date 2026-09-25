@@ -32,6 +32,18 @@ const COLUNAS: readonly Coluna<Linha>[] = [
     ),
   },
   { titulo: "Valor base (R$)", celula: (p) => formatarReais(p.vlrBaseIndividual), className: "valor text-right" },
+  {
+    titulo: "Ações",
+    celula: (p) => (
+      <Link
+        href={`/programas/${p.codPrograma}/editar`}
+        aria-label={`Editar programa ${p.codPrograma}`}
+        className="text-sm font-medium text-primary underline-offset-4 hover:underline"
+      >
+        Editar
+      </Link>
+    ),
+  },
 ];
 
 /** Pantalla 4.1 — lista de programas. */

@@ -196,3 +196,102 @@ export const paramRegionalSchema = z.object({
   indAtivoRegiao: simNao("Ativo"),
 });
 export type ParamRegional = z.output<typeof paramRegionalSchema>;
+
+// ---------------------------------------------------------------------------
+// Story 1.2 — alteración y cambio de situación (A ↔ I). Funcionalidad NUEVA, fuera
+// del legado: CADPROG solo tiene I y C (FR-PRG-01). Decisión de diseño documentada
+// en docs/prd.md (nota de FR-PRG-01) y docs/ux/DESIGN.md (4.3 / 4.3a).
+
+export const MENSAGENS_ALTERACAO_PROGRAMA = {
+  alteradoSucesso: "Programa alterado com sucesso.",
+  versaoDesatualizada: "Programa alterado por outro usuário. Recarregue a página.",
+  valorBaseObrigatorio: "Valor base: informe o valor base para recalcular com o novo fator de reajuste",
+  jaInativo: "Programa já está inativo.",
+  jaAtivo: "Programa já está ativo.",
+  encerradoNaoReativa: "Programa encerrado não pode ser reativado.",
+  somenteAtivoDesativa: "Somente programa ativo pode ser desativado.",
+} as const;
+
+/** Textos de la auditoría (AL, tabla PROGRAMA). */
+export const TABELA_AUDITORIA_PROGRAMA = "PROGRAMA";
+export const DESCRICOES_AUDITORIA_PROGRAMA = {
+  alteracao: "ALTERACAO PROGRAMA",
+  desativado: "PROGRAMA DESATIVADO",
+  reativado: "PROGRAMA REATIVADO",
+} as const;
+
+/**
+ * Esquema de la alteración: mismas reglas y mensajes de la inclusión, sin el código
+ * (inmutable, viene de la ruta). `vlrBase` vacío = "no cambia el valor base".
+ */
+export const alteracaoProgramaSchema = inclusaoProgramaSchema.omit({ codPrograma: true, vlrBase: true }).extend({
+  vlrBase: z.preprocess(
+    (v) => (v == null || (typeof v === "string" && v.trim() === "") ? undefined : v),
+    centavos("Valor base").optional(),
+  ),
+  numVersao: z.coerce
+    .number({ error: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada })
+    .int({ error: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada })
+    .min(1, { error: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada }),
+});
+export type AlteracaoPrograma = z.output<typeof alteracaoProgramaSchema>;
+
+export type ValorBaseGravado = { fatorReajuste: string; fatorK: string; vlrBaseIndividual: number };
+export type DecisaoValorBase =
+  | { ok: true; recalculado: false }
+  | { ok: true; recalculado: true; fatorK: string; vlrBaseIndividual: number }
+  | { ok: false; campo: "vlrBase"; mensagem: string };
+
+/**
+ * Valor base en la alteración ("igual que la inclusión", D8): si el operador informa el
+ * valor base, se recalcula FATOR-K y se graba el valor ajustado como en la inclusión.
+ * Sin valor base ni cambio de fator no se recalcula nada: el valor gravado ya está
+ * × FATOR-K y aplicarlo otra vez lo duplicaría. Cambiar el fator exige informar el valor base.
+ */
+export function decidirValorBase(atual: ValorBaseGravado, novo: { vlrBase?: number; fatorReajuste: string }): DecisaoValorBase {
+  const fatorMudou = fatorParaString(novo.fatorReajuste, 4) !== fatorParaString(atual.fatorReajuste, 4);
+  if (novo.vlrBase === undefined) {
+    if (fatorMudou) return { ok: false, campo: "vlrBase", mensagem: MENSAGENS_ALTERACAO_PROGRAMA.valorBaseObrigatorio };
+    return { ok: true, recalculado: false };
+  }
+  // LEGACY-QUIRK(D8): mismo cálculo de la inclusión (RK-275e4a632e83, RK-bd6a7e52a48b).
+  const fatorK = calcularFatorK(novo.fatorReajuste);
+  const vlrBaseIndividual = calcularVlrBaseAjustado(novo.vlrBase, fatorK);
+  if (vlrBaseIndividual > MAX_CENTAVOS_INT32) {
+    return { ok: false, campo: "vlrBase", mensagem: "Valor ajustado acima do limite (máx. R$ 21.474.836,47)." };
+  }
+  return { ok: true, recalculado: true, fatorK, vlrBaseIndividual };
+}
+
+export type AcaoSituacao = "desativar" | "reativar";
+
+/** Transición de situación: desactivar A → I; reactivar I → A. E (encerrado) no se reactiva. */
+export function transicaoSituacao(
+  atual: string,
+  acao: AcaoSituacao,
+): { ok: true; nova: "A" | "I"; descricao: string } | { ok: false; mensagem: string } {
+  if (acao === "desativar") {
+    if (atual === "I") return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.jaInativo };
+    if (atual !== "A") return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.somenteAtivoDesativa };
+    return { ok: true, nova: "I", descricao: DESCRICOES_AUDITORIA_PROGRAMA.desativado };
+  }
+  if (atual === "A") return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.jaAtivo };
+  if (atual !== "I") return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.encerradoNaoReativa };
+  return { ok: true, nova: "A", descricao: DESCRICOES_AUDITORIA_PROGRAMA.reativado };
+}
+
+/** Acción de situación que ofrece la UI: A → desativar, I → reativar, E → ninguna. */
+export function acaoSituacaoDisponivel(sit: string): AcaoSituacao | null {
+  return sit === "A" ? "desativar" : sit === "I" ? "reativar" : null;
+}
+
+/** Texto de la confirmación en la página. */
+export function textoConfirmacaoSituacao(cod: string, acao: AcaoSituacao): string {
+  return acao === "desativar"
+    ? `Desativar o programa ${cod}? Beneficiários deste programa deixam de ser pagos no lote e são inelegíveis (PROGRAMA INATIVO).`
+    : `Reativar o programa ${cod}? Beneficiários deste programa voltam a ser considerados no lote e na elegibilidade.`;
+}
+
+export function mensagemSituacao(cod: string, nova: "A" | "I"): string {
+  return nova === "I" ? `Programa ${cod} desativado.` : `Programa ${cod} reativado.`;
+}

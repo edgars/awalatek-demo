@@ -31,9 +31,9 @@ test("F1 — incluir, ver valor ajustado, consultar e adicionar uma faixa", asyn
   await expect(page.getByText("R$ 152,34")).toBeVisible();
   await expect(page.getByText("1,015624")).toBeVisible();
   await expect(page.getByText("Parâmetros informativos — o cálculo usa as tabelas legadas (D1)")).toBeVisible();
-  // Sem ações de alterar/excluir o programa.
-  await expect(page.getByRole("button", { name: /alterar|excluir|editar programa/i })).toHaveCount(0);
-  await expect(page.getByRole("link", { name: /alterar|excluir|editar programa/i })).toHaveCount(0);
+  // Editar/desativar existem desde a story 1.2; excluir nunca.
+  await expect(page.getByRole("button", { name: /excluir/i })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /excluir/i })).toHaveCount(0);
 
   // Duas faixas; a faixa 2 primeiro com fator inválido (5 casas).
   await page.getByRole("button", { name: "Adicionar faixa" }).click();
@@ -98,7 +98,7 @@ test("consulta inexistente mostra PROGRAMA NAO ENCONTRADO", async ({ page }) => 
 test("busca por nome sem distinguir maiúsculas", async ({ page }) => {
   await page.goto("/programas?q=renda");
   const tabela = page.getByRole("table");
-  await expect(tabela.getByRole("link", { name: "PP01" })).toBeVisible();
-  await expect(tabela.getByRole("link", { name: "PA01" })).toHaveCount(0);
-  await expect(tabela.getByRole("link", { name: "PT01" })).toHaveCount(0);
+  await expect(tabela.getByRole("link", { name: "PP01", exact: true })).toBeVisible();
+  await expect(tabela.getByRole("link", { name: "PA01", exact: true })).toHaveCount(0);
+  await expect(tabela.getByRole("link", { name: "PT01", exact: true })).toHaveCount(0);
 });

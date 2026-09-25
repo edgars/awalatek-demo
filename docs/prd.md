@@ -63,6 +63,18 @@ año de nacimiento (sin mes/día) salvo que se diga otra cosa.
   elegibilidad y status. Inexistente → "PROGRAMA NAO ENCONTRADO".
 - El legado **no altera ni excluye** programas. Mantener y eliminar por la UI
   queda fuera del alcance de equivalencia (ver §5 D1 para los grupos hijos).
+- **Nota (extensión fuera del legado, story 1.2, pedido del usuario 2026-09-25):**
+  se agregan **alteración** (`/programas/[cod]/editar`) y **desactivar / reactivar**
+  (situación A → I / I → A, en el detalle, con confirmación en la página). Nunca se
+  excluye un programa. El código es inmutable; las validaciones y mensajes son los de
+  la inclusión. Valor base "igual que la inclusión" (D8): si el operador informa el
+  valor base, se recalcula FATOR-K y se graba el valor ajustado; si no lo informa y el
+  fator no cambia, el valor gravado queda intacto (sin doble FATOR-K); cambiar el
+  fator exige informar el valor base. Programa encerrado (E) no se reactiva desde la
+  UI. Concurrencia optimista con `numVersao` ("Programa alterado por outro usuário.
+  Recarregue a página."). A diferencia de CADPROG, estas operaciones registran
+  auditoría `AL` (tabla `PROGRAMA`, clave = código; "ALTERACAO PROGRAMA",
+  "PROGRAMA DESATIVADO", "PROGRAMA REATIVADO") en la misma transacción.
 *Reglas (3):* RK-d20a15a018e6 (CADPROG:51) · RK-a1d8765eea49 (CADPROG:56) · RK-7ca3bec5e5f6 (CADPROG:117)
 
 #### FR-PRG-02 — Unicidad del código de programa

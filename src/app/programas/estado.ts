@@ -6,4 +6,6 @@ export type EstadoAcao = {
   /** Error por campo (nombre del campo → mensaje), para mostrarlo junto al control. */
   erros?: Record<string, string>;
   codPrograma?: string;
+  /** Versión gravada tras una alteración/cambio de situación (control optimista). */
+  numVersao?: number;
 } | null;

@@ -51,6 +51,7 @@ model ProgramaSocial {
   usrInclusao        String  @default("")
   dtUltAlteracao     Int     @default(0)
   usrUltAlteracao    String  @default("")
+  numVersao          Int     @default(1) // control de concurrencia optimista (story 1.2)
 
   faixasCalculo   ProgramaFaixaCalculo[]
   paramsRegionais ProgramaParamRegional[]

@@ -16,8 +16,9 @@ import {
   type TipoPrograma,
 } from "@/domain/programa";
 import { consultarPrograma } from "@/server/programas";
-import { salvarFaixasAction, salvarParamsRegionaisAction } from "../actions";
+import { alterarSituacaoProgramaAction, salvarFaixasAction, salvarParamsRegionaisAction } from "../actions";
 import { EditorGrupo, type ColunaGrupo } from "../_componentes/EditorGrupo";
+import { SituacaoPrograma } from "../_componentes/SituacaoPrograma";
 
 type Props = { params: Promise<{ cod: string }> };
 
@@ -66,7 +67,10 @@ function Item({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   );
 }
 
-/** Pantalla 4.3 — consulta de programa (operación C del legado) + grupos. Sin alterar/excluir. */
+/**
+ * Pantalla 4.3 — consulta de programa (operación C del legado) + grupos. Editar y
+ * desativar/reativar (story 1.2) son funcionalidad nueva; nunca se excluye.
+ */
 export default async function ProgramaPage({ params }: Props) {
   const { cod: codBruto } = await params;
   const cod = decodificar(codBruto);
@@ -101,6 +105,12 @@ export default async function ProgramaPage({ params }: Props) {
       <Card>
         <CardHeader>
           <CardTitle>Dados do programa</CardTitle>
+          <SituacaoPrograma
+            codPrograma={p.codPrograma}
+            sitPrograma={p.sitPrograma}
+            numVersao={p.numVersao}
+            acao={alterarSituacaoProgramaAction.bind(null, p.codPrograma)}
+          />
         </CardHeader>
         <CardContent>
           <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

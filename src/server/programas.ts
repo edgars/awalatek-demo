@@ -1,25 +1,36 @@
-import type { PrismaClient } from "@/generated/prisma/client";
+import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { hoje } from "@/domain/legacyDate";
+import { formatarReais } from "@/domain/money";
 import {
   calcularFatorK,
   calcularVlrBaseAjustado,
+  decidirValorBase,
+  DESCRICOES_AUDITORIA_PROGRAMA,
   MAX_CENTAVOS_INT32,
+  MENSAGENS_ALTERACAO_PROGRAMA,
   MENSAGENS_PROGRAMA,
   mensagemInclusao,
+  mensagemSituacao,
   resultadoConsulta,
+  TABELA_AUDITORIA_PROGRAMA,
+  transicaoSituacao,
   validarLimiteFaixas,
   validarLimiteParamsRegionais,
   verificarDuplicidade,
+  type AcaoSituacao,
+  type AlteracaoPrograma,
   type FaixaCalculo,
   type InclusaoPrograma,
   type ParamRegional,
 } from "@/domain/programa";
+import { registrarEvento } from "@/server/auditoria";
 import { prisma } from "@/server/db";
-import { violaUnico } from "@/server/unicidade";
+import { comRetry, ehColisaoNumAuditoria, violaUnico } from "@/server/unicidade";
 import { usuarioOperativo } from "@/server/usuario";
 
 // Casos de uso de programas (CADPROG). Orquesta dominio + Prisma, sin lógica de
-// negocio propia. CADPROG no registra auditoría: aquí no se llama a registrarEvento.
+// negocio propia. CADPROG no registra auditoría: la inclusión no llama a
+// registrarEvento; la alteración/situación (story 1.2, fuera del legado) sí.
 
 export const TAMANHO_PAGINA = 10;
 
@@ -109,6 +120,111 @@ export async function incluirPrograma(
     mensagem: mensagemInclusao(vlrBaseIndividual),
     dados: { codPrograma: dados.codPrograma, fatorK, vlrBaseIndividual },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Story 1.2 — alteración y cambio de situación (funcionalidad nueva, fuera del legado).
+// A diferencia de la inclusión (CADPROG no audita), aquí se registra AL en la misma
+// transacción: decisión de diseño documentada en docs/prd.md (nota de FR-PRG-01).
+
+export type ResultadoAlteracao = { ok: true; mensagem: string; numVersao: number } | (Falha & { campo?: string });
+
+/** Transacción con auditoría; repetida entera si otro escritor tomó el mismo `numAuditoria`. */
+function emTransacaoAuditada<T>(db: PrismaClient, fn: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return comRetry(() => db.$transaction(fn), ehColisaoNumAuditoria, 5);
+}
+
+export async function alterarPrograma(cod: string, dados: AlteracaoPrograma, db: PrismaClient = prisma): Promise<ResultadoAlteracao> {
+  const codPrograma = cod.trim().toUpperCase();
+  const usuario = usuarioOperativo();
+  return emTransacaoAuditada(db, async (tx): Promise<ResultadoAlteracao> => {
+    const atual = await tx.programaSocial.findUnique({ where: { codPrograma } });
+    if (!atual) return naoEncontrado();
+    if (atual.numVersao !== dados.numVersao) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+
+    const valor = decidirValorBase(atual, dados);
+    if (!valor.ok) return { ok: false, mensagem: valor.mensagem, campo: valor.campo };
+
+    const novo = {
+      nomePrograma: dados.nomePrograma,
+      tipoPrograma: dados.tipoPrograma,
+      dtCriacao: dados.dtInicio,
+      dtEncerramento: dados.dtFim,
+      fatorReajuste: dados.fatorReajuste,
+      codElegibilidade: dados.codElegibilidade,
+      rendaMaxPercap: dados.rendaMaxima,
+      idadeMin: dados.idadeMin,
+      idadeMax: dados.idadeMax,
+      // Sin valor base informado no se toca el valor gravado ni el FATOR-K (sin doble FATOR-K).
+      ...(valor.recalculado ? { fatorK: valor.fatorK, vlrBaseIndividual: valor.vlrBaseIndividual } : {}),
+    };
+    const { data } = hoje();
+    // Control optimista: solo graba si la versión leída sigue vigente.
+    const r = await tx.programaSocial.updateMany({
+      where: { id: atual.id, numVersao: dados.numVersao },
+      data: { ...novo, dtUltAlteracao: data, usrUltAlteracao: usuario, numVersao: { increment: 1 } },
+    });
+    if (r.count === 0) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+
+    const alterados = (Object.keys(novo) as (keyof typeof novo)[]).filter((k) => atual[k] !== novo[k]);
+    await registrarEvento(
+      {
+        acao: "AL",
+        tabela: TABELA_AUDITORIA_PROGRAMA,
+        chave: codPrograma,
+        usuario,
+        descricao: DESCRICOES_AUDITORIA_PROGRAMA.alteracao,
+        valorAnterior: resumo(alterados, atual),
+        valorPosterior: resumo(alterados, novo),
+      },
+      tx,
+    );
+    const sufixo = valor.recalculado ? ` VLR AJUSTADO: ${formatarReais(valor.vlrBaseIndividual)}` : "";
+    return { ok: true, mensagem: `${MENSAGENS_ALTERACAO_PROGRAMA.alteradoSucesso}${sufixo}`, numVersao: dados.numVersao + 1 };
+  });
+}
+
+/** `campo=valor;…` de los campos alterados (datos del programa, sin datos personales). */
+function resumo(campos: readonly string[], origem: Record<string, unknown>): string | null {
+  return campos.length ? campos.map((c) => `${c}=${origem[c] ?? ""}`).join(";") : null;
+}
+
+/** Desactivar (A → I) o reactivar (I → A). Nunca borra el programa. */
+export async function alterarSituacaoPrograma(
+  cod: string,
+  acao: AcaoSituacao,
+  numVersao: number,
+  db: PrismaClient = prisma,
+): Promise<ResultadoAlteracao> {
+  const codPrograma = cod.trim().toUpperCase();
+  const usuario = usuarioOperativo();
+  return emTransacaoAuditada(db, async (tx): Promise<ResultadoAlteracao> => {
+    const atual = await tx.programaSocial.findUnique({ where: { codPrograma }, select: { id: true, sitPrograma: true, numVersao: true } });
+    if (!atual) return naoEncontrado();
+    if (atual.numVersao !== numVersao) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+    const t = transicaoSituacao(atual.sitPrograma, acao);
+    if (!t.ok) return t;
+
+    const { data } = hoje();
+    const r = await tx.programaSocial.updateMany({
+      where: { id: atual.id, numVersao },
+      data: { sitPrograma: t.nova, dtUltAlteracao: data, usrUltAlteracao: usuario, numVersao: { increment: 1 } },
+    });
+    if (r.count === 0) return { ok: false, mensagem: MENSAGENS_ALTERACAO_PROGRAMA.versaoDesatualizada };
+    await registrarEvento(
+      {
+        acao: "AL",
+        tabela: TABELA_AUDITORIA_PROGRAMA,
+        chave: codPrograma,
+        usuario,
+        descricao: t.descricao,
+        valorAnterior: atual.sitPrograma,
+        valorPosterior: t.nova,
+      },
+      tx,
+    );
+    return { ok: true, mensagem: mensagemSituacao(codPrograma, t.nova), numVersao: numVersao + 1 };
+  });
 }
 
 function naoEncontrado(): Falha {
