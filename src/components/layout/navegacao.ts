@@ -12,6 +12,6 @@ export const NAVEGACAO: readonly GrupoNav[] = [
     titulo: "Cálculo e Pagamentos",
     itens: [{ titulo: "Cálculo individual", href: "/calculo" }, { titulo: "Lote mensal", href: "/lote" }, { titulo: "Cálculo de descontos", href: "/descontos" }, { titulo: "Pagamentos", href: "/pagamentos" }],
   },
-  { titulo: "Processos", itens: [{ titulo: "Correção retroativa", href: "/correcao" }, { titulo: "Conciliação bancária" }] },
-  { titulo: "Relatórios", itens: [{ titulo: "Pagamentos" }, { titulo: "Consolidado", href: "/relatorios/consolidado" }, { titulo: "Auditoria" }] },
+  { titulo: "Processos", itens: [{ titulo: "Correção retroativa", href: "/correcao" }, { titulo: "Conciliação bancária", href: "/conciliacao" }] },
+  { titulo: "Relatórios", itens: [{ titulo: "Pagamentos", href: "/relatorios/pagamentos" }, { titulo: "Consolidado", href: "/relatorios/consolidado" }, { titulo: "Auditoria" }] },
 ];

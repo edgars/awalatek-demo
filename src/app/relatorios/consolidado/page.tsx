@@ -12,12 +12,6 @@ export const metadata: Metadata = { title: "Relatório consolidado" };
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
-// Versión imprimible: sin barra lateral, cabecera de la app ni filtros.
-const ESTILO_IMPRESSAO = `@media print {
-  body > aside, body > div > header { display: none !important; }
-  body { display: block !important; }
-}`;
-
 async function carregar(competencia: number) {
   try {
     return { ok: true as const, relatorio: await relatorioConsolidado(competencia) };
@@ -35,7 +29,6 @@ export default async function RelatorioConsolidadoPage({ searchParams }: { searc
 
   return (
     <div className="grid gap-4">
-      <style>{ESTILO_IMPRESSAO}</style>
       <div className="grid gap-1 print:hidden">
         <h1 className="text-2xl font-semibold tracking-tight">Relatório consolidado</h1>
         <p className="text-sm text-muted-foreground">Totais mensais por região, por situação e gerais. Somente leitura.</p>

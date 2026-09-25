@@ -61,6 +61,45 @@ describe("registrarEvento", () => {
     }
   });
 
+  it("usa o momento informado pelo chamador (mesmo dt/hr para todos os eventos)", async () => {
+    const momento = { data: 20260925, hora: 81502 };
+    const a = await registrarEvento({ ...base, acao: "CO", momento }, prisma);
+    await prisma.$transaction((tx) => registrarEvento({ ...base, acao: "DV", momento }, tx));
+    const todos = await prisma.auditoria.findMany({ orderBy: { numAuditoria: "asc" } });
+    expect(a.numAuditoria).toBe(1);
+    expect(todos.map((e) => [e.dtEvento, e.hrEvento])).toEqual([
+      [20260925, 81502],
+      [20260925, 81502],
+    ]);
+    await expect(registrarEvento({ ...base, momento: { data: 1.5, hora: 0 } }, prisma)).rejects.toThrow(/momento/);
+  });
+
+  it("rejeita momento implausível (AAAAMMDD / HHMMSS) sem gravar", async () => {
+    const invalidos = [
+      { data: 2026092, hora: 0 }, // 7 dígitos
+      { data: 202609251, hora: 0 }, // 9 dígitos
+      { data: 20261325, hora: 0 }, // mês 13
+      { data: 20260025, hora: 0 }, // mês 00
+      { data: 20260900, hora: 0 }, // dia 00
+      { data: 20260932, hora: 0 }, // dia 32
+      { data: 20260925, hora: 240000 },
+      { data: 20260925, hora: 126000 }, // minuto 60
+      { data: 20260925, hora: 125960 }, // segundo 60
+      { data: 20260925, hora: -1 },
+      { data: 20260925, hora: 1.5 },
+    ];
+    for (const momento of invalidos) {
+      await expect(registrarEvento({ ...base, momento }, prisma)).rejects.toThrow(/momento/);
+    }
+    expect(await prisma.auditoria.count()).toBe(0);
+    for (const momento of [
+      { data: 20260101, hora: 0 },
+      { data: 20261231, hora: 235959 },
+    ]) {
+      expect(await registrarEvento({ ...base, momento }, prisma)).toMatchObject({ dtEvento: momento.data, hrEvento: momento.hora });
+    }
+  });
+
   it("corta textos ao tamanho do DDM", async () => {
     const e = await registrarEvento(
       {

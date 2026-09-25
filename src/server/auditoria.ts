@@ -19,6 +19,12 @@ export type EventoAuditoria = {
   descricao: string;
   valorAnterior?: string | null;
   valorPosterior?: string | null;
+  /**
+   * Momento del evento provisto por el llamador (AAAAMMDD / HHMMSS). Un proceso batch
+   * toma `*DATN`/`*TIMN` una sola vez al inicio y graba todos sus eventos con ese
+   * momento (BATCHCON:79-80). Ausente → `hoje()` en cada evento.
+   */
+  momento?: { data: number; hora: number };
 };
 
 /** Cliente completo (abre su transacción) o cliente de una transacción en curso. */
@@ -33,7 +39,7 @@ async function gravar(tx: Prisma.TransactionClient, evento: EventoAuditoria, usu
   // numAuditoria = máx.+1, calculado dentro de la misma transacción que el insert.
   const { _max } = await tx.auditoria.aggregate({ _max: { numAuditoria: true } });
   const numAuditoria = (_max.numAuditoria ?? 0) + 1;
-  const { data: dtEvento, hora: hrEvento } = hoje();
+  const { data: dtEvento, hora: hrEvento } = evento.momento ?? hoje();
   return tx.auditoria.create({
     data: {
       numAuditoria,
@@ -50,6 +56,16 @@ async function gravar(tx: Prisma.TransactionClient, evento: EventoAuditoria, usu
   });
 }
 
+/** `data` AAAAMMDD plausible (8 dígitos, mes 01–12, día 01–31) y `hora` HHMMSS (≤ 235959, mm/ss ≤ 59). */
+function momentoValido({ data, hora }: { data: number; hora: number }): boolean {
+  if (!Number.isInteger(data) || data < 10000101 || data > 99991231) return false;
+  const mes = Math.floor(data / 100) % 100;
+  const dia = data % 100;
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return false;
+  if (!Number.isInteger(hora) || hora < 0 || hora > 235959) return false;
+  return Math.floor(hora / 100) % 100 <= 59 && hora % 100 <= 59;
+}
+
 function ehClienteCompleto(c: ClienteAuditoria): c is PrismaClient {
   return typeof (c as PrismaClient).$transaction === "function";
 }
@@ -61,6 +77,9 @@ function ehClienteCompleto(c: ClienteAuditoria): c is PrismaClient {
 export async function registrarEvento(evento: EventoAuditoria, cliente: ClienteAuditoria = prisma) {
   if (!ACOES_AUDITORIA.includes(evento.acao)) {
     throw new Error(`ação de auditoria inválida: ${String(evento.acao)}`);
+  }
+  if (evento.momento && !momentoValido(evento.momento)) {
+    throw new Error("momento de auditoria inválido");
   }
   const usuario = evento.usuario?.trim() || process.env.SIFAP_USER?.trim() || "";
   if (!usuario) throw new Error("usuário de auditoria não informado (SIFAP_USER)");

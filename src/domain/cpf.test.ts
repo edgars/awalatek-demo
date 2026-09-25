@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculaDv1, calculaDv2, completaDv, MSG_CPF_INVALIDO, normalizaCpfNumerico, validaCpfCompleto, validaModulo11 } from "./cpf";
+import { calculaDv1, calculaDv2, completaDv, mascaraCpfRelatorio, MSG_CPF_INVALIDO, normalizaCpfNumerico, validaCpfCompleto, validaModulo11 } from "./cpf";
 
 const d = (s: string) => Array.from(s, Number);
 
@@ -200,5 +200,17 @@ describe("cpf — normalizaCpfNumerico (N11)", () => {
     expect(normalizaCpfNumerico("123")).toBe("00000000123");
     expect(normalizaCpfNumerico("")).toBe("00000000000");
     expect(normalizaCpfNumerico("123456789012")).toBe("123456789012");
+  });
+});
+
+describe("mascaraCpfRelatorio (RELPGT:110–113)", () => {
+  it("***.XXX.XXX-XX com os dígitos 4–6, 7–9 e 10–11", () => {
+    expect(mascaraCpfRelatorio("01234567890")).toBe("***.345.678-90");
+    expect(mascaraCpfRelatorio("12345678062")).toBe("***.456.780-62");
+  });
+
+  it("CPF curto é completado com zeros à esquerda (N11 → A11)", () => {
+    expect(mascaraCpfRelatorio("1234567890")).toBe("***.345.678-90");
+    expect(mascaraCpfRelatorio("")).toBe("***.000.000-00");
   });
 });
