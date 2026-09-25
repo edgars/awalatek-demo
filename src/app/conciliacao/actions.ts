@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { decodificarArquivo, mensagemCodigoDesconhecido, type ResumoConciliacao } from "@/domain/cnab240";
 import { mascaraCpfLista } from "@/domain/cpf";
-import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { conciliarRetorno } from "@/server/conciliacao";
 import type { CampoConciliacao, EstadoConciliacao, ResumoConciliacaoTela } from "./estado";
 import { LIMITE_ARQUIVO_BYTES, MSG_ARQUIVO_GRANDE } from "./limite";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 
 // Server Action de /conciliacao (BATCHCON). Valida la forma de la entrada con zod
 // (competencia + upload, que reemplaza la ruta #ARQ-RETORNO del legado); las reglas
@@ -63,14 +63,9 @@ export async function conciliarRetornoAction(_anterior: EstadoConciliacao, dados
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   // D23: la configuración de correcciones se lee una vez por solicitud.
-  let quirks: Quirks;
-  try {
-    quirks = lerQuirks();
-  } catch (e) {
-    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
-    console.error("[conciliacao]", detalheErroQuirks(e));
-    return { ok: false, mensagem: ERRO_INESPERADO };
-  }
+  // Configuración inválida → ya registrada (sin datos personales); mensaje genérico.
+  const quirks = lerQuirksServidor("conciliacao");
+  if (!quirks) return { ok: false, mensagem: ERRO_INESPERADO };
   try {
     // Latin-1: un carácter por byte, las posiciones del CNAB no se desplazan.
     const conteudo = decodificarArquivo(await parsed.data.arquivo.arrayBuffer());

@@ -501,6 +501,48 @@ en el código con `// LEGACY-QUIRK(Dn)`. D4 queda detrás de un flag desactivado
 | D16 | Febrero siempre con 29 días | Replicar | FR-VAL-03 |
 | D17 | Renta > 9.999,99 no encaja en ningún tramo: el factor de renta no se asigna. Cálculo individual → factor 0 (beneficio 0); lote → **arrastra el factor del beneficiario anterior** | Replicar individual (0); en lote replicar con `TODO(review)` — probable bug a confirmar con negocio | FR-CAL-05, FR-LOT-03 |
 
+### 5.1 Correcciones configurables (2026-09-25)
+
+Decisión del usuario: **corrección con flag**. Cada quirk conserva la réplica del
+legado como comportamiento por defecto (paridad con el mainframe) y tiene su
+comportamiento corregido implementado, activable por configuración:
+
+- `SIFAP_QUIRKS_CORRIGIDOS`: lista separada por comas de los quirks a corregir
+  (p. ej. `D17,D21,D23`) o `ALL`. **`ALL` no incluye D7** (cambiar la máscara de CPF
+  exige aprobación de auditoría): se activa explícitamente con `ALL,D7`.
+- `LEGACY_DOC_ESPECIAL_ENABLED` (D4) y `LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED` (D18):
+  funcionan al revés — el default ya es el comportamiento corregido y el flag
+  activa la réplica del legado.
+- Configuración inválida → la solicitud responde con el mensaje genérico y el log
+  nombra la variable (sin datos personales); la CLI del lote termina con código 2.
+- En el código: `// LEGACY-QUIRK(Dn)` marca la rama legado y `// CORRECAO(Dn)` la corregida.
+
+| ID | Corregido (`Dn` activo) |
+|---|---|
+| D4 | (default) sin bypass por prefijo de CPF; `LEGACY_DOC_ESPECIAL_ENABLED=true` lo reactiva |
+| D4b | Todo CPF con 11 dígitos iguales es inválido |
+| D5 | Edad > 75 → S solo en la inclusión |
+| D6 | Máximo 5 dependientes |
+| D7 | Máscara de consulta siempre `***.***.XXX-XX` (requiere aprobación de auditoría) |
+| D8 | El motor no reaplica (1 + FATOR-REAJ) sobre la base ya × FATOR-K |
+| D9 | Año sin IPCA → pago no procesado, aviso `SEM INDICE IPCA` |
+| D10 | Consolidado: regiones 0/99/>25/sin beneficiario → fila `NAO CLASSIFICADA` |
+| D11 | Consolidado suma el bruto sin redondeo (sin efecto sobre centavos enteros) |
+| D12 | Región 99 pasa por todas las verificaciones de elegibilidad |
+| D13 | CALCDSCT recalcula y graba el líquido (solo pagos en status G; si no, aviso) sobre el bruto original |
+| D16 | Febrero según año bisiesto real |
+| D17 | El lote no arrastra el factor de renta (igual al individual); beneficios cero avisados en el resumen |
+| D18 | (default) status editable (PRD FR-BEN-01); `LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED=true` graba en blanco |
+| D19 | Nombre con al menos dos palabras |
+| D20 | Largo del RG sin contar espacios |
+| D21 | Consulta muestra los últimos 12 pagos, del más reciente al más antiguo |
+| D22 | Corrección IPCA sin parada temprana (orden por competencia dentro del período) |
+| D23 | Fecha de pago CNAB convertida a AAAAMMDD; inválida → 0 + aviso |
+
+D1–D3 no son configurables (fuera de alcance); D14/D15 son decisiones de modelo.
+Nota operativa: cambiar un flag no reescribe datos ya grabados (p. ej. fechas de pago
+en DDMMAAAA grabadas en modo legado D23, o líquidos no recalculados en modo D13).
+
 ## 6. Requisitos no funcionales
 
 - **NFR-01 Dinero:** `Decimal` en todo el stack; truncado a 2 decimales por

@@ -2,7 +2,7 @@
 title: 'Correcciones configurables de LEGACY-QUIRK D4b–D23'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
 baseline_revision: '270fc8b'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -69,3 +69,18 @@ D4 ya es configurable (`LEGACY_DOC_ESPECIAL_ENABLED`) y no se toca. D1–D3 qued
 - Con `SIFAP_QUIRKS_CORRIGIDOS=ALL` los tests del grupo en modo corregido pasan.
 
 </intent-contract>
+
+## Review Triage Log
+
+### 2026-09-25 — Review pass (3 grupos, Blind + Edge por grupo)
+- Grupo A (D4b, D5, D6, D12, D16, D18, D19, D20): 2 `medium` patch — status en blanco de D18 manejado en toda la app ("Em branco", nunca "A" silencioso, elección explícita, aviso en el formulario); log de configuración con la variable real (incl. VALDOCS). `low` ×5 patch (separador solo ' ' en D19/D20, higiene de tests, cobertura de ALL, constante compartida, firmas).
+- Grupo B (D8, D9, D13, D17, D22, D23): 1 `medium` patch — D13 recalcula el líquido solo en status G (aviso si no), centavos fijados en test, base = bruto original documentada. `low` ×6 patch (D23 por status resultante P, avisos de beneficio cero en D17, objetos de opciones, modo legado fijado en tests existentes, test de la CLI con exit 2, tipos).
+- Grupo C (D7, D10, D11, D21): 2 `medium` patch — log de configuración con la variable real; D21 ordenado por competencia. `low` ×5 patch.
+- Transversal: `ALL` excluye D7; `detalheErroQuirks`; lectura unificada en `lerQuirksServidor`.
+- Rechazados: fail-fast de configuración inválida en todas las pantallas (intencional), rango de plausibilidad de fechas D23, migración de datos ya grabados (nota operativa en PRD §5.1).
+
+## Auto Run Result
+
+- **Resumen:** 19 quirks con corrección configurable (D4b–D23 salvo D14/D15; D4 y D18 con flag propio), default = paridad con el legado. Documentado en `docs/prd.md` §5.1.
+- **Verificación (main):** lint 0; `npm test` 937/937 en modo legado, con `SIFAP_QUIRKS_CORRIGIDOS=ALL,D7` y con `LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED=true`; build OK; e2e 79/79.
+

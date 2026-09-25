@@ -1,6 +1,6 @@
 import { entradaConsultaSchema } from "@/domain/beneficiario/consulta";
-import { detalheErroQuirks, lerQuirks } from "@/domain/quirks";
 import { consultarBeneficiario, type ResultadoConsulta } from "@/server/consulta";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 
 // Ejecución común de la consulta (Server Action y carga inicial por `?cpf=`).
 // Solo lectura: CONSBENF no graba ni audita.
@@ -19,15 +19,9 @@ export async function executarConsulta(tipo: string, valor: string): Promise<Res
   const parsed = entradaConsultaSchema.safeParse({ tipo, valor });
   if (!parsed.success) return { ok: false, mensagem: parsed.error.issues[0]?.message ?? ERRO_INESPERADO };
   // LEGACY-QUIRK(D7/D21): la configuración se lee una vez por solicitud y se inyecta en el dominio.
-  let quirks;
-  try {
-    quirks = lerQuirks();
-  } catch (e) {
-    // Motivo (variable y valor de configuración, sin datos personales) para operaciones;
-    // al usuario, el mensaje genérico.
-    console.error(`[consulta] ${detalheErroQuirks(e)}`);
-    return { ok: false, mensagem: ERRO_INESPERADO };
-  }
+  // Configuración inválida → ya registrada (sin datos personales); mensaje genérico.
+  const quirks = lerQuirksServidor("consulta");
+  if (!quirks) return { ok: false, mensagem: ERRO_INESPERADO };
   try {
     return await consultarBeneficiario(parsed.data, undefined, quirks);
   } catch (e) {

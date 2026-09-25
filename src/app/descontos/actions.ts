@@ -1,9 +1,9 @@
 "use server";
 
 import { z } from "zod";
-import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { recalcularDescontos } from "@/server/descontos";
 import type { CampoDescontos, EstadoDescontos } from "./estado";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 
 // Server Action de /descontos (CALCDSCT). Valida la forma de la entrada con zod;
 // las reglas (FR-DSC-01 y el cálculo) están en el dominio.
@@ -42,14 +42,9 @@ export async function recalcularDescontosAction(_anterior: EstadoDescontos, dado
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   // D13: la configuración de correcciones se lee una vez por solicitud.
-  let quirks: Quirks;
-  try {
-    quirks = lerQuirks();
-  } catch (e) {
-    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
-    console.error("[descontos]", detalheErroQuirks(e));
-    return { ok: false, mensagem: ERRO_INESPERADO };
-  }
+  // Configuración inválida → ya registrada (sin datos personales); mensaje genérico.
+  const quirks = lerQuirksServidor("descontos");
+  if (!quirks) return { ok: false, mensagem: ERRO_INESPERADO };
   try {
     return await recalcularDescontos(parsed.data.numCpf, parsed.data.numPagamento, { quirks });
   } catch (e) {

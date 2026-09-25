@@ -2,9 +2,9 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { corrigirPagamentos } from "@/server/correcao";
 import type { CampoCorrecao, EstadoCorrecao } from "./estado";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 
 // Server Action de /correcao (CALCCORR). Valida la forma de la entrada con zod;
 // las reglas (período, índice, aplicación) están en el dominio.
@@ -45,14 +45,9 @@ export async function corrigirPagamentosAction(_anterior: EstadoCorrecao, dados:
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   // D9/D22: la configuración de correcciones se lee una vez por solicitud.
-  let quirks: Quirks;
-  try {
-    quirks = lerQuirks();
-  } catch (e) {
-    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
-    console.error("[correcao]", detalheErroQuirks(e));
-    return { ok: false, mensagem: ERRO_INESPERADO };
-  }
+  // Configuración inválida → ya registrada (sin datos personales); mensaje genérico.
+  const quirks = lerQuirksServidor("correcao");
+  if (!quirks) return { ok: false, mensagem: ERRO_INESPERADO };
   try {
     const r = await corrigirPagamentos(parsed.data.numCpf, parsed.data.compIni, parsed.data.compFim, { quirks });
     if (r.ok && r.qtdRegistros > 0) {

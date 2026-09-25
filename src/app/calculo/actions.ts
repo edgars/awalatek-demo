@@ -1,9 +1,9 @@
 "use server";
 
 import { z } from "zod";
-import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { calcularBeneficioIndividual } from "@/server/calculo";
 import type { CampoCalculo, EstadoCalculo } from "./estado";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 
 // Server Action de /calculo (CALCBENF). Valida la forma de la entrada con zod;
 // las reglas (FR-CAL-01/02 y el cálculo) están en el dominio.
@@ -40,14 +40,9 @@ export async function calcularBeneficioAction(_anterior: EstadoCalculo, dados: F
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   // D8/D17: la configuración de correcciones se lee una vez por solicitud y se inyecta en el motor.
-  let quirks: Quirks;
-  try {
-    quirks = lerQuirks();
-  } catch (e) {
-    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
-    console.error("[calculo]", detalheErroQuirks(e));
-    return { ok: false, mensagem: ERRO_INESPERADO };
-  }
+  // Configuración inválida → ya registrada (sin datos personales); mensaje genérico.
+  const quirks = lerQuirksServidor("calculo");
+  if (!quirks) return { ok: false, mensagem: ERRO_INESPERADO };
   try {
     return await calcularBeneficioIndividual(parsed.data.numCpf, parsed.data.competencia, { quirks });
   } catch (e) {
