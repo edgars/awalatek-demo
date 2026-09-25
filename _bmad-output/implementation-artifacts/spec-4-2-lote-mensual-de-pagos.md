@@ -2,14 +2,23 @@
 title: 'Story 4.2 — Lote mensual de pagos'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '5dc58db'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
   - '{project-root}/bmad-context.md'
 warnings: []
-deferred: []
+deferred:
+  - summary: Candado entre procesos y unicidad (numCpf, anoMesRef) en Pagamento — CLI y web (o dos instancias) pueden correr el lote a la vez y duplicar pagos de un CPF/competencia.
+    evidence: El candado es un flag en globalThis; `jaGerado` y el insert son sentencias separadas; el cálculo individual (4.1) puede insertar entre ambas.
+  - summary: Test de subproceso de la CLI `npm run lote:pagamentos` (exit code y resumen).
+    evidence: Solo se ejecutó a mano (exit 0, resumen correcto); ningún test corre el script.
+  - summary: Volumen — lectura paginada por cursor y ejecución desacoplada de la solicitud HTTP; progreso visible en la UI.
+    evidence: `findMany` sin cursor y todo el lote dentro de una Server Action; el progreso solo va al log del servidor.
+  - summary: Identidad del operador que dispara el lote desde la web (auth fuera de alcance).
+    evidence: `executarLoteAction` no registra quién ejecutó; BATCHPGT no audita.
 ---
 
 <intent-contract>
@@ -81,7 +90,27 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 31 findings — high 0, medium 2, low 16, false 13, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (blind/edge) error inesperado a mitad de corrida perdía el resumen con pagos ya grabados — corta el loop y devuelve resumen parcial + "LOTE INTERROMPIDO: ERRO INESPERADO CPF=<enmascarado>"; CLI imprime parcial y sale con 1
+  - `[medium]` `[defer]` (blind/edge/verif) candado solo en el proceso y sin unicidad (numCpf, anoMesRef) — diferido (concurrencia multi-proceso)
+  - `[low]` `[patch]` ×4 — reintento solo ante colisión de `numPagamento` (meta del adapter) con tests de colisión real, aviso "já processada" por motivo `JA_GERADO`, e2e (aviso, IGNORADOS = PROCESSADOS, conteo contra la base, competencia calculada en el test), comentarios NFR-04 y LEGACY-QUIRK de BATCHPGT:345
+  - `[low]` `[defer]` ×3 — test de subproceso de la CLI, volumen/cursor/progreso en UI, identidad del operador
+  - `[low]` `[reject]` ×9 — mezcla de idiomas en identificadores (nombre del spec), formatos de competencia, lecturas por beneficiario ignorado, etc.
+  - `[false]` `[reject]` ×13 — cobertura de las 39 RK de FR-LOT-01/03 en el motor (4.1, mismo `calcular()`), sin evidencia de `getRule` (`rk-verification.md`), etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3227 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** lote mensual BATCHPGT: selección en dominio (CPF repetido, status, ya generado, programa inexistente/inactivo), mismo `calcular()` del motor con arrastre D17, una transacción por beneficiario, numeración máx.+1 con reintento, candado en proceso, progreso cada 1.000, resumen literal; `/lote` con confirmación y CLI `npm run lote:pagamentos`.
+- **Implementado en paralelo** (worktree); integrado por merge (conflicto trivial en `navegacao.ts`).
+- **Review:** 31 hallazgos — 5 patches (1 `medium`), 4 diferidos, 22 rechazados.
+- **Follow-up review recomendado:** `true` — riesgo de duplicados con ejecuciones concurrentes entre procesos (diferido).
+- **Verificación (tras merge):** lint 0; `npm test` 584/584; build OK; e2e 48/48 (×4).
+- **Pendiente de negocio:** D17 (arrastre del factor de renta entre beneficiarios).
+
