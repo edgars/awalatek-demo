@@ -19,14 +19,6 @@ const VARIANTE_SITUACAO: Record<string, "success" | "warning" | "secondary" | "d
   D: "secondary",
 };
 
-function AcaoFutura({ children }: { children: string }) {
-  return (
-    <span className="cursor-not-allowed text-muted-foreground/70" aria-disabled="true" title="Disponível em uma próxima entrega">
-      {children}
-    </span>
-  );
-}
-
 const COLUNAS: readonly Coluna<Linha>[] = [
   // LGPD (NFR-04): CPF sempre mascarado na lista.
   { titulo: "CPF", celula: (b) => <span className="valor font-mono">{mascaraCpfLista(b.numCpf)}</span> },
@@ -56,7 +48,10 @@ const COLUNAS: readonly Coluna<Linha>[] = [
         <Link href={`/beneficiarios/${b.numCpf}/descontos`} className="font-medium text-primary underline-offset-4 hover:underline">
           Descontos<span className="sr-only"> {b.nomeCompleto}</span>
         </Link>
-        <AcaoFutura>Consultar</AcaoFutura>
+        {/* LGPD: o CPF vai só no href (como em Editar), nunca no texto do link. */}
+        <Link href={`/consulta?cpf=${b.numCpf}`} className="font-medium text-primary underline-offset-4 hover:underline">
+          Consultar<span className="sr-only"> {b.nomeCompleto}</span>
+        </Link>
       </span>
     ),
   },
