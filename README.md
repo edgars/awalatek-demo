@@ -174,7 +174,9 @@ docker compose logs -f app
   app antes** (`docker compose stop app`) e não rode comandos avulsos em paralelo com
   o `up` da versão nova.
 - **Lote mensal (BATCHPGT):** `docker compose run --rm app npm run lote:pagamentos`
-  — imprime o resumo; código de saída ≠ 0 em erro. Agendável pelo cron do host:
+  — imprime o resumo; código de saída ≠ 0 em erro ou se já houver um lote em execução
+  (web ou CLI: o cadeado fica na base, tabela `ProcessoLock`; um cadeado órfão de um
+  processo caído expira após `SIFAP_LOCK_EXPIRACAO_MIN`, padrão 120). Agendável pelo cron do host:
 
   ```cron
   0 6 1 * * cd /opt/sifap && docker compose run -T --rm app npm run lote:pagamentos >> /var/log/sifap-lote.log 2>&1
@@ -213,6 +215,11 @@ docker compose logs -f app
 Fora do Docker (desenvolvimento/local, com o `.env` de `.env.example`):
 `npm run db:deploy && npm run build && npm start` (`next start`; o servidor standalone
 é usado só dentro da imagem).
+
+**Esquema × migrações:** `npm run db:check` falha (código 2) se `prisma/schema.prisma`
+tiver mudanças sem migração em `prisma/migrations`. Rode-o junto de
+`npm run lint && npm test` antes de cada commit e como passo de CI; mudanças de esquema
+entram sempre por `npx prisma migrate dev --name <nome>` (nunca editar migrações existentes).
 
 ---
 

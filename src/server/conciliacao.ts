@@ -22,6 +22,8 @@ import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { registrarEvento } from "@/server/auditoria";
 import { prisma } from "@/server/db";
+import { comLock, LOCK_CONCILIACAO, lockAtivo } from "@/server/processoLock";
+import { ehColisaoNumAuditoria } from "@/server/unicidade";
 
 // Caso de uso de la conciliación del retorno CNAB 240 (BATCHCON, FR-CNB-01..04).
 // Orquesta dominio (`domain/cnab240.ts`) + Prisma sin lógica de negocio propia.
@@ -57,12 +59,12 @@ export interface OpcoesConciliacao {
   quirks?: QuirksConciliacao;
 }
 
-// Candado en memoria: impide dos conciliaciones simultáneas en el mismo proceso. Se
-// guarda en globalThis para sobrevivir a recargas del módulo en `next dev`.
-const estado = globalThis as unknown as { __sifapConciliacaoEmExecucao?: boolean };
+/** Reintentos si otro escritor tomó el mismo `numAuditoria` (unique) dentro de la transacción del registro. */
+const TENTATIVAS_NUMERACAO = 5;
 
-export function conciliacaoEmExecucao(): boolean {
-  return estado.__sifapConciliacaoEmExecucao === true;
+/** true si hay una conciliación en ejecución en cualquier proceso (candado ProcessoLock vigente). */
+export async function conciliacaoEmExecucao(db: PrismaClient = prisma): Promise<boolean> {
+  return lockAtivo(db, LOCK_CONCILIACAO);
 }
 
 function registrarFalha(e: unknown): void {
@@ -75,18 +77,13 @@ function registrarFalha(e: unknown): void {
 /**
  * FR-CNB — concilia el retorno CNAB 240 contra los pagos de la competencia.
  * Devuelve `{ ok: false, mensagem: "Conciliação já em execução." }` si ya hay una
- * corriendo en este proceso. Un error inesperado al procesar un registro detiene la
+ * corriendo en cualquier proceso (candado ProcessoLock). Un error inesperado al procesar un registro detiene la
  * corrida y devuelve `{ ok: false, mensagem, resumo }` con el resumen parcial.
  */
 export async function conciliarRetorno(entrada: EntradaConciliacao, opcoes: OpcoesConciliacao = {}): Promise<ResultadoConciliacao> {
-  // Verificación y toma del candado sin `await` en medio: atómicas en el event loop.
-  if (conciliacaoEmExecucao()) return { ok: false, mensagem: MSG_CONCILIACAO_EM_EXECUCAO };
-  estado.__sifapConciliacaoEmExecucao = true;
-  try {
-    return await processar(entrada, opcoes);
-  } finally {
-    estado.__sifapConciliacaoEmExecucao = false;
-  }
+  // Candado entre procesos en la base; se libera en `finally` (comLock). Un candado
+  // huérfano (proceso caído) expira según SIFAP_LOCK_EXPIRACAO_MIN.
+  return comLock<ResultadoConciliacao>(opcoes.db ?? prisma, LOCK_CONCILIACAO, () => ({ ok: false, mensagem: MSG_CONCILIACAO_EM_EXECUCAO }), () => processar(entrada, opcoes));
 }
 
 async function processar({ competencia, conteudo }: EntradaConciliacao, { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO }: OpcoesConciliacao): Promise<ResultadoConciliacao> {
@@ -102,7 +99,7 @@ async function processar({ competencia, conteudo }: EntradaConciliacao, { db = p
 
     let decisao: DecisaoConciliacao;
     try {
-      decisao = await db.$transaction((tx) => conciliarRegistro(tx, reg, competencia, momento, quirks));
+      decisao = await conRetryNumAuditoria(() => db.$transaction((tx) => conciliarRegistro(tx, reg, competencia, momento, quirks)));
     } catch (e) {
       // El legado abendaría: se detiene sin perder el resumen de lo ya grabado.
       registrarFalha(e);
@@ -114,6 +111,19 @@ async function processar({ competencia, conteudo }: EntradaConciliacao, { db = p
   return { ok: true, resumo };
 }
 
+/**
+ * P2002 sobre `numAuditoria` (otro escritor tomó el número entre el máx. y el insert):
+ * la transacción del registro ya se revirtió entera, se repite (relee el máximo).
+ */
+async function conRetryNumAuditoria<T>(fn: () => Promise<T>): Promise<T> {
+  for (let tentativa = 1; ; tentativa++) {
+    try {
+      return await fn();
+    } catch (e) {
+      if (!ehColisaoNumAuditoria(e) || tentativa >= TENTATIVAS_NUMERACAO) throw e;
+    }
+  }
+}
 
 /** Un registro de detalle dentro de su transacción: búsqueda, decisión, update y auditoría. */
 async function conciliarRegistro(

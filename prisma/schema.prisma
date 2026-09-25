@@ -236,6 +236,11 @@ model Pagamento {
 
   descontos PagamentoDesconto[]
 
+  // H1 — SIN unique (numCpf, anoMesRef), a propósito: el legado admite dos pagos del
+  // mismo CPF en la misma competencia. CALCBENF (CALCBENF:148-286) hace STORE sin buscar
+  // pagos previos, y el superdescriptor S1 (CPF + COMPETENCIA) del DDM PAGAMENTO no es UQ.
+  // Solo BATCHPGT (BATCHPGT:200-210) evita el duplicado, en la aplicación; entre lotes
+  // concurrentes lo garantiza el candado ProcessoLock. Ver src/server/calculo.ts.
   @@index([numCpf, anoMesRef])
 }
 
@@ -287,4 +292,14 @@ model Auditoria {
   numSeqCorrelacao Int? // NUM-SEQ-CORRELACAO
 
   @@index([dtEvento])
+}
+
+// ➕ Candado técnico entre procesos (lote web + CLI, conciliación). No viene del legado
+// (el mainframe serializaba los jobs en el scheduler). Adquisición = insert (P2002 →
+// ocupado); una fila más vieja que SIFAP_LOCK_EXPIRACAO_MIN se considera huérfana
+// (crash) y se reemplaza. Solo src/server/processoLock.ts escribe.
+model ProcessoLock {
+  nome        String   @id // p. ej. "LOTE-PAGAMENTOS", "CONCILIACAO"
+  dono        String // token aleatorio de quien lo tiene: solo el dueño lo libera
+  adquiridoEm DateTime
 }

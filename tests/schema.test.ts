@@ -34,7 +34,7 @@ afterAll(async () => {
 });
 
 describe("esquema e seed", () => {
-  it("cria as 9 tabelas do modelo", async () => {
+  it("cria as 10 tabelas do modelo (9 do legado + ProcessoLock)", async () => {
     const rows = await prisma.$queryRawUnsafe<{ name: string }[]>(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\' AND name NOT LIKE 'sqlite%'",
     );
@@ -46,6 +46,7 @@ describe("esquema e seed", () => {
         "BeneficiarioDesconto",
         "Pagamento",
         "PagamentoDesconto",
+        "ProcessoLock",
         "ProgramaFaixaCalculo",
         "ProgramaParamRegional",
         "ProgramaSocial",

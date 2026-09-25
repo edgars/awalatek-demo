@@ -16,6 +16,7 @@ import { calcular, competenciaDaData, type QuirksMotor, type ResultadoCalculo } 
 import { hoje } from "@/domain/legacyDate";
 import { corrige, QUIRKS_PADRAO } from "@/domain/quirks";
 import { prisma } from "@/server/db";
+import { comLock, LOCK_LOTE_PAGAMENTOS, lockAtivo } from "@/server/processoLock";
 
 // Caso de uso del lote mensual (BATCHPGT, FR-LOT-01..04). Orquesta dominio +
 // Prisma sin lógica de negocio propia: la selección está en
@@ -56,12 +57,12 @@ export interface OpcoesLote {
   quirks?: QuirksMotor;
 }
 
-// Candado en memoria: impide dos lotes simultáneos en el mismo proceso. Se guarda
-// en globalThis para sobrevivir a recargas del módulo en `next dev`.
-const estado = globalThis as unknown as { __sifapLoteEmExecucao?: boolean };
-
-export function loteEmExecucao(): boolean {
-  return estado.__sifapLoteEmExecucao === true;
+/**
+ * true si hay un lote en ejecución en cualquier proceso (web o CLI): candado vigente
+ * en la tabla ProcessoLock.
+ */
+export async function loteEmExecucao(db: PrismaClient = prisma): Promise<boolean> {
+  return lockAtivo(db, LOCK_LOTE_PAGAMENTOS);
 }
 
 /**
@@ -95,19 +96,16 @@ async function maiorNumPagamento(db: PrismaClient): Promise<number> {
  * FR-LOT — genera los pagos de la competencia de `dtHoje` para todos los
  * beneficiarios activos, en orden de CPF. Una transacción por beneficiario.
  * Devuelve `{ ok: false, mensagem: "Lote já em execução." }` si ya hay un lote
- * corriendo en este proceso. Un error inesperado al procesar un beneficiario
+ * corriendo en cualquier proceso (candado ProcessoLock). Un error inesperado al procesar un beneficiario
  * interrumpe la corrida y devuelve `{ ok: false, mensagem, resumo }` con el resumen
  * parcial (los pagos ya grabados quedan). Errores antes del recorrido se propagan.
  */
 export async function ejecutarLotePagamentos(opcoes: OpcoesLote = {}): Promise<ResultadoLote> {
-  // Verificación y toma del candado sin `await` en medio: atómicas en el event loop.
-  if (loteEmExecucao()) return { ok: false, mensagem: MSG_LOTE_EM_EXECUCAO };
-  estado.__sifapLoteEmExecucao = true;
-  try {
-    return await processar(opcoes);
-  } finally {
-    estado.__sifapLoteEmExecucao = false;
-  }
+  // Candado entre procesos (web + CLI) en la base; se libera en `finally` (comLock).
+  // Un candado huérfano (proceso caído) expira según SIFAP_LOCK_EXPIRACAO_MIN.
+  // H1 — sin unique (numCpf, anoMesRef): el legado lo admite en el individual (ver
+  // schema.prisma, Pagamento); el candado evita que dos lotes dupliquen la competencia.
+  return comLock<ResultadoLote>(opcoes.db ?? prisma, LOCK_LOTE_PAGAMENTOS, () => ({ ok: false, mensagem: MSG_LOTE_EM_EXECUCAO }), () => processar(opcoes));
 }
 
 async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) => console.log(l), quirks = QUIRKS_PADRAO }: OpcoesLote): Promise<ResultadoLote> {
@@ -248,5 +246,5 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
 export async function situacaoLote(db: PrismaClient = prisma, agora: Date = new Date()): Promise<{ competencia: number; pagamentosExistentes: number; emExecucao: boolean }> {
   const competencia = competenciaDaData(hoje(agora).data);
   const pagamentosExistentes = await db.pagamento.count({ where: { anoMesRef: competencia } });
-  return { competencia, pagamentosExistentes, emExecucao: loteEmExecucao() };
+  return { competencia, pagamentosExistentes, emExecucao: await loteEmExecucao(db) };
 }

@@ -96,6 +96,10 @@ export async function calcularBeneficioIndividual(
         // del CPF en la competencia ni el STATUS-PROG del programa (BATCHPGT sí lo
         // hace). Se replica: dos cálculos seguidos generan dos pagos.
         // TODO(review): confirmar con negocio si el individual debe impedir duplicados.
+        // H1 — por eso NO hay unique (numCpf, anoMesRef) en Pagamento: CALCBENF hace
+        // STORE PAGAMENTO-V (CALCBENF:286) sin FIND previo, y el superdescriptor S1
+        // (CPF + COMPETENCIA) del DDM PAGAMENTO no es único. El lote se protege con su
+        // verificación #JA-GERADO (BATCHPGT:200-210) + el candado entre procesos.
         await tx.pagamento.create({
           data: {
             numPagamento,

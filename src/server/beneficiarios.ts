@@ -15,6 +15,7 @@ import { anoDe, hoje } from "@/domain/legacyDate";
 import { MENSAGENS_PROGRAMA } from "@/domain/programa";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
+import { vazioParaNull } from "@/server/unicidade";
 
 // Casos de uso de beneficiarios (CADBENEF). Orquesta dominio + Prisma, sin lógica
 // de negocio propia. CADBENEF no registra auditoría: aquí no se llama a registrarEvento.
@@ -108,7 +109,7 @@ export async function incluirBeneficiario(
     await db.beneficiario.create({
       data: {
         numCpf: dados.numCpf,
-        nis: dados.nis,
+        nis: vazioParaNull(dados.nis), // vacío → NULL (unique nullable)
         nomeCompleto: dados.nomeCompleto,
         dtNascimento: dados.dtNascimento,
         sexo: dados.sexo,

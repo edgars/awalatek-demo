@@ -9,6 +9,7 @@ import {
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
+import { vazioParaNull } from "@/server/unicidade";
 
 // Casos de uso de dependientes (CADDEPEND). Orquesta dominio + Prisma, sin lógica de
 // negocio propia. CADDEPEND solo incluye (no edita ni borra) y no registra auditoría.
@@ -83,6 +84,8 @@ export async function incluirDependente(
   quirks: Quirks = QUIRKS_PADRAO,
 ): Promise<ResultadoDependente> {
   const usuario = usuarioOperativo();
+  // CPF del dependiente vacío → NULL antes de decidir y grabar (unique nullable).
+  dados = { ...dados, cpfDependente: vazioParaNull(dados.cpfDependente) };
   try {
     return await db.$transaction(async (tx) => {
       const titular = /^\d{11}$/.test(numCpf)

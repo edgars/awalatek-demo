@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { hoje } from "@/domain/legacyDate";
 import { prisma } from "@/server/db";
+import { ehColisaoNumAuditoria } from "@/server/unicidade";
 
 // ADR-009 — único escritor de la tabla Auditoria. Append-only: este módulo no
 // expone (ni debe exponer) funciones de actualización o borrado.
@@ -34,6 +35,9 @@ export type ClienteAuditoria = PrismaClient | Prisma.TransactionClient;
 const LEN = { usrEvento: 8, tipoEntidade: 15, idEntidade: 20, desAcao: 80 } as const;
 
 const corta = (s: string, n: number): string => s.slice(0, n);
+
+/** Reintentos si otro escritor tomó el mismo `numAuditoria` entre el máx. y el insert. */
+const TENTATIVAS_NUMERACAO = 5;
 
 async function gravar(tx: Prisma.TransactionClient, evento: EventoAuditoria, usuario: string) {
   // numAuditoria = máx.+1, calculado dentro de la misma transacción que el insert.
@@ -72,7 +76,9 @@ function ehClienteCompleto(c: ClienteAuditoria): c is PrismaClient {
 
 /**
  * Registra un evento de auditoría. Si recibe el cliente de una transacción en
- * curso (p. ej. un proceso de E6), graba dentro de ella; si no, abre una propia.
+ * curso (p. ej. un proceso de E6), graba dentro de ella y la colisión de
+ * `numAuditoria` (P2002) sube al llamador, que repite su transacción entera; si no,
+ * abre una propia y la repite ante esa colisión (SQLITE_BUSY lo cubre `db.ts`).
  */
 export async function registrarEvento(evento: EventoAuditoria, cliente: ClienteAuditoria = prisma) {
   if (!ACOES_AUDITORIA.includes(evento.acao)) {
@@ -85,7 +91,13 @@ export async function registrarEvento(evento: EventoAuditoria, cliente: ClienteA
   if (!usuario) throw new Error("usuário de auditoria não informado (SIFAP_USER)");
 
   if (ehClienteCompleto(cliente)) {
-    return cliente.$transaction((tx) => gravar(tx, evento, usuario));
+    for (let tentativa = 1; ; tentativa++) {
+      try {
+        return await cliente.$transaction((tx) => gravar(tx, evento, usuario));
+      } catch (e) {
+        if (!ehColisaoNumAuditoria(e) || tentativa >= TENTATIVAS_NUMERACAO) throw e;
+      }
+    }
   }
   return gravar(cliente, evento, usuario);
 }
