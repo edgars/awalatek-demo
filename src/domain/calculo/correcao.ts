@@ -36,9 +36,10 @@ export type PagamentoCorrecao = {
 
 /**
  * FR-COR-01/02 — replica `READ PAGAMENTO-V BY CPF-BENEF = #CPF` (CALCCORR:128-142)
- * sobre los pagos ya ordenados por competencia ascendente (el caso de uso los
- * ordena por `anoMesRef`, `numPagamento`, para que la parada sea equivalente).
- * Devuelve los pagos a evaluar, en orden.
+ * sobre los pagos del CPF en orden de lectura del legado (ISN ≈ `numPagamento`
+ * asc; el caso de uso no filtra por período). Devuelve los pagos a evaluar, en orden.
+ * LEGACY-QUIRK(D22): la primera competencia > final termina el recorrido aunque
+ * después vengan pagos del período (ver `src/server/correcao.ts`).
  */
 export function selecionarPagamentos<P extends PagamentoCorrecao>(
   pagamentos: readonly P[],
@@ -109,16 +110,17 @@ export function calcularCorrecao(vlrBruto: number, competencia: number): Correca
   // RK-ef8db09fc095 (CALCCORR:155): … corr = temp / 100 → truncado a centavos.
   const corr = truncar(bruto);
   // RK-146fee57d2a4 (CALCCORR:156): diferencia = corregido − original.
-  const diff = corr.minus(orig);
+  // (ambos valores ya están truncados a centavos: la resta entera es exacta).
   const vlrCorrigido = aCentavos(corr);
+  const vlrDiferenca = vlrCorrigido - vlrBruto;
   return {
     vlrOriginal: vlrBruto,
     vlrCorrigido,
-    vlrDiferenca: vlrCorrigido - vlrBruto,
+    vlrDiferenca,
     // RK-b5eb9d994cd9 (CALCCORR:158): solo si la diferencia > 0 se graba
     // VLR-CORRECAO = corregido (valor completo), DT-CORRECAO = hoy, IND-CORRIGIDO = 'S'.
     // Diferencia 0 → el pago no se marca y vuelve a evaluarse en la próxima ejecución.
-    corrigir: diff.greaterThan(0),
+    corrigir: vlrDiferenca > 0,
   };
 }
 

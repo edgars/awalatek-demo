@@ -44,11 +44,16 @@ export async function corrigirPagamentos(
   const erro = validarPeriodo(compIni, compFim);
   if (erro) return { ok: false, mensagem: erro };
 
-  // Orden por competencia (y número de pago para desempatar) para que el
-  // ESCAPE BOTTOM de CALCCORR:136 equivalga a la lectura del legado.
+  // `READ PAGAMENTO-V BY CPF-BENEF = #CPF` (CALCCORR:128): todos los pagos del CPF
+  // en orden de ISN (inserción ≈ `numPagamento` asc, mismo criterio que D21), sin
+  // filtrar por período: los ESCAPE TOP/BOTTOM los aplica `selecionarPagamentos`.
+  // LEGACY-QUIRK(D22): un pago con competencia posterior a la final insertado antes
+  // que los del período termina el recorrido (ESCAPE BOTTOM, CALCCORR:136) y los
+  // pagos del período leídos después NO se corrigen. Se replica tal cual.
+  // TODO(review): confirmar con negocio si la parada anticipada debe mantenerse.
   const pagamentos = await db.pagamento.findMany({
-    where: { numCpf, anoMesRef: { gte: compIni, lte: compFim } },
-    orderBy: [{ anoMesRef: "asc" }, { numPagamento: "asc" }],
+    where: { numCpf },
+    orderBy: { numPagamento: "asc" },
     select: { id: true, numPagamento: true, numCpf: true, anoMesRef: true, vlrBruto: true, indCorrigido: true },
   });
 

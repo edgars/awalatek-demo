@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition, type FormEvent } from "react";
 import { Competencia, CpfInput, ResultadoLegado, ResumoProcesso } from "@/components/campos";
-import { centavosParaTexto } from "@/components/campos/conversao";
+import { formatarReais } from "@/domain/money";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,8 +12,6 @@ import { corrigirPagamentosAction } from "../actions";
 import type { CampoCorrecao, EstadoCorrecao } from "../estado";
 
 const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
-
-const reais = (centavos: number) => `R$ ${centavosParaTexto(centavos)}`;
 
 function competenciaTexto(comp: number): string {
   const s = String(comp).padStart(6, "0");
@@ -54,9 +52,9 @@ function TabelaCorrigidos({ corrigidos }: { corrigidos: readonly PagamentoCorrig
                   </Link>
                 </TableCell>
                 <TableCell className="font-mono tabular-nums">{competenciaTexto(p.competencia)}</TableCell>
-                <TableCell className="text-right font-mono tabular-nums">{reais(p.vlrOriginal)}</TableCell>
-                <TableCell className="text-right font-mono tabular-nums">{reais(p.vlrCorrigido)}</TableCell>
-                <TableCell className="text-right font-mono tabular-nums">{reais(p.vlrDiferenca)}</TableCell>
+                <TableCell className="valor text-right font-mono tabular-nums">{formatarReais(p.vlrOriginal)}</TableCell>
+                <TableCell className="valor text-right font-mono tabular-nums">{formatarReais(p.vlrCorrigido)}</TableCell>
+                <TableCell className="valor text-right font-mono tabular-nums">{formatarReais(p.vlrDiferenca)}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -108,7 +106,7 @@ export function FormCorrecao() {
             titulo={painel.mensagem}
             itens={[
               { rotulo: "REGISTROS CORRIGIDOS", valor: painel.qtdRegistros },
-              { rotulo: "VALOR TOTAL CORRECAO", valor: reais(painel.vlrTotal) },
+              { rotulo: "VALOR TOTAL CORRECAO", valor: formatarReais(painel.vlrTotal) },
             ]}
           />
           {painel.corrigidos.length > 0 ? <TabelaCorrigidos corrigidos={painel.corrigidos} /> : null}

@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { corrigirPagamentos } from "@/server/correcao";
 import type { CampoCorrecao, EstadoCorrecao } from "./estado";
@@ -43,7 +44,13 @@ export async function corrigirPagamentosAction(_anterior: EstadoCorrecao, dados:
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   try {
-    return await corrigirPagamentos(parsed.data.numCpf, parsed.data.compIni, parsed.data.compFim);
+    const r = await corrigirPagamentos(parsed.data.numCpf, parsed.data.compIni, parsed.data.compFim);
+    if (r.ok && r.qtdRegistros > 0) {
+      // La consulta y el detalle de pagos muestran la corrección.
+      revalidatePath("/pagamentos");
+      for (const p of r.corrigidos) revalidatePath(`/pagamentos/${p.numPagamento}`);
+    }
+    return r;
   } catch (e) {
     return falhaInesperada(e);
   }

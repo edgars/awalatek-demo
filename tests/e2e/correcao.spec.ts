@@ -18,7 +18,8 @@ test.beforeAll(async () => {
   db = createPrismaClient("file:./e2e.db");
   const francisco = await db.beneficiario.findUnique({ where: { numCpf: CPF_FRANCISCO }, select: { id: true } });
   if (!francisco) throw new Error("seed do e2e sem o beneficiário esperado");
-  await db.pagamento.deleteMany({ where: NOSSOS });
+  // Por número (de cualquier CPF) y por CPF: ni un número ya usado ni restos de otra ejecución rompen el spec.
+  await db.pagamento.deleteMany({ where: { OR: [{ numPagamento: { in: NUMS } }, { numCpf: CPF_FRANCISCO }] } });
   const base = { numCpf: CPF_FRANCISCO, codPrograma: "PA01", sitPagamento: "G", tipoPgto: "N", dtGeracao: 20260901, hrGeracao: 101500, usrInclusao: "BATCH" };
   await db.pagamento.createMany({
     data: [
