@@ -61,6 +61,19 @@ describe("registrarEvento", () => {
     }
   });
 
+  it("usa o momento informado pelo chamador (mesmo dt/hr para todos os eventos)", async () => {
+    const momento = { data: 20260925, hora: 81502 };
+    const a = await registrarEvento({ ...base, acao: "CO", momento }, prisma);
+    await prisma.$transaction((tx) => registrarEvento({ ...base, acao: "DV", momento }, tx));
+    const todos = await prisma.auditoria.findMany({ orderBy: { numAuditoria: "asc" } });
+    expect(a.numAuditoria).toBe(1);
+    expect(todos.map((e) => [e.dtEvento, e.hrEvento])).toEqual([
+      [20260925, 81502],
+      [20260925, 81502],
+    ]);
+    await expect(registrarEvento({ ...base, momento: { data: 1.5, hora: 0 } }, prisma)).rejects.toThrow(/momento/);
+  });
+
   it("corta textos ao tamanho do DDM", async () => {
     const e = await registrarEvento(
       {
