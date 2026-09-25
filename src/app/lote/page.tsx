@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { intParaCompetencia } from "@/domain/legacyDate";
 import { situacaoLote } from "@/server/lotePagamentos";
 import { ExecucaoLote } from "./_componentes/ExecucaoLote";
@@ -7,6 +8,8 @@ export const metadata: Metadata = { title: "Lote mensal" };
 
 /** Pantalla 4.13 — Lote mensal de pagamentos (BATCHPGT). */
 export default async function LotePage() {
+  // Consulta la base: solo en tiempo de request (sin prerender en `next build`).
+  await connection();
   const { competencia, pagamentosExistentes, emExecucao } = await situacaoLote();
   return (
     <div className="grid gap-4">

@@ -14,8 +14,8 @@ next-env.d.ts
 *.db-shm
 
 # Entorno y secretos
-.env
-.env*.local
+.env*
+!.env.example
 
 # Tests y reportes
 test-results

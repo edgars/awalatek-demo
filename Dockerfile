@@ -23,23 +23,25 @@ RUN npm ci --no-audit --no-fund
 # ---- build: next build (standalone) + bundles JS del lote y del seed ----------
 FROM deps AS build
 COPY . .
-# `next build` intenta prerenderizar páginas que consultan la base antes de que el
-# `connection()` del layout las marque como dinámicas: se usa una base vacía y
-# migrada solo para el build (todas las rutas quedan ƒ; no se hornean datos).
-RUN export DATABASE_URL=file:/tmp/build.db \
-  && npx prisma migrate deploy \
-  && npm run build \
+# El servidor standalone no incluye `.next/static` ni `public/`: se copian aquí.
+# Nunca un .env dentro de la imagen (el .dockerignore ya lo excluye).
+RUN npm run build \
   && npm run build:scripts \
-  && rm -f /tmp/build.db*
+  && cp -r .next/static .next/standalone/.next/static \
+  && if [ -d public ]; then cp -r public .next/standalone/public; fi \
+  && rm -f .next/standalone/.env*
 
 # ---- cli-deps: prisma CLI (migrate deploy) + dependencias de los bundles del lote/seed ----
-# Se podan del árbol del lockfile (versiones exactas) todas las dependencias que no
-# se usan fuera de Next; el servidor standalone ya trae su propio node_modules trazado.
+# Se podan del árbol del lockfile (versiones exactas) todas las dependencias fuera de
+# docker/cli-deps.json; el servidor standalone ya trae su propio node_modules trazado.
 FROM deps AS cli-deps
+COPY docker/cli-deps.json /tmp/cli-deps.json
 RUN node -e ' \
     const fs = require("fs"); \
-    const keep = ["prisma", "dotenv", "@prisma/client", "@prisma/adapter-better-sqlite3", "better-sqlite3", "decimal.js", "zod"]; \
+    const keep = JSON.parse(fs.readFileSync("/tmp/cli-deps.json", "utf8")).dependencies; \
     const p = JSON.parse(fs.readFileSync("package.json", "utf8")); \
+    const faltantes = keep.filter((k) => !(k in p.dependencies)); \
+    if (faltantes.length) { console.error("cli-deps.json fora de dependencies:", faltantes.join(", ")); process.exit(1); } \
     p.dependencies = Object.fromEntries(Object.entries(p.dependencies).filter(([k]) => keep.includes(k))); \
     delete p.devDependencies; \
     fs.writeFileSync("package.json", JSON.stringify(p, null, 2));' \
@@ -55,8 +57,8 @@ ENV NODE_ENV=production \
     DATABASE_URL=file:/data/sifap.db
 
 COPY --from=cli-deps --chown=node:node /app/node_modules ./node_modules
-# Standalone: server.js, .next (con static copiado por postbuild) y node_modules trazado
-# (se fusiona con el de cli-deps; ambos salen del mismo lockfile).
+# Standalone: server.js, .next (con static) y node_modules trazado (se fusiona con el
+# de cli-deps; ambos salen del mismo lockfile).
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node prisma ./prisma
@@ -70,8 +72,8 @@ VOLUME ["/data"]
 
 USER node
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "server.js"]

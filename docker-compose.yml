@@ -4,7 +4,8 @@
 services:
   app:
     build: .
-    restart: unless-stopped
+    # Reinicia ante fallos (p. ej. migración), con tope para no entrar en bucle.
+    restart: on-failure:5
     ports:
       - "${SIFAP_PORT:-3000}:3000"
     environment:
@@ -17,3 +18,6 @@ services:
 
 volumes:
   sifap-data:
+    # Nombre fijo (sin prefijo del proyecto compose): backup/restore predecibles.
+    # SIFAP_VOLUME solo se cambia para pruebas aisladas (scripts/docker-smoke.sh).
+    name: ${SIFAP_VOLUME:-sifap-data}
