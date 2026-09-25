@@ -1,12 +1,46 @@
 import { expect, test, type Page } from "@playwright/test";
+import type { PrismaClient } from "@/generated/prisma/client";
+import { completaDv } from "@/domain/cpf";
+import { createPrismaClient } from "@/server/db";
 
 // Story 2.4 contra a base dedicada do e2e (seed: JOSE CARLOS PEREIRA, situação S, sem
-// dependentes; ANA PAULA SOUZA, situação C).
+// dependentes; ANA PAULA SOUZA, situação C). O cenário D6 usa um titular próprio (com 1
+// dependente) em vez de MARIA: incluir dependentes muda o fator familiar que os specs de
+// cálculo, lote e consulta assumem para ela.
 
 test.describe.configure({ mode: "serial" });
 
 const CPF_JOSE = "12345678062";
 const CPF_ANA_CANCELADA = "23456789173";
+const CPF_TITULAR_D6 = completaDv("993160001");
+
+let db: PrismaClient;
+
+test.beforeAll(async () => {
+  db = createPrismaClient("file:./e2e.db");
+  // Titular isolado, recriado a cada execução (a base do e2e é recriada, mas o spec pode
+  // ser repetido): situação S (não entra no lote), 1 dependente.
+  await db.beneficiario.deleteMany({ where: { numCpf: CPF_TITULAR_D6 } });
+  await db.beneficiario.create({
+    data: {
+      numCpf: CPF_TITULAR_D6,
+      nomeCompleto: "TITULAR D6 E2E",
+      dtNascimento: 19800101,
+      sexo: "F",
+      codRegiao: 11,
+      codPrograma: "PA01",
+      dtCadastro: 20250101,
+      sitBeneficiario: "S",
+      vlrRendaFamiliar: 100000,
+      numDependentes: 1,
+      dependentes: { create: { occurrence: 1, nomeDependente: "DEP 1 E2E", dtNascDepend: 20150310, parentesco: "FI" } },
+    },
+  });
+});
+
+test.afterAll(async () => {
+  await db?.$disconnect();
+});
 
 async function preencher(page: Page, d: { nome: string; parentesco: string; cpf?: string; nasc?: string }) {
   await page.getByLabel("Nome").fill(d.nome);
@@ -70,8 +104,8 @@ test("incluir dois dependentes em série a partir da lista e rejeitar CPF duplic
 });
 
 test("D6: após o 6.º dependente não oferece incluir outro", async ({ page }) => {
-  // Seed: MARIA APARECIDA DA SILVA, situação A, 1 dependente.
-  await page.goto("/beneficiarios/01234567890/dependentes");
+  // Titular próprio do spec (situação S, 1 dependente).
+  await page.goto(`/beneficiarios/${CPF_TITULAR_D6}/dependentes`);
   await expect(page.getByTestId("total-dependentes")).toHaveText("1");
   const resultado = page.getByTestId("resultado-legado");
   for (let n = 2; n <= 6; n++) {

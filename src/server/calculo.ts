@@ -5,6 +5,7 @@ import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 import { camposViolados, comRetry, ehColisaoNumPagamento } from "@/server/unicidade";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Caso de uso del cálculo individual (CALCBENF, FR-CAL-01..10). Orquesta dominio
 // + Prisma sin lógica de negocio propia: las precondiciones están en
@@ -39,12 +40,6 @@ export interface OpcoesCalculoIndividual {
 }
 
 export type ResultadoCalculoIndividual = { ok: true; mensagem: string; resumo: ResumoCalculo } | { ok: false; mensagem: string };
-
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 /**
  * Colisión de `numPagamento`: P2002 sobre ese campo, o P2002 sin campos informados

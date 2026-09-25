@@ -4,9 +4,6 @@ import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 // Configuración inválida → se registra el motivo sin datos personales y quien llama
 // responde con el mensaje genérico (patrón de src/app/validacao/documentos/actions.ts).
 
-/** Mensaje genérico al usuario (configuración inválida o error inesperado). */
-export const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
-
 /** Flags LEGACY-QUIRK del entorno o `null` si la configuración es inválida (ya registrado). */
 export function lerQuirksServidor(contexto: string): Quirks | null {
   try {

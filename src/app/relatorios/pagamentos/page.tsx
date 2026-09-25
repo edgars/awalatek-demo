@@ -10,13 +10,14 @@ import {
   validarFiltrosRelatorioPagamentos,
   type FiltrosRelatorioPagamentos,
 } from "@/domain/relatorios/pagamentos";
+import { MSG_LIMITE_LINHAS_RELATORIO } from "@/domain/relatorios/paginacao";
 import { listarOpcoesProgramas } from "@/server/beneficiarios";
-import { relatorioPagamentos } from "@/server/relatorios";
+import { relatorioPagamentos, type RelatorioPagamentosCompleto } from "@/server/relatorios";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
 import { Filtros } from "./_componentes/Filtros";
 import { TabelaRelatorio, TotalGeralRelatorio } from "./_componentes/TabelaRelatorio";
 import { VersaoImpressao } from "./_componentes/VersaoImpressao";
-import { falhaInesperada } from "./falha";
+import { falhaInesperada } from "@/lib/falhas";
 
 export const metadata: Metadata = { title: "Relatório de pagamentos" };
 
@@ -37,7 +38,7 @@ async function carregar(f: FiltrosRelatorioPagamentos) {
   try {
     return { ok: true as const, relatorio: await relatorioPagamentos(f) };
   } catch (e) {
-    return falhaInesperada("relatorio", e);
+    return falhaInesperada("relatorio-pagamentos", "relatorio", e);
   }
 }
 
@@ -46,7 +47,7 @@ async function carregarProgramas() {
   try {
     return await listarOpcoesProgramas();
   } catch (e) {
-    falhaInesperada("programas", e);
+    falhaInesperada("relatorio-pagamentos", "programas", e);
     return [];
   }
 }
@@ -87,6 +88,10 @@ export default async function RelatorioPagamentosPage({ searchParams }: { search
         ) : null
       ) : !r.ok ? (
         <ResultadoLegado variante="erro" mensagens={[r.mensagem]} />
+      ) : r.relatorio.limiteExcedido ? (
+        <div role="status" data-testid="limite-relatorio" className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
+          {MSG_LIMITE_LINHAS_RELATORIO}
+        </div>
       ) : tela.impressao ? (
         <>
           <div className="flex items-center justify-between gap-2 print:hidden">
@@ -117,7 +122,7 @@ function TelaRelatorio({
 }: {
   f: FiltrosRelatorioPagamentos;
   paginaPedida: number;
-  relatorio: Awaited<ReturnType<typeof relatorioPagamentos>> }) {
+  relatorio: RelatorioPagamentosCompleto }) {
   const totalPaginas = relatorio.paginas.length;
   const pagina = Math.min(paginaPedida, Math.max(1, totalPaginas));
   const linhas = relatorio.paginas[pagina - 1] ?? [];

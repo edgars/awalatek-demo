@@ -10,8 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { competenciaJaProcessada, type ResumoLote } from "@/domain/calculo/lote";
 import { executarLoteAction } from "../actions";
 import type { EstadoLote } from "../estado";
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
 const reais = (centavos: number) => `R$ ${centavosParaTexto(centavos)}`;
 

@@ -1,19 +1,10 @@
 import { entradaConsultaSchema } from "@/domain/beneficiario/consulta";
 import { consultarBeneficiario, type ResultadoConsulta } from "@/server/consulta";
 import { lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
 // Ejecución común de la consulta (Server Action y carga inicial por `?cpf=`).
 // Solo lectura: CONSBENF no graba ni audita.
-
-export const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
-
-function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[consulta] consulta de beneficiário:", nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagem: ERRO_INESPERADO };
-}
 
 export async function executarConsulta(tipo: string, valor: string): Promise<ResultadoConsulta> {
   const parsed = entradaConsultaSchema.safeParse({ tipo, valor });
@@ -25,6 +16,6 @@ export async function executarConsulta(tipo: string, valor: string): Promise<Res
   try {
     return await consultarBeneficiario(parsed.data, undefined, quirks);
   } catch (e) {
-    return falhaInesperada(e);
+    return falhaInesperada("consulta", "consulta de beneficiário", e);
   }
 }

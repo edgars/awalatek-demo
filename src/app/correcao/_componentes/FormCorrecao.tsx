@@ -10,8 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import type { PagamentoCorrigido } from "@/server/correcao";
 import { corrigirPagamentosAction } from "../actions";
 import type { CampoCorrecao, EstadoCorrecao } from "../estado";
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
 function competenciaTexto(comp: number): string {
   const s = String(comp).padStart(6, "0");

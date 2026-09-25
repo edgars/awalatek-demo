@@ -3,11 +3,10 @@
 import { entradaValdocsSchema, validarDocumentos } from "@/domain/beneficiario/documentos";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoValidacaoDocumentos } from "./estado";
+import { ERRO_INESPERADO, registrarFalha } from "@/lib/falhas";
 
 // Server Action de /validacao/documentos (VALDOCS). Solo valida: VALDOCS no graba
 // ni audita, así que aquí no hay acceso a la base ni registrarEvento.
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 function texto(dados: FormData, campo: string): string {
   const v = dados.get(campo);
@@ -33,8 +32,7 @@ export async function validarDocumentosAction(
     const r = validarDocumentos(parsed.data, quirks);
     return { ok: true, resultado: r.resultado, erros: r.erros, docEspecial: r.docEspecial };
   } catch (e) {
-    // Solo el tipo: nada de datos personales en el log (NFR-04).
-    console.error("[validacao-documentos] validação:", e instanceof Error ? e.name : "erro desconhecido");
+    registrarFalha("validacao-documentos", "validação", e);
     return { ok: false, mensagem: ERRO_INESPERADO };
   }
 }

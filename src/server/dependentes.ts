@@ -10,6 +10,7 @@ import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 import { vazioParaNull, violaUnico } from "@/server/unicidade";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Casos de uso de dependientes (CADDEPEND). Orquesta dominio + Prisma, sin lógica de
 // negocio propia. CADDEPEND solo incluye (no edita ni borra) y no registra auditoría.
@@ -18,11 +19,6 @@ export type FalhaDependente = { ok: false; mensagens: string[] };
 export type SucessoDependente = { ok: true; mensagens: string[]; total: number; numCpf: string };
 export type ResultadoDependente = SucessoDependente | FalhaDependente;
 
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 /** P2002 del unique `(beneficiarioId, cpfDependente)`; cualquier otro unique no es "CPF duplicado". */
 function ehCpfDependenteDuplicado(e: unknown): boolean {

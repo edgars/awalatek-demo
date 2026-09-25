@@ -16,6 +16,7 @@ import { MENSAGENS_PROGRAMA } from "@/domain/programa";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 import { vazioParaNull, violaUnico } from "@/server/unicidade";
+import { usuarioOperativo } from "@/server/usuario";
 
 // Casos de uso de beneficiarios (CADBENEF). Orquesta dominio + Prisma, sin lógica
 // de negocio propia. CADBENEF no registra auditoría: aquí no se llama a registrarEvento.
@@ -25,12 +26,6 @@ export const TAMANHO_PAGINA = 10;
 export type Falha = { ok: false; mensagem: string };
 export type Sucesso = { ok: true; mensagem: string; numCpf: string; status: string; suspensoPorIdade: boolean; numVersao: number };
 export type Resultado = Sucesso | Falha;
-
-function usuarioOperativo(): string {
-  const u = process.env.SIFAP_USER?.trim();
-  if (!u) throw new Error("usuário operativo não informado (SIFAP_USER)");
-  return u.slice(0, 8);
-}
 
 function falha(mensagem: string): Falha {
   return { ok: false, mensagem };

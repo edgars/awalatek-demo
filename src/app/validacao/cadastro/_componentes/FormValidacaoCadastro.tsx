@@ -10,8 +10,7 @@ import { ROTULOS_SITUACAO_BENEFICIARIO, SITUACOES_BENEFICIARIO, UFS } from "@/do
 import type { DadosValbenef } from "@/domain/beneficiario/validacao";
 import { carregarDoCadastroAction, validarCadastroAction } from "../actions";
 import type { EstadoValidacao } from "../estado";
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
 const VAZIO: DadosValbenef = { numCpf: "", nomeCompleto: "", dtNascimento: 0, uf: "", sitBeneficiario: "" };
 

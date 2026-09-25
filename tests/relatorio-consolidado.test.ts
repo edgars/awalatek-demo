@@ -9,7 +9,7 @@ import { createPrismaClient } from "@/server/db";
 import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import * as modulo from "@/server/relatorioConsolidado";
 import RelatorioConsolidadoPage from "@/app/relatorios/consolidado/page";
-import { ERRO_INESPERADO } from "@/app/relatorios/consolidado/falha";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 import { renderToStaticMarkup } from "react-dom/server";
 import { redondear } from "@/domain/money";
 import { consolidar } from "@/domain/relatorios/consolidado";
@@ -137,11 +137,11 @@ describe("relatorioConsolidado", () => {
   });
 
   it("somente leitura: o módulo não exporta escritas", () => {
-    expect(Object.keys(modulo).sort()).toEqual(["LOTE_CPFS", "relatorioConsolidado"]);
+    expect(Object.keys(modulo).sort()).toEqual(["relatorioConsolidado"]);
   });
 });
 
-describe("relatorioConsolidado — lotes de CPFs", () => {
+describe("relatorioConsolidado — volume (agregação na base)", () => {
   const COMP = 201201;
 
   async function criar(prefixo: string, cods: readonly number[], inicio: number) {
@@ -158,18 +158,15 @@ describe("relatorioConsolidado — lotes de CPFs", () => {
 
   const qtdPorRegiao = (r: Awaited<ReturnType<typeof relatorioConsolidado>>) => r.regioes.map((x) => x.qtd);
 
-  it("lote de 3 com 8 beneficiários → cada um na sua região (nenhum sobra em CENTRO-OESTE)", async () => {
+  it("8 beneficiários → cada um na sua região (nenhum sobra em CENTRO-OESTE)", async () => {
     const cods = [1, 2, 6, 7, 11, 16, 17, 20] as const;
     await criar("7731", cods, 1000);
-    const r = await relatorioConsolidado(COMP, prisma, { agora: AGORA, loteCpfs: 3 });
+    const r = await relatorioConsolidado(COMP, prisma, { agora: AGORA });
     expect(qtdPorRegiao(r)).toEqual([2, 2, 1, 3, 0]);
     expect(r.total.qtd).toBe(8);
-    // Mesmo resultado com o lote padrão.
-    const padrao = await relatorioConsolidado(COMP, prisma, { agora: AGORA });
-    expect(padrao.regioes).toEqual(r.regioes);
   });
 
-  it("501 CPFs com o lote padrão (500) → segundo lote também resolvido", async () => {
+  it("501 CPFs → todos resolvidos pela junção na base", async () => {
     const cods = Array.from({ length: 501 }, (_, i) => [1, 6, 11, 16][i % 4] as number);
     await criar("774", cods, 2000);
     const r = await relatorioConsolidado(COMP, prisma, { agora: AGORA });
@@ -177,9 +174,6 @@ describe("relatorioConsolidado — lotes de CPFs", () => {
     expect(r.total.qtd).toBe(501);
   });
 
-  it("lote inválido → erro", async () => {
-    await expect(relatorioConsolidado(COMP, prisma, { loteCpfs: 0 })).rejects.toThrow();
-  });
 });
 
 describe("relatorioConsolidado — correções configuráveis (SIFAP_QUIRKS_CORRIGIDOS)", () => {
@@ -235,7 +229,21 @@ describe("relatorioConsolidado — correções configuráveis (SIFAP_QUIRKS_CORR
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
     espiao.mockClear();
     const legado = await paginaHtml();
-    expect(espiao).toHaveBeenCalledTimes(7); // um por pagamento (região e geral compartilham #VLR-ARR)
+    // Um arredondamento por GRUPO região × status (não por pagamento): aqui 7 grupos
+    // (6 regiões + beneficiário inexistente, todos status G); região e geral compartilham #VLR-ARR.
+    expect(espiao).toHaveBeenCalledTimes(7);
+    // Um 2.º pagamento num grupo existente (região 3, status G) não soma chamada.
+    await prisma.pagamento.create({ data: pagamento(90, cpfRegiao(3)) });
+    espiao.mockClear();
+    const legadoMais = await paginaHtml();
+    expect(espiao).toHaveBeenCalledTimes(7);
+    // Um pagamento com outro status na mesma região abre um grupo novo.
+    await prisma.pagamento.create({ data: pagamento(91, cpfRegiao(3), { sitPagamento: "P" }) });
+    espiao.mockClear();
+    await paginaHtml();
+    expect(espiao).toHaveBeenCalledTimes(8);
+    await prisma.pagamento.deleteMany({ where: { numPagamento: { in: [90, 91] } } });
+    expect(legadoMais).not.toBe(legado);
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D11");
     espiao.mockClear();
     const corrigido = await paginaHtml();

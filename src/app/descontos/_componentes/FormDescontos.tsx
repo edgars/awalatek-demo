@@ -14,8 +14,8 @@ import { mascaraCpfLista } from "@/domain/cpf";
 import type { DescontoResumo, ResumoDescontos, SituacaoDesconto } from "@/server/descontos";
 import { recalcularDescontosAction } from "../actions";
 import type { CampoDescontos, EstadoDescontos } from "../estado";
+import { ERRO_INESPERADO } from "@/lib/falhas";
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 const AVISO_D13 = "O valor líquido não é recalculado (regra legada D13)";
 
 const ROTULO_TIPO: Record<string, string> = {

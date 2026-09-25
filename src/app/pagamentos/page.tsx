@@ -23,7 +23,7 @@ import {
 } from "@/domain/pagamento";
 import { listarOpcoesProgramas } from "@/server/beneficiarios";
 import { listarPagamentos } from "@/server/pagamentos";
-import { falhaInesperada } from "./falha";
+import { falhaInesperada } from "@/lib/falhas";
 
 export const metadata: Metadata = { title: "Pagamentos" };
 
@@ -129,7 +129,7 @@ async function carregar(f: FiltrosPagamentos) {
   try {
     return { ok: true as const, lista: await listarPagamentos(f) };
   } catch (e) {
-    return falhaInesperada("lista", e);
+    return falhaInesperada("pagamentos", "lista", e);
   }
 }
 
@@ -138,7 +138,7 @@ async function carregarProgramas() {
   try {
     return await listarOpcoesProgramas();
   } catch (e) {
-    falhaInesperada("programas", e);
+    falhaInesperada("pagamentos", "programas", e);
     return [];
   }
 }

@@ -4,11 +4,10 @@ import { z } from "zod";
 import { calcularBeneficioIndividual } from "@/server/calculo";
 import type { CampoCalculo, EstadoCalculo } from "./estado";
 import { lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
 // Server Action de /calculo (CALCBENF). Valida la forma de la entrada con zod;
 // las reglas (FR-CAL-01/02 y el cálculo) están en el dominio.
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 const entradaCalculoSchema = z.object({
   numCpf: z.string().regex(/^\d{11}$/, "Informe o CPF do beneficiário (11 dígitos)."),
@@ -22,14 +21,6 @@ const entradaCalculoSchema = z.object({
 function texto(dados: FormData, campo: string): string {
   const v = dados.get(campo);
   return typeof v === "string" ? v.trim() : "";
-}
-
-function falhaInesperada(e: unknown): { ok: false; mensagem: string } {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[calculo] cálculo individual:", nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagem: ERRO_INESPERADO };
 }
 
 export async function calcularBeneficioAction(_anterior: EstadoCalculo, dados: FormData): Promise<EstadoCalculo> {
@@ -46,6 +37,6 @@ export async function calcularBeneficioAction(_anterior: EstadoCalculo, dados: F
   try {
     return await calcularBeneficioIndividual(parsed.data.numCpf, parsed.data.competencia, { quirks });
   } catch (e) {
-    return falhaInesperada(e);
+    return falhaInesperada("calculo", "cálculo individual", e);
   }
 }

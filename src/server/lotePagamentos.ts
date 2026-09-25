@@ -15,6 +15,7 @@ import {
 import { calcular, competenciaDaData, type QuirksMotor, type ResultadoCalculo } from "@/domain/calculo/motor";
 import { hoje } from "@/domain/legacyDate";
 import { corrige, QUIRKS_PADRAO } from "@/domain/quirks";
+import { registrarFalha } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 import { comLock, LOCK_LOTE_PAGAMENTOS, lockAtivo, renovadorPorPassos, type LockAdquirido } from "@/server/processoLock";
 import { comRetry, ehColisaoNumPagamento } from "@/server/unicidade";
@@ -62,6 +63,8 @@ export interface OpcoesLote {
   quirks?: QuirksMotor;
   /** Candado: expiración (ms) y renovación cada N beneficiarios; default = entorno / 100. Para tests. */
   lock?: { expiracaoMs?: number; renovarACada?: number };
+  /** Beneficiarios leídos por consulta (cursor por `numCpf`); default `LOTE_LEITURA_BENEFICIARIOS`. */
+  loteLeitura?: number;
 }
 
 /**
@@ -75,11 +78,43 @@ export async function loteEmExecucao(db: PrismaClient = prisma): Promise<boolean
 /** P2002 sobre `numPagamento` (otro escritor tomó el número); otro unique no se reintenta. */
 export { ehColisaoNumPagamento };
 
-function registrarFalha(e: unknown): void {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[lote] erro inesperado:", nome, typeof codigo === "string" ? codigo : "");
+/** Tamaño de cada lectura de beneficiarios del lote (volumen: no se cargan todos en memoria). */
+export const LOTE_LEITURA_BENEFICIARIOS = 500;
+
+const CAMPOS_BENEFICIARIO_LOTE = {
+  numCpf: true,
+  sitBeneficiario: true,
+  codPrograma: true,
+  numDependentes: true,
+  codRegiao: true,
+  vlrRendaFamiliar: true,
+  dtNascimento: true,
+} as const;
+
+/**
+ * READ BENEFICIARIO-V BY CPF en lecturas de `tamanho` filas, por cursor de clave
+ * (`numCpf > último leído`, único): mismo orden ascendente que la lectura completa.
+ * Comportamiento nuevo respecto de la lectura única previa (igual al READ del legado):
+ * cada lectura ve la base del momento, así que un beneficiario incluido durante la
+ * corrida con CPF mayor que el último leído también se procesa.
+ */
+async function* lerBeneficiariosPorCpf(db: PrismaClient, tamanho: number) {
+  let ultimo: string | undefined;
+  for (;;) {
+    const lote = await db.beneficiario.findMany({
+      where: ultimo === undefined ? undefined : { numCpf: { gt: ultimo } },
+      orderBy: { numCpf: "asc" },
+      take: tamanho,
+      select: CAMPOS_BENEFICIARIO_LOTE,
+    });
+    yield* lote;
+    if (lote.length < tamanho) return;
+    ultimo = lote[lote.length - 1]?.numCpf;
+  }
+}
+
+function validarLoteLeitura(loteLeitura: number): void {
+  if (!Number.isSafeInteger(loteLeitura) || loteLeitura < 1) throw new Error("tamanho de leitura inválido");
 }
 
 async function maiorNumPagamento(db: PrismaClient): Promise<number> {
@@ -96,6 +131,8 @@ async function maiorNumPagamento(db: PrismaClient): Promise<number> {
  * parcial (los pagos ya grabados quedan). Errores antes del recorrido se propagan.
  */
 export async function ejecutarLotePagamentos(opcoes: OpcoesLote = {}): Promise<ResultadoLote> {
+  // Validado antes de cualquier acceso a la base (incluido el candado).
+  validarLoteLeitura(opcoes.loteLeitura ?? LOTE_LEITURA_BENEFICIARIOS);
   // Candado entre procesos (web + CLI) en la base; se libera en `finally` (comLock).
   // Un candado huérfano (proceso caído) expira según SIFAP_LOCK_EXPIRACAO_MIN.
   // H1 — sin unique (numCpf, anoMesRef): el legado lo admite en el individual (ver
@@ -111,9 +148,18 @@ export async function ejecutarLotePagamentos(opcoes: OpcoesLote = {}): Promise<R
 }
 
 async function processar(
-  { dtHoje, agora = new Date(), db = prisma, log = (l) => console.log(l), quirks = QUIRKS_PADRAO, lock: cfgLock }: OpcoesLote,
+  {
+    dtHoje,
+    agora = new Date(),
+    db = prisma,
+    log = (l) => console.log(l),
+    quirks = QUIRKS_PADRAO,
+    lock: cfgLock,
+    loteLeitura = LOTE_LEITURA_BENEFICIARIOS,
+  }: OpcoesLote,
   lock: LockAdquirido,
 ): Promise<ResultadoLote> {
+  validarLoteLeitura(loteLeitura);
   const manterLock = renovadorPorPassos(lock, cfgLock?.renovarACada ?? RENOVAR_LOCK_A_CADA, "lote");
   const momento = hoje(agora);
   const dataExecucao = dtHoje ?? momento.data;
@@ -124,20 +170,6 @@ async function processar(
   // BATCHPGT:171-174 — mayor NUM-PAGTO existente; se incrementa en memoria por pago grabado.
   let seqPgto = await maiorNumPagamento(db);
 
-  // FR-LOT-02 — READ BENEFICIARIO-V BY CPF (los sistemas downstream dependen de este orden).
-  const beneficiarios = await db.beneficiario.findMany({
-    orderBy: { numCpf: "asc" },
-    select: {
-      numCpf: true,
-      sitBeneficiario: true,
-      codPrograma: true,
-      numDependentes: true,
-      codRegiao: true,
-      vlrRendaFamiliar: true,
-      dtNascimento: true,
-    },
-  });
-
   let cpfAnterior: string | null = null;
   // LEGACY-QUIRK(D17): #FATOR-RND no se reinicia por beneficiario. Si la renta supera
   // 9.999,99 el factor queda con el del último beneficiario CALCULADO (los ignorados
@@ -147,9 +179,27 @@ async function processar(
   const arrastaFatorRenda = !corrige(quirks, "D17");
   let fatorRendaAnterior: string | undefined;
 
-  for (const [indice, b] of beneficiarios.entries()) {
+  // FR-LOT-02 — READ BENEFICIARIO-V BY CPF (los sistemas downstream dependen de este orden).
+  const leitura = lerBeneficiariosPorCpf(db, loteLeitura);
+  let indice = 0;
+  for (;;) {
+    let proximo: Awaited<ReturnType<typeof leitura.next>>;
+    try {
+      proximo = await leitura.next();
+    } catch (e) {
+      // Falla en la primera lectura: antes del recorrido, se propaga (como la lectura única).
+      if (cpfAnterior === null) throw e;
+      // Falla en una lectura posterior: mismo contrato que un error a mitad de corrida —
+      // se interrumpe con el resumen parcial; el CPF (enmascarado) es el último leído.
+      registrarFalha("lote", "erro inesperado", e);
+      const mensagem = mensagemLoteInterrompido(cpfAnterior);
+      log(mensagem);
+      return { ok: false, mensagem, resumo };
+    }
+    if (proximo.done) break;
+    const b = proximo.value;
     // Renovación periódica del candado: si se perdió, otro lote puede estar corriendo.
-    if (!(await manterLock(indice))) {
+    if (!(await manterLock(indice++))) {
       log(MSG_LOTE_CANDADO_PERDIDO);
       return { ok: false, mensagem: MSG_LOTE_CANDADO_PERDIDO, resumo };
     }
@@ -238,7 +288,7 @@ async function processar(
       }
     } catch (e) {
       // Error inesperado: el legado abendaría. Se interrumpe sin perder el resumen parcial.
-      registrarFalha(e);
+      registrarFalha("lote", "erro inesperado", e);
       const mensagem = mensagemLoteInterrompido(b.numCpf);
       log(mensagem);
       return { ok: false, mensagem, resumo };

@@ -2,19 +2,16 @@ import type { Metadata } from "next";
 import { ResultadoLegado } from "@/components/campos";
 import { listarOpcoesProgramas } from "@/server/beneficiarios";
 import { FormElegibilidade } from "./_componentes/FormElegibilidade";
+import { ERRO_INESPERADO, registrarFalha } from "@/lib/falhas";
 
 export const metadata: Metadata = { title: "Elegibilidade" };
-
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 
 /** Programas do `Select`; em falha, lista vazia + aviso (só tipo/código no log, NFR-04). */
 async function carregarProgramas(): Promise<{ programas: Awaited<ReturnType<typeof listarOpcoesProgramas>>; falhou: boolean }> {
   try {
     return { programas: await listarOpcoesProgramas(), falhou: false };
   } catch (e) {
-    const nome = e instanceof Error ? e.name : "erro desconhecido";
-    const codigo = (e as { code?: unknown } | null)?.code;
-    console.error("[elegibilidade] lista de programas:", nome, typeof codigo === "string" ? codigo : "");
+    registrarFalha("elegibilidade", "lista de programas", e);
     return { programas: [], falhou: true };
   }
 }

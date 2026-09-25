@@ -7,7 +7,8 @@ import { lerQuirks } from "@/domain/quirks";
 import { relatorioConsolidado } from "@/server/relatorioConsolidado";
 import { BotaoImprimir } from "./_componentes/BotaoImprimir";
 import { TabelasConsolidado } from "./_componentes/TabelasConsolidado";
-import { falhaConfiguracao, falhaInesperada } from "./falha";
+import { falhaInesperada } from "@/lib/falhas";
+import { falhaConfiguracao } from "./falha";
 
 export const metadata: Metadata = { title: "Relatório consolidado" };
 
@@ -24,7 +25,7 @@ async function carregar(competencia: number) {
   try {
     return { ok: true as const, relatorio: await relatorioConsolidado(competencia, undefined, { quirks }) };
   } catch (e) {
-    return falhaInesperada("consolidado", e);
+    return falhaInesperada("relatorio-consolidado", "consolidado", e);
   }
 }
 

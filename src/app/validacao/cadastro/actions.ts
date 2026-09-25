@@ -11,24 +11,16 @@ import { hoje } from "@/domain/legacyDate";
 import { obterBeneficiario } from "@/server/beneficiarios";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoCarga, EstadoValidacao } from "./estado";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
 // Server Actions de /validacao/cadastro (VALBENEF). Solo validan y leen:
 // VALBENEF no graba ni audita, así que aquí no hay escrituras ni registrarEvento.
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
 const CPF_PARA_CARREGAR = "Informe o CPF (até 11 dígitos) para carregar do cadastro.";
 
 function texto(dados: FormData, campo: string): string {
   const v = dados.get(campo);
   return typeof v === "string" ? v : "";
-}
-
-function falhaInesperada(contexto: string, e: unknown): { ok: false; mensagem: string } {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error(`[validacao-cadastro] ${contexto}:`, nome, typeof codigo === "string" ? codigo : "");
-  return { ok: false, mensagem: ERRO_INESPERADO };
 }
 
 export async function validarCadastroAction(_anterior: EstadoValidacao, dados: FormData): Promise<EstadoValidacao> {
@@ -48,7 +40,7 @@ export async function validarCadastroAction(_anterior: EstadoValidacao, dados: F
     const r = validarCadastroConsolidado(parsed.data, anoAtualDe(hoje().data), quirks);
     return { ok: true, resultado: r.resultado, erros: r.erros };
   } catch (e) {
-    return falhaInesperada("validação", e);
+    return falhaInesperada("validacao-cadastro", "validação", e);
   }
 }
 
@@ -71,6 +63,6 @@ export async function carregarDoCadastroAction(cpf: string): Promise<EstadoCarga
       },
     };
   } catch (e) {
-    return falhaInesperada("carga do cadastro", e);
+    return falhaInesperada("validacao-cadastro", "carga do cadastro", e);
   }
 }

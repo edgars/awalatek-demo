@@ -21,6 +21,7 @@ import {
 import { hoje } from "@/domain/legacyDate";
 import { QUIRKS_PADRAO } from "@/domain/quirks";
 import { registrarEvento } from "@/server/auditoria";
+import { registrarFalha } from "@/lib/falhas";
 import { prisma } from "@/server/db";
 import { comLock, LOCK_CONCILIACAO, renovadorPorPassos, type LockAdquirido } from "@/server/processoLock";
 import { comRetry, ehColisaoNumAuditoria } from "@/server/unicidade";
@@ -67,13 +68,6 @@ export interface OpcoesConciliacao {
 
 /** Reintentos si otro escritor tomó el mismo `numAuditoria` (unique) dentro de la transacción del registro. */
 const TENTATIVAS_NUMERACAO = 5;
-
-function registrarFalha(e: unknown): void {
-  // Solo tipo y código: nada de datos personales en el log (NFR-04).
-  const nome = e instanceof Error ? e.name : "erro desconhecido";
-  const codigo = (e as { code?: unknown } | null)?.code;
-  console.error("[conciliacao] erro inesperado:", nome, typeof codigo === "string" ? codigo : "");
-}
 
 /**
  * FR-CNB — concilia el retorno CNAB 240 contra los pagos de la competencia.
@@ -122,7 +116,7 @@ async function processar(
       );
     } catch (e) {
       // El legado abendaría: se detiene sin perder el resumen de lo ya grabado.
-      registrarFalha(e);
+      registrarFalha("conciliacao", "erro inesperado", e);
       return { ok: false, mensagem: MSG_CONCILIACAO_INTERROMPIDA, resumo };
     }
     acumularDecisao(resumo, reg, decisao);

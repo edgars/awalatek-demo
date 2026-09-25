@@ -178,6 +178,85 @@ export function consolidar(
   return { competencia, regioes, status, total };
 }
 
+/**
+ * Pagos de la competencia ya agregados por la base (volumen): una fila por
+ * región-del-beneficiario × status × `brutoNegativo`. Valores en centavos enteros.
+ */
+export type GrupoConsolidado = {
+  /** `COD-REGIAO` del beneficiario; `null` = beneficiario inexistente. */
+  codRegiao: number | null;
+  sitPagamento: string;
+  /**
+   * `null`: todos los pagos del grupo tienen `vlrBruto >= 0`. Un número: todos los pagos
+   * del grupo tienen exactamente ese `vlrBruto` (< 0) — ver `consolidarGrupos` (D11).
+   */
+  brutoNegativo: number | null;
+  qtd: number;
+  bruto: number;
+  desconto: number;
+  liquido: number;
+};
+
+/**
+ * Mismo resultado que `consolidar` sobre las filas originales, pero a partir de grupos
+ * ya agregados en SQL (story 7.2 con volumen). Reglas idénticas: región por `regiaoDe`
+ * (D10), status por `indiceStatus`, bruto de región/general por `brutoRelatorioCentavos`
+ * salvo CORRECAO(D11), bruto de status crudo.
+ *
+ * LEGACY-QUIRK(D11) sobre grupos: el redondeo (+0,005 y trunca) se aplica por pago. Para
+ * centavos enteros ≥ 0 es la identidad (0,005 < 0,01), así que la suma de los redondeados
+ * es la suma cruda = `brutoRelatorioCentavos(suma)`. Para negativos NO lo es (trunca hacia
+ * cero: −1,00 → −0,99), por eso la base agrupa los negativos por valor y aquí se redondea
+ * ese valor y se multiplica por la cantidad. El test de equivalencia lo verifica.
+ */
+export function consolidarGrupos(
+  competencia: number,
+  grupos: readonly GrupoConsolidado[],
+  quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO,
+): Consolidado {
+  const corrigeD11 = corrige(quirks, "D11");
+  const regioes: LinhaRegiao[] = nomesRegiao(quirks).map((nome) => ({ nome, qtd: 0, bruto: 0, desconto: 0, liquido: 0 }));
+  const regiaoPorNome = new Map(regioes.map((r) => [r.nome, r] as const));
+  const status: LinhaStatus[] = CODIGOS_STATUS.map((codigo, i) => ({ codigo, nome: NOMES_STATUS[i] as LinhaStatus["nome"], qtd: 0, bruto: 0 }));
+  const total: TotalGeral = { qtd: 0, bruto: 0, desconto: 0, liquido: 0 };
+
+  for (const g of grupos) {
+    if (g.qtd <= 0) continue;
+    if (g.brutoNegativo !== null && (g.brutoNegativo >= 0 || g.brutoNegativo * g.qtd !== g.bruto)) {
+      throw new Error("grupo do consolidado inconsistente");
+    }
+    // LEGACY-QUIRK(D11): bruto redondeado por pago (ver arriba). CORRECAO(D11): crudo.
+    const arr = corrigeD11
+      ? g.bruto
+      : g.brutoNegativo === null
+        ? brutoRelatorioCentavos(g.bruto)
+        : brutoRelatorioCentavos(g.brutoNegativo) * g.qtd;
+
+    const r = regiaoPorNome.get(regiaoDe(g.codRegiao, quirks));
+    if (!r) throw new Error("região sem linha no relatório");
+    r.bruto += arr;
+    r.desconto += g.desconto;
+    r.liquido += g.liquido;
+    r.qtd += g.qtd;
+
+    // Status: asimetría del legado — VLR-BRUTO crudo.
+    const s = status[indiceStatus(g.sitPagamento)] as LinhaStatus;
+    s.bruto += g.bruto;
+    s.qtd += g.qtd;
+
+    total.bruto += arr;
+    total.desconto += g.desconto;
+    total.liquido += g.liquido;
+    total.qtd += g.qtd;
+  }
+
+  // Sumas entre grupos: fuera de los enteros seguros el resultado ya no es exacto.
+  const valores = [...regioes, ...status, total].flatMap((l) => Object.values(l).filter((v): v is number => typeof v === "number"));
+  if (!valores.every(Number.isSafeInteger)) throw new Error("total do consolidado fora do intervalo de inteiros seguros");
+
+  return { competencia, regioes, status, total };
+}
+
 const texto = z
   .union([z.string(), z.array(z.string()), z.undefined()])
   .transform((v) => (Array.isArray(v) ? (v[0] ?? "") : (v ?? "")).trim());

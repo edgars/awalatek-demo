@@ -15,21 +15,17 @@ import { mascaraCpfLista } from "@/domain/cpf";
 import { listarDescontosRegistrados } from "@/server/descontosRegistrados";
 import { salvarDescontosRegistradosAction } from "./actions";
 import { EditorDescontos } from "./EditorDescontos";
+import { ERRO_INESPERADO, registrarFalha } from "@/lib/falhas";
 
 export const metadata: Metadata = { title: "Descontos do beneficiário" };
 
 type Props = { params: Promise<{ cpf: string }> };
 
-const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
-
 async function carregar(cpf: string) {
   try {
     return await listarDescontosRegistrados(cpf);
   } catch (e) {
-    // Solo el tipo y el código del error: nunca datos personales en el log (NFR-04).
-    const nome = e instanceof Error ? e.name : "erro desconhecido";
-    const codigo = (e as { code?: unknown } | null)?.code;
-    console.error("[descontos] consulta:", nome, typeof codigo === "string" ? codigo : "");
+    registrarFalha("descontos", "consulta", e);
     return { ok: false as const, mensagem: ERRO_INESPERADO };
   }
 }

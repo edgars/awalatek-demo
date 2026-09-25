@@ -4,7 +4,8 @@ import { ResultadoLegado } from "@/components/campos";
 import { MENSAGENS_CADBENEF, MENSAGENS_SISTEMA, statusResultante } from "@/domain/beneficiario/cadastro";
 import { anoDe, hoje } from "@/domain/legacyDate";
 import { listarOpcoesProgramas, obterBeneficiario } from "@/server/beneficiarios";
-import { ERRO_INESPERADO, lerQuirksServidor } from "@/server/quirksConfig";
+import { ERRO_INESPERADO } from "@/lib/falhas";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import { alterarBeneficiarioAction } from "../../actions";
 import { FormBeneficiario } from "../../_componentes/FormBeneficiario";
 
