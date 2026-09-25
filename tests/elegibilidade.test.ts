@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { verificarElegibilidadeAction } from "@/app/elegibilidade/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { MENSAGENS_VALELEG as M } from "@/domain/elegibilidade";
@@ -28,7 +28,7 @@ beforeAll(async () => {
   prisma = createPrismaClient(url);
   // O singleton de @/server/db (usado pela Server Action) é recriado apontando para esta base.
   delete globalPrisma.prisma;
-  process.env.DATABASE_URL = url;
+  vi.stubEnv("DATABASE_URL", url);
   await seed(prisma);
   // Programa inativo e beneficiário da região 99 com status C (não existem no seed).
   await prisma.programaSocial.create({
@@ -63,6 +63,7 @@ afterAll(async () => {
   await prisma?.$disconnect();
   await globalPrisma.prisma?.$disconnect();
   delete globalPrisma.prisma;
+  vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
 });
 

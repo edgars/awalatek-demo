@@ -1,9 +1,36 @@
 import { expect, test } from "@playwright/test";
+import { createPrismaClient } from "../../src/server/db";
 
 // Story 3.1 contra a base dedicada do e2e (seed):
-// MARIA 012.345.678-90 (A, 1985) · JOSE 123.456.780-62 (S, 1970, sem NIS) · FRANCISCO 345.678.902-56 (região 99, I).
+// MARIA 012.345.678-90 (A, 1985) · FRANCISCO 345.678.902-56 (região 99, I).
+// Beneficiários próprios deste spec (nenhum outro spec os toca), gravados em beforeAll:
+// - CPF_SUSPENSO: S, 50 anos no ano corrente (independe do ano), sem NIS, renda 900,00.
+// - CPF_SEM_DOCS: A, documentos ≠ S, renda 200,00, 1 dependente, com NIS.
 
 const CPF_MARIA = "01234567890";
+const CPF_SUSPENSO = "67890123540";
+const CPF_SEM_DOCS = "78901234696";
+
+test.beforeAll(async () => {
+  const db = createPrismaClient("file:./e2e.db");
+  const ano = new Date().getFullYear();
+  const comum = { sexo: "F", codRegiao: 1, codPrograma: "PA01", dtCadastro: 20250101 };
+  const registros = [
+    { ...comum, numCpf: CPF_SUSPENSO, nomeCompleto: "E2E ELEGIBILIDADE SUSPENSO", dtNascimento: (ano - 50) * 10000 + 101,
+      sitBeneficiario: "S", vlrRendaFamiliar: 90000, numDependentes: 0, nis: null, documentosOk: "S" },
+    { ...comum, numCpf: CPF_SEM_DOCS, nomeCompleto: "E2E ELEGIBILIDADE SEM DOCS", dtNascimento: 19900101,
+      sitBeneficiario: "A", vlrRendaFamiliar: 20000, numDependentes: 1, nis: "20000000009", documentosOk: "N" },
+  ];
+  try {
+    for (const data of registros) {
+      // Workers paralelos podem gravar o mesmo registro: em conflito (P2002), o upsert repetido vira update.
+      const gravar = () => db.beneficiario.upsert({ where: { numCpf: data.numCpf }, create: data, update: data });
+      await gravar().catch((e: { code?: string }) => (e.code === "P2002" ? gravar() : Promise.reject(e)));
+    }
+  } finally {
+    await db.$disconnect();
+  }
+});
 
 test("beneficiário A + programa compatível → ELEGÍVEL", async ({ page }) => {
   await page.goto("/");
@@ -24,7 +51,7 @@ test("beneficiário A + programa compatível → ELEGÍVEL", async ({ page }) =>
 
 test("não elegível → NÃO ELEGÍVEL com os motivos numerados na ordem do legado", async ({ page }) => {
   await page.goto("/elegibilidade");
-  await page.getByLabel("CPF do beneficiário").fill("12345678062");
+  await page.getByLabel("CPF do beneficiário").fill(CPF_SUSPENSO);
   await page.getByLabel("Programa").selectOption("PP01");
   await page.getByRole("button", { name: "Verificar" }).click();
 
@@ -37,6 +64,21 @@ test("não elegível → NÃO ELEGÍVEL com os motivos numerados na ordem do leg
     "PROG PREVIDENCIARIO: IDADE < 60",
     "NIS NAO CADASTRADO",
   ]);
+  await expect(page.getByRole("link", { name: "Ir para Validação de documentos" })).toHaveCount(0);
+});
+
+test("DOCUMENTACAO INCOMPLETA (programa A) → link para Validação de documentos (F4)", async ({ page }) => {
+  await page.goto("/elegibilidade");
+  await page.getByLabel("CPF do beneficiário").fill(CPF_SEM_DOCS);
+  await page.getByLabel("Programa").selectOption("PA01");
+  await page.getByRole("button", { name: "Verificar" }).click();
+
+  const resultado = page.getByTestId("resultado-legado");
+  await expect(resultado).toContainText("BENEFICIARIO NAO ELEGIVEL - MOTIVOS:");
+  await expect(resultado.getByRole("listitem")).toHaveText(["DOCUMENTACAO INCOMPLETA"]);
+  const link = page.getByRole("link", { name: "Ir para Validação de documentos" });
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute("href", "/validacao/documentos");
 });
 
 test("região 99 → BENEFICIARIO ELEGIVEL - REGIAO ESPECIAL (CPF pré-preenchido por query string)", async ({ page }) => {

@@ -32,7 +32,8 @@ export async function verificarElegibilidade(
       })
     : null;
   // El legado lee el programa aunque falte el beneficiario; el dominio decide el orden de los mensajes.
-  const cod = codPrograma.trim().toUpperCase();
+  // Misma normalización que el borde (entradaElegibilidadeSchema): String(4) en mayúsculas.
+  const cod = codPrograma.trim().toUpperCase().slice(0, 4);
   const programa = cod
     ? await db.programaSocial.findUnique({
         where: { codPrograma: cod },
