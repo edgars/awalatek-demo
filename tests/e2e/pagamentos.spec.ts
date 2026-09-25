@@ -76,10 +76,12 @@ test.afterAll(async () => {
 test("lista ordenada por Nº desc com CPF mascarado e filtro por CPF", async ({ page }) => {
   await page.goto("/");
   const menu = page.getByRole("navigation", { name: "Menu principal" });
-  await menu.getByRole("link", { name: "Pagamentos" }).click();
+  // "Relatórios" também tem um item "Pagamentos" (story 7.1): escopo no grupo.
+  const grupo = menu.locator("div").filter({ has: page.getByRole("heading", { name: "Cálculo e Pagamentos" }) });
+  await grupo.getByRole("link", { name: "Pagamentos" }).click();
   await expect(page).toHaveURL(/\/pagamentos$/);
   await expect(page.getByRole("heading", { level: 1, name: "Pagamentos" })).toBeVisible();
-  await expect(menu.getByRole("link", { name: "Pagamentos" })).toHaveAttribute("aria-current", "page");
+  await expect(grupo.getByRole("link", { name: "Pagamentos" })).toHaveAttribute("aria-current", "page");
 
   await page.getByLabel("Competência").fill("1990-01");
   await page.getByRole("button", { name: "Filtrar" }).click();

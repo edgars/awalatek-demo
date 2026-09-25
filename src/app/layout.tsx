@@ -24,21 +24,21 @@ async function UsuarioOperativo() {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="pt-BR">
-      <body className="min-h-screen md:grid md:grid-cols-[15rem_1fr]">
-        <aside className="bg-sidebar p-4 text-sidebar-foreground md:min-h-screen">
+      <body className="min-h-screen md:grid md:grid-cols-[15rem_1fr] print:block print:bg-white">
+        <aside className="bg-sidebar p-4 text-sidebar-foreground md:min-h-screen print:hidden">
           <Link href="/" className="mb-5 block px-2 text-lg font-bold tracking-tight">
             SIFAP
           </Link>
           <NavLateral />
         </aside>
         <div className="flex min-w-0 flex-col">
-          <header className="flex items-center justify-between gap-4 border-b bg-card px-6 py-3">
+          <header className="flex items-center justify-between gap-4 border-b bg-card px-6 py-3 print:hidden">
             <span className="text-sm text-muted-foreground">Sistema de Pagamentos de Programas Sociais</span>
             <Suspense fallback={<span className="text-sm">Usuário: …</span>}>
               <UsuarioOperativo />
             </Suspense>
           </header>
-          <main className="mx-auto w-full max-w-6xl flex-1 p-6">{children}</main>
+          <main className="mx-auto w-full max-w-6xl flex-1 p-6 print:max-w-none print:p-0">{children}</main>
         </div>
       </body>
     </html>
