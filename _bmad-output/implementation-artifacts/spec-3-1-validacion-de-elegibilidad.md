@@ -2,7 +2,8 @@
 title: 'Story 3.1 — Validación de elegibilidad'
 type: 'feature'
 created: '2026-09-25'
-status: 'ready-for-dev'
+status: 'done'
+baseline_revision: '035bb2b'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -73,7 +74,27 @@ deferred: []
 
 ## Review Triage Log
 
+### 2026-09-25 — Review pass
+- verdicts: 34 findings — high 0, medium 2, low 17, false 15, maybe-false 0
+- findings (resumen por grupo):
+  - `[medium]` `[patch]` (verif/blind) enlace "Ir para Validação de documentos" (F4) sin test — e2e con PA01 y `documentosOk = N`; ausente en PP01
+  - `[medium]` `[patch]` (blind) e2e dependiente del año actual (edad < 60 hasta 2030) — beneficiario creado por el spec con edad relativa
+  - `[low]` `[patch]` ×3 — `DATABASE_URL` sin restaurar en el test, normalización de `codPrograma` en el caso de uso, página sin fallback si falla la carga de programas
+  - `[false]` `[reject]` (blind) renta familiar vs `rendaMaxPercap` sin dividir — VALELEG compara `#RENDA` (RENDA-FAMILIAR) con `RENDA-MAX` (equivalencia)
+  - `[false]` `[reject]` (blind) `< 1` vs `= 0` en dependientes — idéntico a VALELEG:172 y :236
+  - `[false]` `[reject]` (edge) `dtNascimento = 0` → edad = año — el legado calcula igual
+  - `[false]` `[reject]` ×12 — lista numerada `n - motivo` vs `<ol>` (formato de pantalla web; literal en el dominio), región 99 separada (decisión del spec, ESCAPE ROUTINE), tope de 10 inalcanzable (arreglo del legado), programa inexistente solo vía DOM (select), sin evidencia de `getRule` (`rk-verification.md`), e2e fuera de `npm test`, checkboxes, etc.
+  - `[low]` `[reject]` ×12 — CPF en el enlace a documentos, atajo `?cpf=` sin enlace entrante (lo agrega 2.6), acción con firma de `useActionState`, rama de validación inalcanzable, `ERRO_INESPERADO` duplicado, lecturas secuenciales, idioma de comentarios, conteo de reglas en el test, `default` sin RK, etc.
+
 ## Verification
 
 **Commands:**
 - `npm run lint` · `npm test` · `npm run build` · `E2E_PORT=3225 npx playwright test` -- expected: todo en verde
+
+## Auto Run Result
+
+- **Resumen:** elegibilidad (VALELEG, 29 RK): `avaliarElegibilidade` puro (precondiciones que cortan, región 99 — D12, motivos acumulados en orden legado, tipo A/P/T, código R/D), `/elegibilidade` con CPF + programa, badge y motivos, enlace a documentos cuando falta documentación, atajo `?cpf=&programa=`.
+- **Implementado en paralelo** (worktree); integrado por merge.
+- **Review:** 34 hallazgos — 5 patches (2 `medium`: e2e del enlace F4, e2e dependiente del año), 0 diferidos, 29 rechazados (lógica confirmada contra VALELEG).
+- **Follow-up review recomendado:** `false` — patches: high 0, medium 2 (tests), low 3; sin riesgo de comportamiento no verificado.
+- **Verificación (tras merge):** lint 0; `npm test` 505/505; build OK; e2e 38/38.
