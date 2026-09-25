@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ResultadoLegado } from "@/components/campos";
 import { MENSAGENS_CADBENEF, MENSAGENS_SISTEMA, statusResultante } from "@/domain/beneficiario/cadastro";
 import { anoDe, hoje } from "@/domain/legacyDate";
-import { listarOpcoesProgramas, obterBeneficiario } from "@/server/beneficiarios";
+import { listarOpcoesProgramas, obterBeneficiario, resolverCpfPorChave } from "@/server/beneficiarios";
 import { ERRO_INESPERADO } from "@/lib/falhas";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import { alterarBeneficiarioAction } from "../../actions";
@@ -11,20 +11,18 @@ import { FormBeneficiario } from "../../_componentes/FormBeneficiario";
 
 export const metadata: Metadata = { title: "Alterar beneficiário" };
 
-type Props = { params: Promise<{ cpf: string }> };
+type Props = { params: Promise<{ chave: string }> };
 
 /** Pantalla 4.5 — alteração de beneficiário (operação A do legado). */
 export default async function EditarBeneficiarioPage({ params }: Props) {
-  const { cpf: bruto } = await params;
-  let cpf = bruto;
-  try {
-    cpf = decodeURIComponent(bruto);
-  } catch {
-    // escape malformado → valor bruto → não encontrado
-  }
+  // H2 (LGPD): a URL traz a chave opaca; o CPF é resolvido no servidor (chave inválida → não encontrado).
+  const { chave } = await params;
+  // Falha da base ao resolver a chave → painel de erro genérico (log só tipo/código).
+  const resolvido = await resolverCpfPorChave(chave, "alteração (chave)");
+  const cpf = resolvido.ok ? (resolvido.valor ?? "") : "";
   // LEGACY-QUIRK(D18): el flag decide si la pantalla ofrece el select de situación.
   const quirks = lerQuirksServidor("beneficiarios");
-  if (!quirks) {
+  if (!quirks || !resolvido.ok) {
     return (
       <div className="grid gap-4">
         <h1 className="text-2xl font-semibold tracking-tight">Alterar beneficiário</h1>
@@ -54,7 +52,7 @@ export default async function EditarBeneficiarioPage({ params }: Props) {
         <p className="text-sm text-muted-foreground">Cadastro de beneficiário — alteração.</p>
       </div>
       <FormBeneficiario
-        acao={alterarBeneficiarioAction.bind(null, b.numCpf)}
+        acao={alterarBeneficiarioAction.bind(null, b.chavePublica)}
         programas={programas}
         statusBrancoAlteracao={quirks.statusBrancoAlteracao}
         avisoStatusAlteracao={

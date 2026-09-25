@@ -73,7 +73,7 @@ Aviso fijo: "Parâmetros informativos — o cálculo usa as tabelas legadas (D1)
 ### 4.4 Beneficiários — lista `/beneficiarios`
 Columnas: CPF (enmascarado) · Nome · Programa · Situação (badge) · Região · Dependentes. Búsqueda por CPF o nombre. Acciones por fila: Editar · Dependentes · Descontos · Consultar.
 
-### 4.5 Beneficiário — inclusión/alteración `/beneficiarios/novo`, `/beneficiarios/[cpf]/editar` (legado: CADASTRO DE BENEFICIARIO)
+### 4.5 Beneficiário — inclusión/alteración `/beneficiarios/novo`, `/beneficiarios/[chave]/editar` (legado: CADASTRO DE BENEFICIARIO)
 
 | Campo | Componente | Legado | Alteración |
 |---|---|---|---|
@@ -97,14 +97,14 @@ Columnas: CPF (enmascarado) · Nome · Programa · Situação (badge) · Região
 Error: un solo mensaje literal (FR-BEN-01, corta en el primero) junto al campo y en el panel.
 Si al grabar el status pasa a `S` por edad > 75: aviso `warning` "Situação ajustada para SUSPENSO (idade > 75 — regra legada)".
 
-### 4.6 Dependentes `/beneficiarios/[cpf]/dependentes` (legado: CADASTRO DE DEPENDENTES + DADOS DO DEPENDENTE)
+### 4.6 Dependentes `/beneficiarios/[chave]/dependentes` (legado: CADASTRO DE DEPENDENTES + DADOS DO DEPENDENTE)
 Encabezado: titular (CPF enmascarado, nombre, situación, total de dependientes).
 Tabla: Nome · Nascimento · Parentesco · CPF · Documento · Sexo.
 Formulario de alta: Nome (60) · Data de nascimento (`DataLegada`) · Parentesco (`Select` FI=Filho · CO=Cônjuge · IR=Irmão · OU=Outro) · CPF (`CpfInput`, opcional) · Documento (15) · Sexo (M/F).
 Tras grabar: "DEPENDENTE INCLUIDO - TOTAL: n" + botones **Incluir outro dependente** / **Concluir**.
 Titular C/D: formulario deshabilitado con el mensaje literal.
 
-### 4.7 Descontos do beneficiário `/beneficiarios/[cpf]/descontos`
+### 4.7 Descontos do beneficiário `/beneficiarios/[chave]/descontos`
 Tabla editable (máx. 8): Tipo (`Select` C=Contribuição · I=Imposto · J=Judicial · S=Sindical · P=Pensão alimentícia · A=Administrativo) · Valor (`Moeda`) · Percentual (`Fator(2)`) · Início · Fim (vacío = indefinido) · Nº processo (obligatorio si J). Indicador "vigente hoje" por fila.
 
 ### 4.8 Consulta `/consulta` (legado: CONSULTA BENEFICIARIO)

@@ -201,26 +201,54 @@ describe("consultarBeneficiarioAction", () => {
   });
 });
 
-describe("página /consulta?cpf=", () => {
-  async function inicialDaPagina(cpf: string) {
-    const el = await ConsultaPage({ searchParams: Promise.resolve({ cpf }) });
+describe("página /consulta?benef= (H2: chave opaca, nunca o CPF)", () => {
+  async function inicialDaPagina(sp: Record<string, string>) {
+    const el = await ConsultaPage({ searchParams: Promise.resolve(sp) });
     const filhos = (el.props as { children: unknown[] }).children;
     const form = filhos.find((c) => (c as { props?: { inicial?: unknown } } | null)?.props?.inicial !== undefined) as {
-      props: { inicial: unknown; cpfInicial: string };
+      props: { inicial: unknown; viaChave: boolean };
     };
     return form.props;
   }
+  const chaveDe = async (cpf: string) =>
+    (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
 
-  it("CPF da lista → consulta direto", async () => {
-    const p = await inicialDaPagina(CPF_MARIA);
+  it("chave da lista → consulta direto", async () => {
+    const p = await inicialDaPagina({ benef: await chaveDe(CPF_MARIA) });
     expect((p.inicial as { ok: boolean }).ok).toBe(true);
-    expect(p.cpfInicial).toBe(CPF_MARIA);
+    expect(p.viaChave).toBe(true);
+    // LGPD: o CPF completo não chega ao formulário (nem pré-preenchido, nem no resultado).
+    expect(JSON.stringify(p)).not.toContain(CPF_MARIA);
   });
 
-  it("mais de 11 dígitos não é truncado → BENEFICIARIO NAO ENCONTRADO", async () => {
-    const p = await inicialDaPagina(`${CPF_MARIA}7`);
-    expect(p.inicial).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ENCONTRADO" });
-    expect(p.cpfInicial).toBe("");
+  it("chave malformada, inexistente ou um CPF no lugar da chave → BENEFICIARIO NAO ENCONTRADO", async () => {
+    for (const benef of [`${CPF_MARIA}7`, CPF_MARIA, "00000000-0000-4000-8000-000000000000"]) {
+      const p = await inicialDaPagina({ benef });
+      expect(p.inicial, benef).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ENCONTRADO" });
+    }
+  });
+
+  it("falha da base ao resolver a chave → mensagem genérica, log sem a chave nem o CPF", async () => {
+    const chave = await chaveDe(CPF_MARIA);
+    const cliente = globalPrisma.prisma!;
+    const busca = vi.spyOn(cliente.beneficiario, "findUnique").mockRejectedValue(new Error(`falha ${chave} ${CPF_MARIA}`));
+    const erroLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const p = await inicialDaPagina({ benef: chave });
+      expect(p.inicial).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
+      expect(erroLog).toHaveBeenCalled();
+      expect(JSON.stringify(erroLog.mock.calls)).not.toContain(chave);
+      expect(JSON.stringify(erroLog.mock.calls)).not.toContain(CPF_MARIA);
+    } finally {
+      busca.mockRestore();
+      erroLog.mockRestore();
+    }
+  });
+
+  it("o parâmetro antigo ?cpf= é ignorado (o CPF não é lido da URL)", async () => {
+    const p = await inicialDaPagina({ cpf: CPF_MARIA });
+    expect(p.inicial).toBeNull();
+    expect(p.viaChave).toBe(false);
   });
 });
 

@@ -6,8 +6,8 @@ import { createElement, isValidElement, type ReactElement, type ReactNode } from
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { alterarBeneficiarioAction, incluirBeneficiarioAction } from "@/app/beneficiarios/actions";
-import EditarBeneficiarioPage from "@/app/beneficiarios/[cpf]/editar/page";
-import { incluirDependenteAction } from "@/app/beneficiarios/[cpf]/dependentes/actions";
+import EditarBeneficiarioPage from "@/app/beneficiarios/[chave]/editar/page";
+import { incluirDependenteAction } from "@/app/beneficiarios/[chave]/dependentes/actions";
 import { FormBeneficiario } from "@/app/beneficiarios/_componentes/FormBeneficiario";
 import { verificarElegibilidadeAction } from "@/app/elegibilidade/actions";
 import { validarCadastroAction } from "@/app/validacao/cadastro/actions";
@@ -41,6 +41,10 @@ const CPF_FRANCISCO = cpfComDv(BENEFICIARIOS_SEED[3].base); // I, região 99
 const CPF_IDOSO = completaDv("777888999");
 const CPF_TITULAR = completaDv("555444333");
 const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+
+/** H2 (LGPD): as rotas/ações recebem a chave opaca do beneficiário, nunca o CPF. */
+const chaveDe = async (cpf: string) =>
+  (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
 
 beforeAll(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "sifap-quirks-a-"));
@@ -136,11 +140,11 @@ describe("configuração inválida", () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await validarCadastroAction(null, form({ ...VALBENEF_OK, numCpf: CPF_MARIA }))).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
     expect(await verificarElegibilidadeAction(null, form({ numCpf: CPF_MARIA, codPrograma: "PT01" }))).toEqual({ ok: false, mensagem: ERRO_INESPERADO });
-    expect(await incluirDependenteAction(CPF_TITULAR, null, form({ nomeDependente: "X", dtNascDepend: "", parentesco: "FI", cpfDependente: "", docDependente: "", sexoDependente: "" }))).toEqual({
+    expect(await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, form({ nomeDependente: "X", dtNascDepend: "", parentesco: "FI", cpfDependente: "", docDependente: "", sexoDependente: "" }))).toEqual({
       ok: false,
       mensagens: [ERRO_INESPERADO],
     });
-    expect(await alterarBeneficiarioAction(CPF_IDOSO, null, form(await camposAlteracao(CPF_IDOSO)))).toEqual({ ok: false, mensagens: [ERRO_INESPERADO] });
+    expect(await alterarBeneficiarioAction(await chaveDe(CPF_IDOSO), null, form(await camposAlteracao(CPF_IDOSO)))).toEqual({ ok: false, mensagens: [ERRO_INESPERADO] });
     // O log nomeia a variável real (detalheErroQuirks), sem dados pessoais.
     expect(log).toHaveBeenCalledWith(expect.stringMatching(/^\[validacao-cadastro\] configuração LEGACY-QUIRK inválida — SIFAP_QUIRKS_CORRIGIDOS: .*D99/));
     expect(log).toHaveBeenCalledWith(expect.stringMatching(/^\[beneficiarios\] configuração LEGACY-QUIRK inválida — SIFAP_QUIRKS_CORRIGIDOS/));
@@ -152,7 +156,7 @@ describe("configuração inválida", () => {
   it("LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED inválido → a página de alteração mostra erro genérico", async () => {
     vi.stubEnv("LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED", "talvez");
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    const html = renderToStaticMarkup(await EditarBeneficiarioPage({ params: Promise.resolve({ cpf: CPF_IDOSO }) }));
+    const html = renderToStaticMarkup(await EditarBeneficiarioPage({ params: Promise.resolve({ chave: await chaveDe(CPF_IDOSO) }) }));
     expect(html).toContain(ERRO_INESPERADO);
     expect(html).not.toContain("IDOSA DE TESTE");
     expect(log).toHaveBeenCalledWith(expect.stringMatching(/LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED/));
@@ -217,11 +221,11 @@ describe("D20 — comprimento do RG (VALDOCS)", () => {
 
 describe("D5 — idade > 75 na alteração", () => {
   it("legado: status A vira S; corrigido (D5): conserva A", async () => {
-    const legado = await alterarBeneficiarioAction(CPF_IDOSO, null, form(await camposAlteracao(CPF_IDOSO, { sitBeneficiario: "A" })));
+    const legado = await alterarBeneficiarioAction(await chaveDe(CPF_IDOSO), null, form(await camposAlteracao(CPF_IDOSO, { sitBeneficiario: "A" })));
     expect(legado).toMatchObject({ ok: true, status: "S", suspensoPorIdade: true });
 
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D5");
-    const corrigido = await alterarBeneficiarioAction(CPF_IDOSO, null, form(await camposAlteracao(CPF_IDOSO, { sitBeneficiario: "A" })));
+    const corrigido = await alterarBeneficiarioAction(await chaveDe(CPF_IDOSO), null, form(await camposAlteracao(CPF_IDOSO, { sitBeneficiario: "A" })));
     expect(corrigido).toMatchObject({ ok: true, status: "A", suspensoPorIdade: false });
     expect((await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_IDOSO } })).sitBeneficiario).toBe("A");
   });
@@ -269,11 +273,11 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
     const cpf = CPF_MARIA;
     const campos = await camposAlteracao(cpf);
     delete (campos as Record<string, string | undefined>).sitBeneficiario;
-    const r = await alterarBeneficiarioAction(cpf, null, form(campos));
+    const r = await alterarBeneficiarioAction(await chaveDe(cpf), null, form(campos));
     expect(r).toMatchObject({ ok: true, status: " ", suspensoPorIdade: false });
     expect((await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf } })).sitBeneficiario).toBe(" ");
     // Mesmo se o formulário enviar um status, o legado não o grava.
-    const r2 = await alterarBeneficiarioAction(cpf, null, form(await camposAlteracao(cpf, { sitBeneficiario: "C" })));
+    const r2 = await alterarBeneficiarioAction(await chaveDe(cpf), null, form(await camposAlteracao(cpf, { sitBeneficiario: "C" })));
     expect(r2).toMatchObject({ ok: true, status: " " });
   });
 
@@ -281,14 +285,14 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
     vi.stubEnv("LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED", "true");
     const campos = await camposAlteracao(CPF_IDOSO);
     delete (campos as Record<string, string | undefined>).sitBeneficiario;
-    expect(await alterarBeneficiarioAction(CPF_IDOSO, null, form(campos))).toMatchObject({ ok: true, status: "S", suspensoPorIdade: true });
+    expect(await alterarBeneficiarioAction(await chaveDe(CPF_IDOSO), null, form(campos))).toMatchObject({ ok: true, status: "S", suspensoPorIdade: true });
   });
 
   it("default (flag ausente): status é obrigatório e editável", async () => {
     const campos = await camposAlteracao(CPF_MARIA);
     delete (campos as Record<string, string | undefined>).sitBeneficiario;
-    expect(await alterarBeneficiarioAction(CPF_MARIA, null, form(campos))).toMatchObject({ ok: false });
-    expect(await alterarBeneficiarioAction(CPF_MARIA, null, form(await camposAlteracao(CPF_MARIA, { sitBeneficiario: "I" })))).toMatchObject({
+    expect(await alterarBeneficiarioAction(await chaveDe(CPF_MARIA), null, form(campos))).toMatchObject({ ok: false });
+    expect(await alterarBeneficiarioAction(await chaveDe(CPF_MARIA), null, form(await camposAlteracao(CPF_MARIA, { sitBeneficiario: "I" })))).toMatchObject({
       ok: true,
       status: "I",
     });
@@ -318,15 +322,15 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
 
   it("flag desligado sobre registro em branco: opção 'Em branco (legado D18)' pré-selecionada; gravar exige escolha", async () => {
     await prisma.beneficiario.update({ where: { numCpf: CPF_MARIA }, data: { sitBeneficiario: " " } });
-    const el = acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ cpf: CPF_MARIA }) }));
+    const el = acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ chave: await chaveDe(CPF_MARIA) }) }));
     const html = renderToStaticMarkup(createElement(FormBeneficiario, el?.props as never));
     expect(html).toMatch(/<option value=" " selected="">Em branco \(legado D18\)<\/option>/);
     expect(html).not.toContain(MENSAGENS_SISTEMA.statusBrancoD18);
 
-    const r = await alterarBeneficiarioAction(CPF_MARIA, null, form(await camposAlteracao(CPF_MARIA)));
+    const r = await alterarBeneficiarioAction(await chaveDe(CPF_MARIA), null, form(await camposAlteracao(CPF_MARIA)));
     expect(r).toEqual({ ok: false, mensagens: ["Selecione a situação."], erros: { sitBeneficiario: "Selecione a situação." } });
     expect((await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_MARIA } })).sitBeneficiario).toBe(" ");
-    expect(await alterarBeneficiarioAction(CPF_MARIA, null, form(await camposAlteracao(CPF_MARIA, { sitBeneficiario: "A" })))).toMatchObject({
+    expect(await alterarBeneficiarioAction(await chaveDe(CPF_MARIA), null, form(await camposAlteracao(CPF_MARIA, { sitBeneficiario: "A" })))).toMatchObject({
       ok: true,
       status: "A",
     });
@@ -335,7 +339,7 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
   it("flag ligado: a tela avisa o status que será gravado (em branco; S se idade > 75 com D5 legado)", async () => {
     vi.stubEnv("LEGACY_STATUS_BRANCO_ALTERACAO_ENABLED", "true");
     const render = async (cpf: string) =>
-      renderToStaticMarkup(createElement(FormBeneficiario, acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ cpf }) }))?.props as never)).replaceAll(
+      renderToStaticMarkup(createElement(FormBeneficiario, acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ chave: await chaveDe(cpf) }) }))?.props as never)).replaceAll(
         "&gt;",
         ">",
       );
@@ -346,7 +350,7 @@ describe("D18 — status em branco na alteração (flag legado)", () => {
   });
 
   it("tela de alteração: com o flag o select de situação não é exibido", async () => {
-    const pagina = async () => acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ cpf: CPF_MARIA }) }));
+    const pagina = async () => acharForm(await EditarBeneficiarioPage({ params: Promise.resolve({ chave: await chaveDe(CPF_MARIA) }) }));
     const padrao = await pagina();
     expect(padrao?.props.statusBrancoAlteracao).toBe(false);
     expect(renderToStaticMarkup(createElement(FormBeneficiario, padrao?.props as never))).toContain('name="sitBeneficiario"');
@@ -364,11 +368,11 @@ describe("D6 — limite de dependentes", () => {
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D6");
     expect(await incluirDependente(CPF_TITULAR, dep, undefined, lerQuirks())).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"] });
     const f = form({ nomeDependente: "SEXTO", dtNascDepend: "", parentesco: "FI", cpfDependente: "", docDependente: "", sexoDependente: "" });
-    expect(await incluirDependenteAction(CPF_TITULAR, null, f)).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"], erros: {} });
+    expect(await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, f)).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"], erros: {} });
     expect((await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_TITULAR } })).numDependentes).toBe(5);
 
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
-    expect(await incluirDependenteAction(CPF_TITULAR, null, f)).toEqual({ ok: true, mensagens: ["DEPENDENTE INCLUIDO - TOTAL: 6"], total: 6 });
+    expect(await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, f)).toEqual({ ok: true, mensagens: ["DEPENDENTE INCLUIDO - TOTAL: 6"], total: 6 });
   });
 });
 
@@ -389,13 +393,13 @@ describe("ALL no nível das actions", () => {
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "ALL");
     vi.stubEnv("LEGACY_DOC_ESPECIAL_ENABLED", "false");
     // D5: alteração do maior de 75 conserva A.
-    expect(await alterarBeneficiarioAction(CPF_IDOSO, null, form(await camposAlteracao(CPF_IDOSO, { sitBeneficiario: "A" })))).toMatchObject({
+    expect(await alterarBeneficiarioAction(await chaveDe(CPF_IDOSO), null, form(await camposAlteracao(CPF_IDOSO, { sitBeneficiario: "A" })))).toMatchObject({
       ok: true,
       status: "A",
     });
     // D6: com 5 dependentes o 6.º é rejeitado.
     const dep = form({ nomeDependente: "SEXTO", dtNascDepend: "", parentesco: "FI", cpfDependente: "", docDependente: "", sexoDependente: "" });
-    expect(await incluirDependenteAction(CPF_TITULAR, null, dep)).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"], erros: {} });
+    expect(await incluirDependenteAction(await chaveDe(CPF_TITULAR), null, dep)).toEqual({ ok: false, mensagens: ["LIMITE DE DEPENDENTES ATINGIDO"], erros: {} });
     // D12: região 99 avaliada normalmente.
     expect(await verificarElegibilidadeAction(null, form({ numCpf: CPF_FRANCISCO, codPrograma: "PP01" }))).toMatchObject({
       ok: true,

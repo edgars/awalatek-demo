@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type FormEvent, type ReactNode } from "react";
-import { CpfInput, NisInput, ResultadoLegado } from "@/components/campos";
+import { CpfInput, FiltroBeneficiario, NisInput, ResultadoLegado } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,9 +136,11 @@ function TabelaHistorico({ h }: { h: Historico }) {
 }
 
 /** Pantalla 4.8 — entrada arriba (tipo de busca + CPF/NIS) → ficha + histórico debaixo. */
-export function FormConsulta({ cpfInicial, inicial }: { cpfInicial: string; inicial: EstadoConsulta }) {
+export function FormConsulta({ viaChave = false, inicial }: { viaChave?: boolean; inicial: EstadoConsulta }) {
   const [tipo, setTipo] = useState<TipoBusca>("C");
   const [painel, setPainel] = useState<EstadoConsulta>(inicial);
+  // Chegada pela chave opaca (`?benef=`): aviso com o CPF mascarado até a próxima busca manual.
+  const [filtro, setFiltro] = useState(viaChave);
   const [pendente, iniciar] = useTransition();
 
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
@@ -147,9 +149,10 @@ export function FormConsulta({ cpfInicial, inicial }: { cpfInicial: string; inic
     iniciar(async () => {
       try {
         setPainel(await consultarBeneficiarioAction(null, dados));
-        // Busca manual: tira o `?cpf=` da chegada pela lista (um reload não deve mostrar o CPF anterior).
+        setFiltro(false);
+        // Busca manual: tira o `?benef=` da chegada pela lista (um reload não deve mostrar o beneficiário anterior).
         // History API nativa (integrada ao router do Next): router.replace re-renderizaria a página
-        // no servidor e remontaria este formulário (key = cpf), apagando o resultado recém-obtido.
+        // no servidor e remontaria este formulário (key = benef), apagando o resultado recém-obtido.
         if (window.location.search) window.history.replaceState(null, "", "/consulta");
       } catch {
         setPainel({ ok: false, mensagem: ERRO_INESPERADO });
@@ -178,7 +181,7 @@ export function FormConsulta({ cpfInicial, inicial }: { cpfInicial: string; inic
               </div>
             </fieldset>
             {tipo === "C" ? (
-              <CpfInput key="cpf" name="valor" label="CPF do beneficiário" defaultValue={cpfInicial || undefined} />
+              <CpfInput key="cpf" name="valor" label="CPF do beneficiário" />
             ) : (
               <NisInput key="nis" name="valor" label="NIS do beneficiário" />
             )}
@@ -191,6 +194,7 @@ export function FormConsulta({ cpfInicial, inicial }: { cpfInicial: string; inic
         </CardContent>
       </Card>
 
+      {filtro && painel?.ok ? <FiltroBeneficiario cpfMascarado={painel.ficha.cpfMascarado} hrefLimpar="/consulta" /> : null}
       {painel && !painel.ok ? <ResultadoLegado variante="erro" mensagens={[painel.mensagem]} /> : null}
       {painel?.ok ? (
         <>

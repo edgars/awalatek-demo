@@ -1,13 +1,19 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { CAMPOS_FORMULARIO_DEPENDENTE, campoDoErroDependente, dependenteSchema } from "@/domain/beneficiario/dependentes";
+import {
+  CAMPOS_FORMULARIO_DEPENDENTE,
+  campoDoErroDependente,
+  dependenteSchema,
+  MENSAGENS_CADDEPEND,
+} from "@/domain/beneficiario/dependentes";
+import { resolverCpfPorChave } from "@/server/beneficiarios";
 import { incluirDependente } from "@/server/dependentes";
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoDependente } from "./_componentes/estado";
 import { ERRO_INESPERADO, falhaInesperadaMensagens } from "@/lib/falhas";
 
-// Server Action de /beneficiarios/[cpf]/dependentes: zod en el borde; reglas en el dominio.
+// Server Action de /beneficiarios/[chave]/dependentes: zod en el borde; reglas en el dominio.
 // Solo inclusión: el legado no edita ni borra dependientes.
 
 function texto(dados: FormData, campo: string): string {
@@ -15,8 +21,14 @@ function texto(dados: FormData, campo: string): string {
   return typeof v === "string" ? v : "";
 }
 
-/** `cpf` del titular viene de la ruta (ligado con bind). */
-export async function incluirDependenteAction(cpf: string, _anterior: EstadoDependente, dados: FormData): Promise<EstadoDependente> {
+/** `chave` (opaca) del titular viene de la ruta (ligada con bind); el CPF se resuelve aquí (H2). */
+export async function incluirDependenteAction(chave: string, _anterior: EstadoDependente, dados: FormData): Promise<EstadoDependente> {
+  // Chave primeiro (antes do zod): malformada/inexistente → mensagem literal do legado, sem
+  // revalidar nada; falha da base → mensagem genérica (log só tipo/código).
+  const resolvido = await resolverCpfPorChave(chave, "dependentes (chave)");
+  if (!resolvido.ok) return { ok: false, mensagens: [ERRO_INESPERADO] };
+  const cpf = resolvido.valor;
+  if (!cpf) return { ok: false, mensagens: [MENSAGENS_CADDEPEND.naoEncontrado] };
   const bruto = Object.fromEntries(CAMPOS_FORMULARIO_DEPENDENTE.map((c) => [c, texto(dados, c)]));
   const parsed = dependenteSchema.safeParse(bruto);
   if (!parsed.success) {
@@ -31,7 +43,7 @@ export async function incluirDependenteAction(cpf: string, _anterior: EstadoDepe
     const r = await incluirDependente(cpf, parsed.data, undefined, quirks);
     if (!r.ok) {
       // Límite/concurrencia/titular bloqueado: la pantalla se refresca con el estado real.
-      revalidatePath(`/beneficiarios/${cpf}/dependentes`);
+      revalidatePath(`/beneficiarios/${chave}/dependentes`);
       const erros: Record<string, string> = {};
       for (const m of r.mensagens) {
         const campo = campoDoErroDependente(m);
@@ -40,7 +52,7 @@ export async function incluirDependenteAction(cpf: string, _anterior: EstadoDepe
       return { ok: false, mensagens: r.mensagens, erros };
     }
     revalidatePath("/beneficiarios");
-    revalidatePath(`/beneficiarios/${r.numCpf}/dependentes`);
+    revalidatePath(`/beneficiarios/${chave}/dependentes`);
     return { ok: true, mensagens: r.mensagens, total: r.total };
   } catch (e) {
     return falhaInesperadaMensagens("dependentes", "inclusão", e);

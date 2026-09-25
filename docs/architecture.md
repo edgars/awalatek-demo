@@ -218,9 +218,9 @@ Solo `src/server/auditoria.ts` escribe en esta tabla (append-only; sin update/de
 | Ruta | Pantalla legado | Épica |
 |---|---|---|
 | `/programas`, `/programas/novo`, `/programas/[cod]` | CADASTRO PROGRAMAS SOCIAIS / DADOS DO PROGRAMA | E1 |
-| `/beneficiarios`, `/beneficiarios/novo`, `/beneficiarios/[cpf]/editar` | CADASTRO DE BENEFICIARIO | E2 |
-| `/beneficiarios/[cpf]/dependentes` | CADASTRO DE DEPENDENTES / DADOS DO DEPENDENTE | E2 |
-| `/beneficiarios/[cpf]/descontos` | (registro de descuentos — PE DESCONTOS) | E2/E4 |
+| `/beneficiarios`, `/beneficiarios/novo`, `/beneficiarios/[chave]/editar` | CADASTRO DE BENEFICIARIO | E2 |
+| `/beneficiarios/[chave]/dependentes` | CADASTRO DE DEPENDENTES / DADOS DO DEPENDENTE | E2 |
+| `/beneficiarios/[chave]/descontos` | (registro de descuentos — PE DESCONTOS) | E2/E4 |
 | `/consulta` | CONSULTA BENEFICIARIO | E2 |
 | `/validacao/cadastro`, `/validacao/documentos` | VALBENEF / VALIDACAO DE DOCUMENTOS | E2 |
 | `/elegibilidade` | VALIDACAO ELEGIBILIDADE | E3 |
@@ -229,6 +229,15 @@ Solo `src/server/auditoria.ts` escribe en esta tabla (append-only; sin update/de
 | `/conciliacao` | CONCILIACAO BANCARIA | E6 |
 | `/relatorios/pagamentos`, `/relatorios/consolidado`, `/relatorios/auditoria` | RELATORIO PAGAMENTOS / COMPETENCIA RELATORIO / RELATORIO AUDITORIA | E7 |
 | `/pagamentos`, `/pagamentos/[num]` | (solo lectura) | E4 |
+
+LGPD (H2): ninguna URL lleva el CPF ni el NIS. `[chave]` es `Beneficiario.chavePublica` (UUID v4
+opaco, estable, único); los atajos usan `?benef=<chave>` (`/consulta`, `/elegibilidade`, `/pagamentos`,
+`/beneficiarios`) y las búsquedas por CPF se envían por POST (Server Action) que redirige con la
+clave (un CPF en `?q=` de `/beneficiarios` también se redirige a la clave). Con `?benef=` las pantallas
+no muestran el CPF completo: solo el aviso "Filtrando por" con el CPF enmascarado.
+- La clave sigue siendo **dato personal seudonimizado** (LGPD art. 13 §4): no va a logs y no sale
+  del sitio (`Referrer-Policy: same-origin` en `next.config.ts`). Sin rotación por ahora.
+- Guarda estática: `tests/lgpd-urls.test.ts` (src/app, src/components, src/server).
 
 ## 7. Deployment — docker-compose (ADR-007)
 
@@ -251,4 +260,7 @@ Solo `src/server/auditoria.ts` escribe en esta tabla (append-only; sin update/de
 - **ADR-007 Un solo contenedor** con SQLite en volumen.
 - **ADR-008 Grupos periódicos → tablas hijas** con `occurrence` y límite validado en el dominio.
 - **ADR-009 Pagamento y Auditoria no tienen CRUD:** pagos solo por procesos; auditoría append-only.
+  Excepción explícita (H2/LGPD): `/pagamentos` tiene **una** Server Action POST
+  (`filtrarPagamentosAction`) solo para sacar el filtro de CPF de la URL (lo cambia por la clave
+  opaca y redirige). Nunca escribe; lo verifica el e2e "ADR-009" de `tests/e2e/pagamentos.spec.ts`.
 - **ADR-010 LEGACY-QUIRK:** comportamientos raros replicados y marcados (`docs/prd.md` §5); flags en `src/domain/quirks.ts`.

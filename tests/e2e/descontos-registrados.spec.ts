@@ -1,15 +1,18 @@
 import { expect, test } from "@playwright/test";
+import { CHAVE_INEXISTENTE, chaveDe, esperarUrlSemCpf } from "./chave";
 
 // Story 2.5 contra a base dedicada do e2e (seed: JOSE CARLOS PEREIRA, CPF 123.456.780-62, sem descontos).
 
 test.describe.configure({ mode: "serial" });
 
-const URL_JOSE = "/beneficiarios/12345678062/descontos";
+const CPF_JOSE = "12345678062";
+const urlJose = async () => `/beneficiarios/${await chaveDe(CPF_JOSE)}/descontos`;
 
 test("gravar dois descontos, recarregar e ver vigência", async ({ page }) => {
   await page.goto("/beneficiarios?q=jose");
   await page.getByRole("link", { name: "Descontos JOSE CARLOS PEREIRA" }).click();
-  await expect(page).toHaveURL(new RegExp(`${URL_JOSE}$`));
+  await expect(page).toHaveURL(new RegExp(`${await urlJose()}$`));
+  await esperarUrlSemCpf(page, CPF_JOSE);
   await expect(page.getByRole("heading", { level: 1, name: "Descontos do beneficiário" })).toBeVisible();
   // LGPD: CPF mascarado no cabeçalho.
   await expect(page.getByText("***.***.780-62")).toBeVisible();
@@ -46,7 +49,7 @@ test("gravar dois descontos, recarregar e ver vigência", async ({ page }) => {
 });
 
 test("J sem nº do processo → erro na fila, nada gravado", async ({ page }) => {
-  await page.goto(URL_JOSE);
+  await page.goto(await urlJose());
   await page.getByLabel("Nº processo (desconto 1)").fill("");
   await page.getByRole("button", { name: "Gravar descontos" }).click();
 
@@ -59,6 +62,9 @@ test("J sem nº do processo → erro na fila, nada gravado", async ({ page }) =>
 });
 
 test("beneficiário inexistente → BENEFICIARIO NAO ENCONTRADO", async ({ page }) => {
-  await page.goto("/beneficiarios/15975348625/descontos");
+  await page.goto(`/beneficiarios/${CHAVE_INEXISTENTE}/descontos`);
+  await expect(page.getByTestId("resultado-legado")).toContainText("BENEFICIARIO NAO ENCONTRADO");
+  // H2: a rota não aceita mais o CPF (nem de um beneficiário existente).
+  await page.goto(`/beneficiarios/${CPF_JOSE}/descontos`);
   await expect(page.getByTestId("resultado-legado")).toContainText("BENEFICIARIO NAO ENCONTRADO");
 });

@@ -12,6 +12,7 @@ import {
   TIPOS_DESCONTO,
 } from "@/domain/beneficiario/descontosRegistrados";
 import { mascaraCpfLista } from "@/domain/cpf";
+import { resolverCpfPorChave } from "@/server/beneficiarios";
 import { listarDescontosRegistrados } from "@/server/descontosRegistrados";
 import { salvarDescontosRegistradosAction } from "./actions";
 import { EditorDescontos } from "./EditorDescontos";
@@ -19,7 +20,7 @@ import { ERRO_INESPERADO, registrarFalha } from "@/lib/falhas";
 
 export const metadata: Metadata = { title: "Descontos do beneficiário" };
 
-type Props = { params: Promise<{ cpf: string }> };
+type Props = { params: Promise<{ chave: string }> };
 
 async function carregar(cpf: string) {
   try {
@@ -34,14 +35,11 @@ const TIPOS = TIPOS_DESCONTO.map((codigo) => ({ codigo, rotulo: ROTULOS_TIPO_DES
 
 /** Pantalla 4.7 — descontos registrados do beneficiário (PE DESCONTOS, D14). */
 export default async function DescontosBeneficiarioPage({ params }: Props) {
-  const { cpf: bruto } = await params;
-  let cpf = bruto;
-  try {
-    cpf = decodeURIComponent(bruto);
-  } catch {
-    // escape malformado → valor bruto → não encontrado
-  }
-  const r = await carregar(cpf);
+  // H2 (LGPD): a URL traz a chave opaca; o CPF é resolvido no servidor (chave inválida → não encontrado).
+  const { chave } = await params;
+  // Falha da base ao resolver a chave → mensagem genérica (log só tipo/código).
+  const resolvido = await resolverCpfPorChave(chave, "descontos (chave)");
+  const r = resolvido.ok ? await carregar(resolvido.valor ?? "") : { ok: false as const, mensagem: ERRO_INESPERADO };
 
   if (!r.ok) {
     return (
@@ -87,7 +85,7 @@ export default async function DescontosBeneficiarioPage({ params }: Props) {
         </CardHeader>
         <CardContent>
           <EditorDescontos
-            acao={salvarDescontosRegistradosAction.bind(null, b.numCpf)}
+            acao={salvarDescontosRegistradosAction.bind(null, chave)}
             maximo={MAX_DESCONTOS}
             tipos={TIPOS}
             tamanhoProcesso={TAMANHO_NUM_PROCESSO}

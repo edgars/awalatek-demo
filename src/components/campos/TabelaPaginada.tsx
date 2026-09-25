@@ -14,6 +14,9 @@ export type Coluna<T> = {
  * Tabla de listas e informes con búsqueda (`?q=`) y paginación (`?pagina=`) por
  * URL: funciona sin JS y el estado se puede compartir por enlace. Componente de
  * servidor. Los CPF deben llegar ya enmascarados en `celula` (E2+).
+ * `acaoBusca` (Server Action, POST) sustituye el GET cuando el término puede ser un
+ * CPF: la acción decide la URL de destino sin el CPF (H2, LGPD). `parametros` son
+ * filtros extra que la paginación conserva.
  */
 export function TabelaPaginada<T>({
   caminho,
@@ -26,6 +29,8 @@ export function TabelaPaginada<T>({
   total,
   rotuloBusca = "Buscar",
   vazio,
+  acaoBusca,
+  parametros = {},
 }: {
   caminho: string;
   colunas: readonly Coluna<T>[];
@@ -37,18 +42,21 @@ export function TabelaPaginada<T>({
   total: number;
   rotuloBusca?: string;
   vazio: ReactNode;
+  acaoBusca?: (dados: FormData) => Promise<void>;
+  parametros?: Readonly<Record<string, string>>;
 }) {
   const idBusca = useId();
   const href = (p: number) => {
     const sp = new URLSearchParams();
     if (q) sp.set("q", q);
+    for (const [k, v] of Object.entries(parametros)) if (v) sp.set(k, v);
     if (p > 1) sp.set("pagina", String(p));
     const s = sp.toString();
     return s ? `${caminho}?${s}` : caminho;
   };
   return (
     <div className="grid gap-3">
-      <form role="search" action={caminho} className="flex max-w-md gap-2">
+      <form role="search" action={acaoBusca ?? caminho} className="flex max-w-md gap-2">
         <label htmlFor={idBusca} className="sr-only">
           {rotuloBusca}
         </label>

@@ -1,17 +1,27 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import type { z } from "zod";
 import {
   CAMPOS_FORMULARIO_CADASTRO,
   campoDoErro,
   esquemaAlteracaoBeneficiario,
   inclusaoBeneficiarioSchema,
+  MENSAGENS_CADBENEF,
   primeiroErroDosCampos,
   type OperacaoCadastro,
 } from "@/domain/beneficiario/cadastro";
-import { alterarBeneficiario, incluirBeneficiario, type Resultado } from "@/server/beneficiarios";
+import {
+  alterarBeneficiario,
+  cpfExatoDaBusca,
+  incluirBeneficiario,
+  resolverChavePorCpf,
+  resolverCpfPorChave,
+  type Resultado,
+} from "@/server/beneficiarios";
 import { lerQuirksServidor } from "@/server/quirksConfig";
+import { BENEF_ERRO, BENEF_NAO_ENCONTRADO } from "@/domain/chavePublica";
 import type { EstadoAcao } from "./estado";
 import { ERRO_INESPERADO, falhaInesperadaMensagens } from "@/lib/falhas";
 
@@ -38,9 +48,17 @@ function falhaValidacao(op: OperacaoCadastro, bruto: Record<string, string>, err
 
 function resposta(r: Resultado): EstadoAcao {
   if (!r.ok) return falha(r.mensagem, campoDoErro(r.mensagem));
+  // H2 (LGPD): o link e a revalidação usam a chave opaca devolvida pelo caso de uso, nunca o CPF.
   revalidatePath("/beneficiarios");
-  revalidatePath(`/beneficiarios/${r.numCpf}/editar`);
-  return { ok: true, mensagens: [r.mensagem], numCpf: r.numCpf, status: r.status, suspensoPorIdade: r.suspensoPorIdade, numVersao: r.numVersao };
+  revalidatePath(`/beneficiarios/${r.chavePublica}/editar`);
+  return {
+    ok: true,
+    mensagens: [r.mensagem],
+    chavePublica: r.chavePublica,
+    status: r.status,
+    suspensoPorIdade: r.suspensoPorIdade,
+    numVersao: r.numVersao,
+  };
 }
 
 export async function incluirBeneficiarioAction(_anterior: EstadoAcao, dados: FormData): Promise<EstadoAcao> {
@@ -57,13 +75,17 @@ export async function incluirBeneficiarioAction(_anterior: EstadoAcao, dados: Fo
   }
 }
 
-/** `cpf` viene de la ruta (ligado con bind): el CPF del formulario no puede cambiarlo. */
-export async function alterarBeneficiarioAction(cpf: string, _anterior: EstadoAcao, dados: FormData): Promise<EstadoAcao> {
+/** `chave` (opaca) viene de la ruta (ligada con bind): el CPF del formulario no puede cambiarlo. */
+export async function alterarBeneficiarioAction(chave: string, _anterior: EstadoAcao, dados: FormData): Promise<EstadoAcao> {
   const bruto: Record<string, string> = {
     ...Object.fromEntries(CAMPOS_FORMULARIO_CADASTRO.map((c) => [c, texto(dados, c)])),
     sitBeneficiario: texto(dados, "sitBeneficiario"),
     numVersao: texto(dados, "numVersao"),
   };
+  const resolvido = await resolverCpfPorChave(chave, "alteração (chave)");
+  if (!resolvido.ok) return { ok: false, mensagens: [ERRO_INESPERADO] };
+  const cpf = resolvido.valor;
+  if (!cpf) return falha(MENSAGENS_CADBENEF.naoEncontradoAlteracao);
   const cpfForm = (bruto.numCpf ?? "").replace(/\D/g, "");
   if (cpfForm && cpfForm !== cpf) return falha("Campo não editável na alteração: CPF.", "numCpf");
   bruto.numCpf = cpf;
@@ -78,4 +100,18 @@ export async function alterarBeneficiarioAction(cpf: string, _anterior: EstadoAc
   } catch (e) {
     return falhaInesperadaMensagens("beneficiarios", "alteração", e);
   }
+}
+
+/**
+ * Búsqueda de la lista (POST, H2/LGPD): un CPF exacto nunca va a la URL; se cambia por la
+ * clave opaca (`?benef=`). Los demás términos (nombre) siguen en `?q=` como antes.
+ */
+export async function buscarBeneficiariosAction(dados: FormData): Promise<void> {
+  const termo = texto(dados, "q").trim();
+  const cpf = cpfExatoDaBusca(termo);
+  if (cpf) {
+    const r = await resolverChavePorCpf(cpf, "busca da lista");
+    redirect(`/beneficiarios?benef=${encodeURIComponent(!r.ok ? BENEF_ERRO : (r.valor ?? BENEF_NAO_ENCONTRADO))}`);
+  }
+  redirect(termo ? `/beneficiarios?q=${encodeURIComponent(termo)}` : "/beneficiarios");
 }

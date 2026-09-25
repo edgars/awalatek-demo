@@ -11,6 +11,7 @@ import {
   type AlteracaoBeneficiario,
   type InclusaoBeneficiario,
 } from "@/domain/beneficiario/cadastro";
+import { FORMATO_CHAVE_PUBLICA } from "@/domain/chavePublica";
 import { anoDe, hoje } from "@/domain/legacyDate";
 import { MENSAGENS_PROGRAMA } from "@/domain/programa";
 import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
@@ -24,11 +25,31 @@ import { usuarioOperativo } from "@/server/usuario";
 export const TAMANHO_PAGINA = 10;
 
 export type Falha = { ok: false; mensagem: string };
-export type Sucesso = { ok: true; mensagem: string; numCpf: string; status: string; suspensoPorIdade: boolean; numVersao: number };
+export type Sucesso = {
+  ok: true;
+  mensagem: string;
+  numCpf: string;
+  /** Clave opaca del beneficiario grabado (H2: los enlaces nunca llevan el CPF). */
+  chavePublica: string;
+  status: string;
+  suspensoPorIdade: boolean;
+  numVersao: number;
+};
 export type Resultado = Sucesso | Falha;
 
 function falha(mensagem: string): Falha {
   return { ok: false, mensagem };
+}
+
+/**
+ * CPF (11 dígitos) si el término de búsqueda es un CPF exacto (admite máscara); si no, `null`.
+ * CPF solo por coincidencia exacta: una búsqueda parcial, junto con la máscara de la lista,
+ * permitiría enumerar CPFs (LGPD).
+ */
+export function cpfExatoDaBusca(termo: string): string | null {
+  const t = termo.trim();
+  const digitos = t.replace(/\D/g, "");
+  return digitos.length === 11 && /^[\d.\-\s]+$/.test(t) ? digitos : null;
 }
 
 export async function listarBeneficiarios(
@@ -36,12 +57,9 @@ export async function listarBeneficiarios(
   db: PrismaClient = prisma,
 ) {
   const termo = q.trim();
-  const digitos = termo.replace(/\D/g, "");
-  // CPF solo por coincidencia exacta de 11 dígitos (admite máscara): una búsqueda
-  // parcial, junto con la máscara de la lista, permitiría enumerar CPFs (LGPD).
-  // Si no, por nombre: en SQLite `contains` = LIKE, que no distingue mayúsculas en ASCII.
-  const cpfExato = digitos.length === 11 && /^[\d.\-\s]+$/.test(termo);
-  const where = !termo ? {} : cpfExato ? { numCpf: { equals: digitos } } : { nomeCompleto: { contains: termo.toUpperCase() } };
+  const cpfExato = cpfExatoDaBusca(termo);
+  // Si no es un CPF exacto, por nombre: en SQLite `contains` = LIKE, que no distingue mayúsculas en ASCII.
+  const where = !termo ? {} : cpfExato ? { numCpf: { equals: cpfExato } } : { nomeCompleto: { contains: termo.toUpperCase() } };
   const total = await db.beneficiario.count({ where });
   const totalPaginas = Math.max(1, Math.ceil(total / TAMANHO_PAGINA));
   const atual = Math.min(Math.max(1, Math.trunc(pagina) || 1), totalPaginas);
@@ -52,6 +70,7 @@ export async function listarBeneficiarios(
     take: TAMANHO_PAGINA,
     select: {
       numCpf: true,
+      chavePublica: true,
       nomeCompleto: true,
       codPrograma: true,
       sitBeneficiario: true,
@@ -68,6 +87,23 @@ export async function listarOpcoesProgramas(db: PrismaClient = prisma) {
     orderBy: { codPrograma: "asc" },
     select: { codPrograma: true, nomePrograma: true },
   });
+}
+
+// H2 (LGPD): las URLs identifican al beneficiario por `chavePublica` (UUID opaco y estable),
+// nunca por el CPF. Estas funciones traducen entre la clave de la URL y el CPF (clave de negocio).
+
+/** CPF del beneficiario de la clave opaca; `null` si el formato es inválido o no existe. */
+export async function cpfPorChave(chave: string, db: PrismaClient = prisma): Promise<string | null> {
+  if (!FORMATO_CHAVE_PUBLICA.test(chave)) return null;
+  const b = await db.beneficiario.findUnique({ where: { chavePublica: chave }, select: { numCpf: true } });
+  return b?.numCpf ?? null;
+}
+
+/** Clave opaca del beneficiario con ese CPF (11 dígitos); `null` si no existe. */
+export async function chavePorCpf(numCpf: string, db: PrismaClient = prisma): Promise<string | null> {
+  if (!/^\d{11}$/.test(numCpf)) return null;
+  const b = await db.beneficiario.findUnique({ where: { numCpf }, select: { chavePublica: true } });
+  return b?.chavePublica ?? null;
 }
 
 export async function obterBeneficiario(numCpf: string, db: PrismaClient = prisma) {
@@ -96,8 +132,10 @@ export async function incluirBeneficiario(
   const agora = hoje();
   const { status, suspensoPorIdade } = statusResultante("I", dados.dtNascimento, anoDe(agora.data), undefined, quirks);
   const usuario = usuarioOperativo();
+  let chavePublica: string;
   try {
-    await db.beneficiario.create({
+    ({ chavePublica } = await db.beneficiario.create({
+      select: { chavePublica: true },
       data: {
         numCpf: dados.numCpf,
         nis: vazioParaNull(dados.nis), // vacío → NULL (unique nullable)
@@ -123,14 +161,14 @@ export async function incluirBeneficiario(
         hrUltAlteracao: agora.hora,
         usrUltAlteracao: usuario,
       },
-    });
+    }));
   } catch (e) {
     // Carrera entre la verificación y el insert: la restricción única decide.
     if (violaUnico(e, "numCpf")) return falha(MENSAGENS_CADBENEF.jaCadastrado);
     if (violaUnico(e, "nis")) return falha(MENSAGENS_SISTEMA.nisDuplicado);
     throw e;
   }
-  return { ok: true, mensagem: MENSAGENS_CADBENEF.incluidoSucesso, numCpf: dados.numCpf, status, suspensoPorIdade, numVersao: 1 };
+  return { ok: true, mensagem: MENSAGENS_CADBENEF.incluidoSucesso, numCpf: dados.numCpf, chavePublica, status, suspensoPorIdade, numVersao: 1 };
 }
 
 /** `quirks`: flags LEGACY-QUIRK (D5 y D18); por defecto, legado (QUIRKS_PADRAO); la acción/página lee el entorno y los pasa. */
@@ -178,8 +216,34 @@ export async function alterarBeneficiario(
     ok: true,
     mensagem: MENSAGENS_CADBENEF.alteradoSucesso,
     numCpf: registrado.numCpf,
+    chavePublica: registrado.chavePublica,
     status,
     suspensoPorIdade,
     numVersao: dados.numVersao + 1,
   };
+}
+
+/** Resultado de resolver la clave/CPF sin propagar fallas de la base (H2). */
+export type Resolucao = { ok: true; valor: string | null } | { ok: false };
+
+async function resolverSeguro(contexto: string, f: () => Promise<string | null>): Promise<Resolucao> {
+  try {
+    return { ok: true, valor: await f() };
+  } catch (e) {
+    // Solo tipo y código: el mensaje de Prisma incluye los argumentos (CPF/clave), NFR-04.
+    const nome = e instanceof Error ? e.name : "erro desconhecido";
+    const codigo = (e as { code?: unknown } | null)?.code;
+    console.error(`[beneficiarios] ${contexto}:`, nome, typeof codigo === "string" ? codigo : "");
+    return { ok: false };
+  }
+}
+
+/** `cpfPorChave` que nunca lanza: falla de la base → `{ ok: false }` (log sin datos personales). */
+export function resolverCpfPorChave(chave: string, contexto: string, db: PrismaClient = prisma): Promise<Resolucao> {
+  return resolverSeguro(contexto, () => cpfPorChave(chave, db));
+}
+
+/** `chavePorCpf` que nunca lanza: falla de la base → `{ ok: false }` (log sin datos personales). */
+export function resolverChavePorCpf(numCpf: string, contexto: string, db: PrismaClient = prisma): Promise<Resolucao> {
+  return resolverSeguro(contexto, () => chavePorCpf(numCpf, db));
 }

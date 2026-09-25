@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { ResultadoLegado } from "@/components/campos";
-import { listarOpcoesProgramas } from "@/server/beneficiarios";
+import { mascaraCpfLista } from "@/domain/cpf";
+import { MENSAGENS_VALELEG } from "@/domain/elegibilidade";
+import { listarOpcoesProgramas, resolverCpfPorChave } from "@/server/beneficiarios";
 import { FormElegibilidade } from "./_componentes/FormElegibilidade";
 import { ERRO_INESPERADO, registrarFalha } from "@/lib/falhas";
 
@@ -28,8 +30,13 @@ export default async function ElegibilidadePage({
 }) {
   const sp = await searchParams;
   const { programas, falhou } = await carregarProgramas();
-  // Atalho de /consulta: CPF (e programa) pré-preenchidos por query string.
-  const cpf = param(sp.cpf).replace(/\D/g, "").slice(0, 11);
+  // Atalho: beneficiário (e programa) pré-preenchidos por query string. H2 (LGPD): o
+  // beneficiário vem pela chave opaca (`?benef=`), nunca pelo CPF; o CPF é resolvido aqui.
+  const benef = param(sp.benef);
+  const resolvido = benef ? await resolverCpfPorChave(benef, "elegibilidade (chave)") : null;
+  const cpf = resolvido?.ok ? resolvido.valor : null;
+  // Chave malformada ou inexistente → a mesma mensagem literal de VALELEG (como em /consulta).
+  const naoEncontrado = resolvido?.ok === true && !cpf;
   const programa = param(sp.programa).trim().toUpperCase();
   return (
     <div className="grid gap-4">
@@ -39,8 +46,14 @@ export default async function ElegibilidadePage({
           Verifica se o beneficiário é elegível para o programa e lista todos os motivos de recusa. Nada é gravado.
         </p>
       </div>
-      {falhou ? <ResultadoLegado variante="erro" mensagens={[ERRO_INESPERADO]} /> : null}
-      <FormElegibilidade programas={programas} cpfInicial={cpf} programaInicial={programas.some((p) => p.codPrograma === programa) ? programa : ""} />
+      {falhou || resolvido?.ok === false ? <ResultadoLegado variante="erro" mensagens={[ERRO_INESPERADO]} /> : null}
+      <FormElegibilidade
+        programas={programas}
+        // LGPD: o campo CPF fica vazio; só o CPF mascarado aparece no aviso de filtro.
+        filtro={cpf ? { benef, cpfMascarado: mascaraCpfLista(cpf) } : null}
+        programaInicial={programas.some((p) => p.codPrograma === programa) ? programa : ""}
+        inicial={naoEncontrado ? { ok: true, resultado: { tipo: "precondicao", mensagem: MENSAGENS_VALELEG.beneficiarioNaoEncontrado } } : null}
+      />
     </div>
   );
 }

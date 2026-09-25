@@ -3,7 +3,7 @@ import { consultarBeneficiario, type ResultadoConsulta } from "@/server/consulta
 import { lerQuirksServidor } from "@/server/quirksConfig";
 import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
 
-// Ejecución común de la consulta (Server Action y carga inicial por `?cpf=`).
+// Ejecución común de la consulta (Server Action y carga inicial por `?benef=`, clave opaca).
 // Solo lectura: CONSBENF no graba ni audita.
 
 export async function executarConsulta(tipo: string, valor: string): Promise<ResultadoConsulta> {

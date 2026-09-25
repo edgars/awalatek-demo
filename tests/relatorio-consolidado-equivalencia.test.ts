@@ -66,9 +66,11 @@ beforeAll(async () => {
   prisma = createPrismaClient(url);
   await seed(prisma);
   const modelo = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpfComDv(BENEFICIARIOS_SEED[0].base) } });
-  const { id: _id, ...dados } = modelo;
+  // `chavePublica` é única (H2): cada cópia recebe a sua pelo default do schema.
+  const { id: _id, chavePublica: _chave, ...dados } = modelo;
   void _id;
-  const base: Omit<Beneficiario, "id"> = { ...dados, nis: null };
+  void _chave;
+  const base: Omit<Beneficiario, "id" | "chavePublica"> = { ...dados, nis: null };
 
   const rnd = prng(20260925);
   const escolhe = <T,>(xs: readonly T[]): T => xs[Math.floor(rnd() * xs.length)] as T;

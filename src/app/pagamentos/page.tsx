@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ResultadoLegado } from "@/components/campos";
+import { FiltroBeneficiario, ResultadoLegado } from "@/components/campos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,7 @@ import { formatarReais } from "@/domain/money";
 import {
   lerFiltrosPagamentos,
   normalizarParams,
+  primeiroValor,
   ROTULOS_SITUACAO_PAGAMENTO,
   rotuloSituacaoPagamento,
   rotuloTipoPagamento,
@@ -23,7 +24,9 @@ import {
 } from "@/domain/pagamento";
 import { listarOpcoesProgramas } from "@/server/beneficiarios";
 import { listarPagamentos } from "@/server/pagamentos";
-import { falhaInesperada } from "@/lib/falhas";
+import { ERRO_INESPERADO, falhaInesperada } from "@/lib/falhas";
+import { filtrarPagamentosAction } from "./actions";
+import { cpfDoFiltro, PARAMS_LISTA } from "./filtros";
 
 export const metadata: Metadata = { title: "Pagamentos" };
 
@@ -37,10 +40,10 @@ function competenciaTexto(c: number): string {
   }
 }
 
-/** Query string con los filtros vigentes (para la paginación), ya normalizados. */
+/** Query string con los filtros vigentes (para la paginación), ya normalizados; nunca el CPF (H2). */
 function hrefPagina(params: Record<string, string>, pagina: number): string {
   const q = new URLSearchParams();
-  for (const k of ["cpf", "competencia", "programa", "situacao"]) {
+  for (const k of ["benef", ...PARAMS_LISTA]) {
     const v = params[k];
     if (v) q.set(k, v);
   }
@@ -49,12 +52,21 @@ function hrefPagina(params: Record<string, string>, pagina: number): string {
   return s ? `/pagamentos?${s}` : "/pagamentos";
 }
 
-function Filtros({ params, programas }: { params: Record<string, string>; programas: readonly { codPrograma: string; nomePrograma: string }[] }) {
+function Filtros({
+  params,
+  programas,
+}: {
+  params: Record<string, string>;
+  programas: readonly { codPrograma: string; nomePrograma: string }[];
+}) {
   const f = lerFiltrosPagamentos(params);
   const competencia = f.competencia ? (intParaCompetencia(f.competencia) ?? "") : "";
   return (
-    // Formulario de consulta (GET): solo filtra la lista, no escribe nada (ADR-009).
-    <form role="search" method="get" action="/pagamentos" aria-label="Filtros de pagamentos" className="grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+    // Formulario de consulta: solo filtra la lista, no escribe nada (ADR-009). POST (Server
+    // Action) para que el CPF no vaya a la URL: la acción lo cambia por la clave opaca (H2).
+    <form role="search" action={filtrarPagamentosAction} aria-label="Filtros de pagamentos" className="grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+      {/* Filtro vigente pela chave opaca: mantido se o campo CPF ficar vazio (H2). */}
+      {params.benef ? <input type="hidden" name="benef" value={params.benef} /> : null}
       <div className="grid gap-1.5">
         <Label htmlFor="filtro-cpf">CPF</Label>
         <Input
@@ -65,7 +77,6 @@ function Filtros({ params, programas }: { params: Record<string, string>; progra
           maxLength={14}
           placeholder="000.000.000-00"
           className="valor font-mono"
-          defaultValue={params.cpf}
           aria-describedby="filtro-cpf-ajuda"
         />
         <span id="filtro-cpf-ajuda" className="text-xs text-muted-foreground">
@@ -125,9 +136,16 @@ function PaginaLink({ href, ativo, children }: { href: string; ativo: boolean; c
   );
 }
 
-async function carregar(f: FiltrosPagamentos) {
+const LISTA_VAZIA = { itens: [], total: 0, pagina: 1, totalPaginas: 1 };
+
+async function carregar(benef: string, filtros: Omit<FiltrosPagamentos, "cpf">) {
+  // H2: o CPF do filtro vem da chave opaca; falha ao resolvê-la → erro genérico (já registrado).
+  const filtro = await cpfDoFiltro(benef);
+  if (filtro.tipo === "erro") return { ok: false as const, mensagem: ERRO_INESPERADO };
   try {
-    return { ok: true as const, lista: await listarPagamentos(f) };
+    if (filtro.tipo === "inexistente") return { ok: true as const, filtro, lista: LISTA_VAZIA };
+    const cpf = filtro.tipo === "cpf" ? filtro.cpf : filtro.tipo === "incompleto" ? null : "";
+    return { ok: true as const, filtro, lista: await listarPagamentos({ ...filtros, cpf }) };
   } catch (e) {
     return falhaInesperada("pagamentos", "lista", e);
   }
@@ -145,9 +163,11 @@ async function carregarProgramas() {
 
 /** Pantalla 4.15 — lista de pagamentos (solo lectura, ADR-009). */
 export default async function PagamentosPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const params = normalizarParams(await searchParams);
+  const sp = await searchParams;
+  // H2 (LGPD): o CPF nunca vem da URL (o parâmetro antigo é ignorado); o filtro chega como `?benef=`.
+  const params = { ...normalizarParams(sp), cpf: "", benef: primeiroValor(sp.benef) };
   const f = lerFiltrosPagamentos(params);
-  const [r, programas] = await Promise.all([carregar(f), carregarProgramas()]);
+  const [r, programas] = await Promise.all([carregar(params.benef, f), carregarProgramas()]);
 
   return (
     <div className="grid gap-4">
@@ -157,6 +177,10 @@ export default async function PagamentosPage({ searchParams }: { searchParams: P
       </div>
 
       <Filtros params={params} programas={programas} />
+      {/* LGPD: o campo CPF fica vazio; só o CPF mascarado aparece no aviso de filtro. */}
+      {r.ok && r.filtro.tipo === "cpf" ? (
+        <FiltroBeneficiario cpfMascarado={mascaraCpfLista(r.filtro.cpf)} hrefLimpar={hrefPagina({ ...params, benef: "" }, 1)} />
+      ) : null}
 
       {!r.ok ? (
         <ResultadoLegado variante="erro" mensagens={[r.mensagem]} />
@@ -165,7 +189,7 @@ export default async function PagamentosPage({ searchParams }: { searchParams: P
 
           {r.lista.itens.length === 0 ? (
             <div className="rounded-lg border border-dashed bg-card p-8 text-center text-sm text-muted-foreground">
-              {f.cpf === null ? "Informe o CPF completo (11 dígitos)." : "Nenhum pagamento"}
+              {r.filtro.tipo === "incompleto" ? "Informe o CPF completo (11 dígitos)." : "Nenhum pagamento"}
             </div>
           ) : (
             <div className="rounded-lg border bg-card">

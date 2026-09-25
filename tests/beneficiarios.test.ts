@@ -3,16 +3,34 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { alterarBeneficiarioAction } from "@/app/beneficiarios/actions";
+import { alterarBeneficiarioAction, buscarBeneficiariosAction } from "@/app/beneficiarios/actions";
+import BeneficiariosPage from "@/app/beneficiarios/page";
+import { verificarElegibilidadeAction } from "@/app/elegibilidade/actions";
+import { filtrarPagamentosAction } from "@/app/pagamentos/actions";
+import { cpfDoFiltro } from "@/app/pagamentos/filtros";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { alteracaoBeneficiarioSchema, inclusaoBeneficiarioSchema } from "@/domain/beneficiario/cadastro";
 import { completaDv } from "@/domain/cpf";
 import { hoje } from "@/domain/legacyDate";
 import { createPrismaClient } from "@/server/db";
-import { alterarBeneficiario, incluirBeneficiario, listarBeneficiarios } from "@/server/beneficiarios";
+import {
+  alterarBeneficiario,
+  chavePorCpf,
+  cpfPorChave,
+  incluirBeneficiario,
+  listarBeneficiarios,
+  resolverChavePorCpf,
+  resolverCpfPorChave,
+} from "@/server/beneficiarios";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// redirect() do Next lança um erro de controle; aqui só registra o destino.
+vi.mock("next/navigation", () => ({
+  redirect: vi.fn((url: string) => {
+    throw Object.assign(new Error("NEXT_REDIRECT"), { url });
+  }),
+}));
 
 // Casos de uso de beneficiários (story 2.1) contra uma base SQLite temporária.
 
@@ -257,7 +275,7 @@ describe("listarBeneficiarios", () => {
 });
 
 describe("alterarBeneficiarioAction", () => {
-  it("CPF do formulário diferente do CPF da rota → recusado, nada gravado", async () => {
+  it("CPF do formulário diferente do beneficiário da rota → recusado, nada gravado", async () => {
     const antesA = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } });
     const antesB = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S1 } });
     const fd = new FormData();
@@ -275,10 +293,195 @@ describe("alterarBeneficiarioAction", () => {
       numVersao: String(antesB.numVersao),
     };
     for (const [k, v] of Object.entries(campos)) fd.set(k, v);
-    const r = await alterarBeneficiarioAction(CPF_S0, null, fd);
+    // H2: a rota leva a chave opaca de S0; o formulário tenta trocar para o CPF de S1.
+    const chaveS0 = (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 }, select: { chavePublica: true } })).chavePublica;
+    const r = await alterarBeneficiarioAction(chaveS0, null, fd);
     expect(r?.ok).toBe(false);
     expect(r?.erros?.numCpf).toBeTruthy();
     expect(await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } })).toEqual(antesA);
     expect(await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S1 } })).toEqual(antesB);
+  });
+});
+
+// H2 (LGPD): o CPF nunca vai para a URL — rotas e filtros usam a chave opaca.
+describe("H2 — chave opaca nas URLs", () => {
+  const chaveDe = async (cpf: string) =>
+    (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
+  const destino = async (p: Promise<void>) => {
+    const e = await p.then(
+      () => null,
+      (err: unknown) => err as { url?: string },
+    );
+    return e?.url ?? null;
+  };
+  const dados = (campos: Record<string, string>) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(campos)) fd.set(k, v);
+    return fd;
+  };
+  const semCpf = (url: string | null, cpf: string) => {
+    expect(url).not.toBeNull();
+    expect(url).not.toContain(cpf);
+    expect(url).not.toMatch(/\d{11}/);
+  };
+
+  it("busca da lista por CPF (com ou sem máscara) → ?benef=<chave>", async () => {
+    const chave = await chaveDe(CPF_S1);
+    for (const q of [CPF_S1, `${CPF_S1.slice(0, 3)}.${CPF_S1.slice(3, 6)}.${CPF_S1.slice(6, 9)}-${CPF_S1.slice(9)}`]) {
+      const url = await destino(buscarBeneficiariosAction(dados({ q })));
+      semCpf(url, CPF_S1);
+      expect(url).toBe(`/beneficiarios?benef=${chave}`);
+    }
+  });
+
+  it("busca por CPF inexistente → ?benef=nao-encontrado; por nome → ?q=; vazia → lista", async () => {
+    const url = await destino(buscarBeneficiariosAction(dados({ q: CPF_NOVO })));
+    semCpf(url, CPF_NOVO);
+    expect(url).toBe("/beneficiarios?benef=nao-encontrado");
+    expect(await destino(buscarBeneficiariosAction(dados({ q: " maria " })))).toBe("/beneficiarios?q=maria");
+    expect(await destino(buscarBeneficiariosAction(dados({ q: "" })))).toBe("/beneficiarios");
+  });
+
+  it("filtro de pagamentos: CPF → ?benef=<chave>; incompleto/inexistente → marcadores; demais filtros mantidos", async () => {
+    const chave = await chaveDe(CPF_S0);
+    const url = await destino(filtrarPagamentosAction(dados({ cpf: CPF_S0, competencia: "1990-01", programa: "", situacao: "G" })));
+    semCpf(url, CPF_S0);
+    expect(url).toBe(`/pagamentos?benef=${chave}&competencia=1990-01&situacao=G`);
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: "012345" })))).toBe("/pagamentos?benef=cpf-incompleto");
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: CPF_NOVO })))).toBe("/pagamentos?benef=nao-encontrado");
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: "", competencia: "" })))).toBe("/pagamentos");
+  });
+
+  it("alteração com chave inexistente ou com o CPF no lugar da chave → não encontrado, nada gravado", async () => {
+    const antes = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } });
+    for (const chave of [CPF_S0, "00000000-0000-4000-8000-000000000000"]) {
+      const r = await alterarBeneficiarioAction(chave, null, dados({ numCpf: CPF_S0, nomeCompleto: "OUTRO NOME" }));
+      expect(r).toMatchObject({ ok: false, mensagens: ["BENEFICIARIO NAO ENCONTRADO PARA ALTERACAO"] });
+    }
+    expect(await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_S0 } })).toEqual(antes);
+  });
+});
+
+describe("H2 — resolução da chave opaca", () => {
+  const chaveDe = async (cpf: string) =>
+    (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
+  const INEXISTENTE = "00000000-0000-4000-8000-000000000000";
+
+  it("cpfPorChave: válida → CPF; malformada, maiúsculas, CPF no lugar da chave ou inexistente → null", async () => {
+    const chave = await chaveDe(CPF_S0);
+    expect(await cpfPorChave(chave, prisma)).toBe(CPF_S0);
+    for (const c of ["", "123", chave.toUpperCase(), CPF_S0, INEXISTENTE, `${chave} `, `${chave}0`]) {
+      expect(await cpfPorChave(c, prisma), c).toBeNull();
+    }
+  });
+
+  it("chavePorCpf: CPF existente → chave; malformado ou inexistente → null", async () => {
+    expect(await chavePorCpf(CPF_S1, prisma)).toBe(await chaveDe(CPF_S1));
+    for (const c of ["", "123", "123.456.780-62", CPF_NOVO, await chaveDe(CPF_S1)]) expect(await chavePorCpf(c, prisma), c).toBeNull();
+  });
+
+  it("incluir/alterar devolvem a chave gravada (sem releitura após o sucesso)", async () => {
+    const r = await incluirBeneficiario(inclusao(), prisma);
+    const chave = await chaveDe(CPF_NOVO);
+    expect(r).toMatchObject({ ok: true, chavePublica: chave });
+    const a = await alterarBeneficiario(await formAlteracao(CPF_NOVO, { municipio: "SANTOS" }), prisma);
+    expect(a).toMatchObject({ ok: true, chavePublica: chave });
+  });
+
+  it("falha da base: resolvedores nunca lançam e o log não leva chave nem CPF", async () => {
+    const chave = await chaveDe(CPF_S0);
+    const busca = vi.spyOn(prisma.beneficiario, "findUnique").mockRejectedValue(new Error(`falha ${chave} ${CPF_S0}`));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await resolverCpfPorChave(chave, "teste", prisma)).toEqual({ ok: false });
+      expect(await resolverChavePorCpf(CPF_S0, "teste", prisma)).toEqual({ ok: false });
+      expect(await cpfDoFiltro(chave, prisma)).toEqual({ tipo: "erro" });
+      expect(log).toHaveBeenCalledWith("[beneficiarios] teste:", "Error", "");
+      expect(JSON.stringify(log.mock.calls)).not.toContain(chave);
+      expect(JSON.stringify(log.mock.calls)).not.toContain(CPF_S0);
+    } finally {
+      busca.mockRestore();
+      log.mockRestore();
+    }
+  });
+
+  it("cpfDoFiltro: sem filtro, incompleto, erro, inexistente e CPF", async () => {
+    expect(await cpfDoFiltro("", prisma)).toEqual({ tipo: "semFiltro" });
+    expect(await cpfDoFiltro("cpf-incompleto", prisma)).toEqual({ tipo: "incompleto" });
+    expect(await cpfDoFiltro("erro", prisma)).toEqual({ tipo: "erro" });
+    for (const b of ["nao-encontrado", INEXISTENTE, CPF_S0]) expect(await cpfDoFiltro(b, prisma), b).toEqual({ tipo: "inexistente" });
+    expect(await cpfDoFiltro(await chaveDe(CPF_S0), prisma)).toEqual({ tipo: "cpf", cpf: CPF_S0 });
+  });
+});
+
+describe("H2 — ações e páginas com a chave (singleton @/server/db)", () => {
+  const chaveDe = async (cpf: string) =>
+    (await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: cpf }, select: { chavePublica: true } })).chavePublica;
+  const ERRO = "Erro inesperado ao processar a solicitação. Tente novamente.";
+  const globalPrisma = globalThis as unknown as { prisma?: PrismaClient };
+  const dados = (campos: Record<string, string>) => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries(campos)) fd.set(k, v);
+    return fd;
+  };
+  const destino = async (p: Promise<unknown>) => (await p.then(() => null, (e: { url?: string }) => e))?.url ?? null;
+  /** Força falha na base usada pelas ações/páginas (singleton global). */
+  async function comFalhaNaBase(f: () => Promise<void>) {
+    await listarBeneficiarios({}); // garante o singleton criado
+    const cliente = globalPrisma.prisma!;
+    const busca = vi.spyOn(cliente.beneficiario, "findUnique").mockRejectedValue(new Error(`falha ${CPF_S0}`));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await f();
+      expect(JSON.stringify(log.mock.calls)).not.toContain(CPF_S0);
+    } finally {
+      busca.mockRestore();
+      log.mockRestore();
+    }
+  }
+
+  it("GET /beneficiarios?q=<CPF> (com ou sem máscara) não busca nem ecoa: redireciona para ?benef=", async () => {
+    const chave = await chaveDe(CPF_S1);
+    const f = `${CPF_S1.slice(0, 3)}.${CPF_S1.slice(3, 6)}.${CPF_S1.slice(6, 9)}-${CPF_S1.slice(9)}`;
+    for (const q of [CPF_S1, f, ` ${f} `]) {
+      expect(await destino(BeneficiariosPage({ searchParams: Promise.resolve({ q }) }))).toBe(`/beneficiarios?benef=${chave}`);
+    }
+    expect(await destino(BeneficiariosPage({ searchParams: Promise.resolve({ q: CPF_NOVO, pagina: "2" }) }))).toBe(
+      "/beneficiarios?benef=nao-encontrado",
+    );
+    // Nome (ou dígitos parciais) continua em ?q=: a página renderiza sem redirecionar.
+    expect(await destino(BeneficiariosPage({ searchParams: Promise.resolve({ q: "maria" }) }))).toBeNull();
+  });
+
+  it("falha da base na busca/filtro → ?benef=erro (nunca o error boundary, nunca o CPF)", async () => {
+    await comFalhaNaBase(async () => {
+      expect(await destino(buscarBeneficiariosAction(dados({ q: CPF_S0 })))).toBe("/beneficiarios?benef=erro");
+      expect(await destino(BeneficiariosPage({ searchParams: Promise.resolve({ q: CPF_S0 }) }))).toBe("/beneficiarios?benef=erro");
+      expect(await destino(filtrarPagamentosAction(dados({ cpf: CPF_S0 })))).toBe("/pagamentos?benef=erro");
+    });
+  });
+
+  it("falha da base ao resolver a chave na alteração → mensagem genérica", async () => {
+    const chave = await chaveDe(CPF_S0);
+    await comFalhaNaBase(async () => {
+      expect(await alterarBeneficiarioAction(chave, null, dados({ numCpf: CPF_S0 }))).toEqual({ ok: false, mensagens: [ERRO] });
+    });
+  });
+
+  it("filtro de pagamentos com o campo CPF vazio conserva o filtro vigente (campo oculto benef)", async () => {
+    const chave = await chaveDe(CPF_S0);
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: "", benef: chave, competencia: "1990-02" })))).toBe(
+      `/pagamentos?benef=${chave}&competencia=1990-02`,
+    );
+    // Um CPF digitado prevalece sobre o filtro vigente.
+    expect(await destino(filtrarPagamentosAction(dados({ cpf: CPF_S1, benef: chave })))).toBe(`/pagamentos?benef=${await chaveDe(CPF_S1)}`);
+  });
+
+  it("elegibilidade pela chave (campo oculto): CPF resolvido no servidor; chave inexistente → BENEFICIARIO NAO ENCONTRADO", async () => {
+    const ok = await verificarElegibilidadeAction(null, dados({ numCpf: "", benef: await chaveDe(CPF_S0), codPrograma: "PA01" }));
+    expect(ok?.ok).toBe(true);
+    expect(ok?.ok && ok.resultado.tipo).not.toBe("precondicao");
+    const nao = await verificarElegibilidadeAction(null, dados({ numCpf: "", benef: "00000000-0000-4000-8000-000000000000", codPrograma: "PA01" }));
+    expect(nao).toEqual({ ok: true, resultado: { tipo: "precondicao", mensagem: "BENEFICIARIO NAO ENCONTRADO" } });
   });
 });

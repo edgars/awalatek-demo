@@ -90,6 +90,7 @@ model ProgramaParamRegional {
 model Beneficiario {
   id                Int            @id @default(autoincrement())
   numCpf            String         @unique // CPF, String(11) — clave de negocio
+  chavePublica      String         @unique @default(uuid()) // ➕ clave opaca de las URLs (LGPD: el CPF nunca va en la URL)
   nis               String?        @unique // ➕ NIS, String(11) — único si no vacío (NULL cuando vacío)
   numInscricao      Int?
   nomeCompleto      String // NOME, String(60)
