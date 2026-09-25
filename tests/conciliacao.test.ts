@@ -68,6 +68,12 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
+// Modo legado explícito: un SIFAP_QUIRKS_CORRIGIDOS del .env/entorno del desarrollador
+// no cambia estos tests (las correcciones tienen tests propios).
+beforeEach(() => {
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
+});
+
 describe("conciliarRetorno", () => {
   it("00 → P + data + banco 1 + código; auditoria CO de BATCH", async () => {
     await pagamento(1, 10000);

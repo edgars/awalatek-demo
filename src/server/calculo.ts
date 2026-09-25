@@ -29,6 +29,14 @@ export type ResumoCalculo = {
   tipoPgto: TipoPgto;
 };
 
+export interface OpcoesCalculoIndividual {
+  db?: PrismaClient;
+  /** Momento del cálculo; default = ahora. */
+  agora?: Date;
+  /** Correcciones activas (D8/D17), leídas una vez por la acción; default = legado. */
+  quirks?: QuirksMotor;
+}
+
 export type ResultadoCalculoIndividual = { ok: true; mensagem: string; resumo: ResumoCalculo } | { ok: false; mensagem: string };
 
 function usuarioOperativo(): string {
@@ -50,9 +58,7 @@ function ehUnicoViolado(e: unknown): boolean {
 export async function calcularBeneficioIndividual(
   numCpf: string,
   competencia: number,
-  db: PrismaClient = prisma,
-  agora: Date = new Date(),
-  quirks: QuirksMotor = QUIRKS_PADRAO,
+  { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO }: OpcoesCalculoIndividual = {},
 ): Promise<ResultadoCalculoIndividual> {
   for (let tentativa = 1; ; tentativa++) {
     try {

@@ -175,7 +175,15 @@ export function FormDescontos() {
             </div>
           </ResumoProcesso>
           {/* LEGACY-QUIRK(D13): aviso de líquido no recalculado (se quita con la corrección D13). */}
-          {painel.resumo.liquidoRecalculado ? null : (
+          {/* CORRECAO(D13): pago fuera de status G → su propio aviso en lugar del D13. */}
+          {painel.resumo.liquidoRecalculado ? null : painel.resumo.avisoLiquido ? (
+            <Alert variant="warning" data-testid="aviso-liquido">
+              <AlertTitle>Atenção</AlertTitle>
+              <AlertDescription>
+                {painel.resumo.avisoLiquido}. Valor líquido do pagamento: {reais(painel.resumo.vlrLiquido)}.
+              </AlertDescription>
+            </Alert>
+          ) : (
             <Alert variant="warning" data-testid="aviso-d13">
               <AlertTitle>Atenção</AlertTitle>
               <AlertDescription>

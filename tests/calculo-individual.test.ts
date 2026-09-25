@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { calcularBeneficioAction } from "@/app/calculo/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { calcular } from "@/domain/calculo/motor";
@@ -29,8 +29,6 @@ beforeAll(async () => {
   delete globalPrisma.prisma;
   vi.stubEnv("DATABASE_URL", url);
   vi.stubEnv("SIFAP_USER", "OPERADR1");
-  // Configuração explícita: modo legado (as correções D8/D17 têm testes próprios).
-  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
   await seed(prisma);
 });
 
@@ -40,6 +38,12 @@ afterAll(async () => {
   delete globalPrisma.prisma;
   vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
+});
+
+// Modo legado explícito: un SIFAP_QUIRKS_CORRIGIDOS del .env/entorno del desarrollador
+// no cambia estos tests (las correcciones tienen tests propios).
+beforeEach(() => {
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
 });
 
 function entradaMaria(competencia: number, vlrBase: number = PA01.vlrBaseIndividual) {
@@ -64,7 +68,7 @@ function form(campos: Record<string, string>): FormData {
 describe("calcularBeneficioIndividual", () => {
   it("normal (202609) → pagamento G tipo N com os valores do motor", async () => {
     const esperado = calcular(entradaMaria(202609));
-    const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, prisma, AGORA);
+    const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, { db: prisma, agora: AGORA });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.mensagem).toBe("CALCULO REALIZADO COM SUCESSO");
@@ -91,7 +95,7 @@ describe("calcularBeneficioIndividual", () => {
   });
 
   it("dezembro com programa A → tipo D, 13º e abono", async () => {
-    const r = await calcularBeneficioIndividual(CPF_MARIA, 202612, prisma, AGORA);
+    const r = await calcularBeneficioIndividual(CPF_MARIA, 202612, { db: prisma, agora: AGORA });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     // 13º = 150,00 × 1,35 × 1,00 = 202,50; abono = 122,20 × 0,15 = 18,33; bruto = 343,03 (≤ 500 → sem desconto)
@@ -102,8 +106,8 @@ describe("calcularBeneficioIndividual", () => {
   });
 
   it("numeração máx.+1 e mesma competência duas vezes → dois pagamentos (legado não impede)", async () => {
-    const a = await calcularBeneficioIndividual(CPF_MARIA, 202610, prisma, AGORA);
-    const b = await calcularBeneficioIndividual(CPF_MARIA, 202610, prisma, AGORA);
+    const a = await calcularBeneficioIndividual(CPF_MARIA, 202610, { db: prisma, agora: AGORA });
+    const b = await calcularBeneficioIndividual(CPF_MARIA, 202610, { db: prisma, agora: AGORA });
     if (!a.ok || !b.ok) throw new Error("esperado sucesso");
     expect(b.resumo.numPagamento).toBe(a.resumo.numPagamento + 1);
     expect(await prisma.pagamento.count({ where: { numCpf: CPF_MARIA, anoMesRef: 202610 } })).toBe(2);
@@ -112,7 +116,7 @@ describe("calcularBeneficioIndividual", () => {
   it("D17: renda > 9.999,99 → fator de renda 0 no individual (sem arrastre)", async () => {
     await prisma.beneficiario.update({ where: { numCpf: CPF_MARIA }, data: { vlrRendaFamiliar: 1000000 } });
     try {
-      const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, prisma, AGORA);
+      const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, { db: prisma, agora: AGORA });
       if (!r.ok) throw new Error(r.mensagem);
       expect(r.resumo).toMatchObject({ vlrBruto: 0, vlrLiquido: 0 });
     } finally {
@@ -126,7 +130,7 @@ describe("calcularBeneficioIndividual", () => {
       const esperado = calcular(entradaMaria(202609, 100000));
       // 1.000,00 × 1,35 × 1,05 × 0,55 = 779,62 → × 1,045 = 814,70; desconto 24,44; líquido 790,26
       expect(esperado).toMatchObject({ vlrBruto: 81470, vlrDesc: 2444, vlrLiq: 79026 });
-      const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, prisma, AGORA);
+      const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, { db: prisma, agora: AGORA });
       if (!r.ok) throw new Error(r.mensagem);
       expect(r.resumo).toMatchObject({ vlrBruto: esperado.vlrBruto, vlrDesconto: esperado.vlrDesc, vlrLiquido: esperado.vlrLiq });
       const p = await prisma.pagamento.findUniqueOrThrow({ where: { numPagamento: r.resumo.numPagamento } });
@@ -146,7 +150,7 @@ describe("calcularBeneficioIndividual", () => {
         return prisma.$transaction(fn as never);
       },
     } as unknown as PrismaClient;
-    const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, db, AGORA);
+    const r = await calcularBeneficioIndividual(CPF_MARIA, 202609, { db, agora: AGORA });
     expect(r.ok).toBe(true);
     expect(chamadas).toBe(2);
     expect(await prisma.pagamento.count()).toBe(antes + 1);
@@ -160,15 +164,15 @@ describe("calcularBeneficioIndividual", () => {
         return Promise.reject({ code: "P2002" });
       },
     } as unknown as PrismaClient;
-    await expect(calcularBeneficioIndividual(CPF_MARIA, 202609, db, AGORA)).rejects.toEqual({ code: "P2002" });
+    await expect(calcularBeneficioIndividual(CPF_MARIA, 202609, { db, agora: AGORA })).rejects.toEqual({ code: "P2002" });
     expect(chamadas).toBe(3);
   });
 
   it("sem SIFAP_USER os erros de entrada ainda mostram a mensagem do legado", async () => {
     vi.stubEnv("SIFAP_USER", "");
     try {
-      expect(await calcularBeneficioIndividual(CPF_MARIA, 202613, prisma)).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
-      expect(await calcularBeneficioIndividual(CPF_JOSE, 202609, prisma)).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ATIVO - STATUS: S" });
+      expect(await calcularBeneficioIndividual(CPF_MARIA, 202613, { db: prisma })).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
+      expect(await calcularBeneficioIndividual(CPF_JOSE, 202609, { db: prisma })).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ATIVO - STATUS: S" });
     } finally {
       vi.stubEnv("SIFAP_USER", "OPERADR1");
     }
@@ -176,11 +180,11 @@ describe("calcularBeneficioIndividual", () => {
 
   it("falhas não gravam nada, na ordem do legado", async () => {
     const antes = await prisma.pagamento.count();
-    expect(await calcularBeneficioIndividual(CPF_MARIA, 202613, prisma)).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
-    expect(await calcularBeneficioIndividual("15975348625", 202609, prisma)).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ENCONTRADO" });
+    expect(await calcularBeneficioIndividual(CPF_MARIA, 202613, { db: prisma })).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
+    expect(await calcularBeneficioIndividual("15975348625", 202609, { db: prisma })).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ENCONTRADO" });
     // competência inválida antes do beneficiário inexistente
-    expect(await calcularBeneficioIndividual("15975348625", 202600, prisma)).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
-    expect(await calcularBeneficioIndividual(CPF_JOSE, 202609, prisma)).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ATIVO - STATUS: S" });
+    expect(await calcularBeneficioIndividual("15975348625", 202600, { db: prisma })).toEqual({ ok: false, mensagem: "COMPETENCIA INVALIDA" });
+    expect(await calcularBeneficioIndividual(CPF_JOSE, 202609, { db: prisma })).toEqual({ ok: false, mensagem: "BENEFICIARIO NAO ATIVO - STATUS: S" });
     expect(await prisma.pagamento.count()).toBe(antes);
   });
 });

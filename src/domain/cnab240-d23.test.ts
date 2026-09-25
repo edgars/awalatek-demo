@@ -100,6 +100,17 @@ describe("decidirConciliacao — D23", () => {
     });
   });
 
+  it("corrigido: a normalização segue o status resultante (P), não o código literal", () => {
+    // Só o status P grava dtPagamento; D (01), E (02) e código desconhecido (sem update) não.
+    expect(decidirConciliacao(reg({ codRet: "00", dtPgto: "99999999" }), pgto, COMP, D23)).toMatchObject({
+      atualizacao: { sitPagamento: "P", dtPagamento: 0 },
+      avisoData: "DATA PAGAMENTO INVALIDA: DOC=96101",
+    });
+    const desconhecido = decidirConciliacao(reg({ codRet: "99", dtPgto: "99999999" }), pgto, COMP, D23);
+    expect(desconhecido).toMatchObject({ atualizacao: null, mensagem: "COD RETORNO DESCONHECIDO: 99 CPF=01234567890" });
+    expect(desconhecido).not.toHaveProperty("avisoData");
+  });
+
   it("corrigido: códigos 01/02 não gravam data → sem aviso", () => {
     for (const codRet of ["01", "02"]) {
       const d = decidirConciliacao(reg({ dtPgto: "99999999", codRet }), pgto, COMP, D23);

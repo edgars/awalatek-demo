@@ -40,6 +40,14 @@ export type ResultadoCorrecao =
     }
   | { ok: false; mensagem: string };
 
+export interface OpcoesCorrecao {
+  db?: PrismaClient;
+  /** Momento de la ejecución (DT-CORRECAO); default = ahora. */
+  agora?: Date;
+  /** Correcciones activas (D9/D22), leídas una vez por la acción; default = legado. */
+  quirks?: QuirksCorrecao;
+}
+
 /**
  * FR-COR — corrige por IPCA los pagos de `numCpf` con competencia entre
  * `compIni` y `compFim` (AAAAMM). Una transacción por pago corregido
@@ -50,9 +58,7 @@ export async function corrigirPagamentos(
   numCpf: string,
   compIni: number,
   compFim: number,
-  db: PrismaClient = prisma,
-  agora: Date = new Date(),
-  quirks: QuirksCorrecao = QUIRKS_PADRAO,
+  { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO }: OpcoesCorrecao = {},
 ): Promise<ResultadoCorrecao> {
   const erro = validarPeriodo(compIni, compFim);
   if (erro) return { ok: false, mensagem: erro };

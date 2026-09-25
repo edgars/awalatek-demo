@@ -244,15 +244,15 @@ export function decidirConciliacao(
     };
   }
   // LEGACY-QUIRK(D23): la fecha DDMMAAAA del BB se graba sin conversión.
-  let dtPgto = reg.dtPgto;
+  let atualizacao = atualizacaoPorCodigo(reg.codRet, reg.dtPgto);
   let avisoData: string | undefined;
-  if (corrige(quirks, "D23") && reg.codRet === "00") {
-    // CORRECAO(D23): DDMMAAAA válida → AAAAMMDD; AAAAMMDD válida → igual; si no → 0 + aviso.
+  // CORRECAO(D23): solo cuando el status resultante graba la fecha (P = pago, según la
+  // tabla de códigos): DDMMAAAA válida → AAAAMMDD; AAAAMMDD válida → igual; si no → 0 + aviso.
+  if (corrige(quirks, "D23") && atualizacao?.sitPagamento === "P") {
     const normalizada = normalizarDataPagamento(reg.dtPgto);
-    dtPgto = normalizada ?? 0;
+    atualizacao = { ...atualizacao, dtPagamento: normalizada ?? 0 };
     if (normalizada === null) avisoData = mensagemDataPagamentoInvalida(p.numPagamento);
   }
-  const atualizacao = atualizacaoPorCodigo(reg.codRet, dtPgto);
   return {
     tipo: "conciliado",
     numPagamento: p.numPagamento,

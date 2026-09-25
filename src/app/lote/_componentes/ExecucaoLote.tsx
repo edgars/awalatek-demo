@@ -126,6 +126,14 @@ export function ExecucaoLote({
           {resumo.mensagensErro.length > 0 ? (
             <ResultadoLegado variante="erro" titulo="Erros do lote" mensagens={resumo.mensagensErro} />
           ) : null}
+          {/* CORRECAO(D17): pagamentos gerados com valor zero (só em modo corrigido). */}
+          {resumo.avisosBeneficioZero?.length ? (
+            <ResultadoLegado
+              variante="info"
+              titulo={`Benefícios com valor zero (${resumo.beneficiosZero})`}
+              mensagens={resumo.avisosBeneficioZero}
+            />
+          ) : null}
         </>
       ) : null}
     </div>

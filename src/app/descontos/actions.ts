@@ -1,7 +1,7 @@
 "use server";
 
 import { z } from "zod";
-import { detalheErroQuirks, lerQuirks } from "@/domain/quirks";
+import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { recalcularDescontos } from "@/server/descontos";
 import type { CampoDescontos, EstadoDescontos } from "./estado";
 
@@ -42,7 +42,7 @@ export async function recalcularDescontosAction(_anterior: EstadoDescontos, dado
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   // D13: la configuración de correcciones se lee una vez por solicitud.
-  let quirks;
+  let quirks: Quirks;
   try {
     quirks = lerQuirks();
   } catch (e) {
@@ -51,7 +51,7 @@ export async function recalcularDescontosAction(_anterior: EstadoDescontos, dado
     return { ok: false, mensagem: ERRO_INESPERADO };
   }
   try {
-    return await recalcularDescontos(parsed.data.numCpf, parsed.data.numPagamento, undefined, undefined, quirks);
+    return await recalcularDescontos(parsed.data.numCpf, parsed.data.numPagamento, { quirks });
   } catch (e) {
     return falhaInesperada(e);
   }

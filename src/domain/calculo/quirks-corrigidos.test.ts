@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lerQuirks, QUIRKS_PADRAO } from "../quirks";
+import { linhasResumo, mensagemBeneficioZero, novoResumo, registrarBeneficioZero } from "./lote";
 import { calcularCorrecao, mensagemSemIndiceIpca, selecionarPagamentos, temIndiceIpca } from "./correcao";
 import { calcular, calcularLiquido, fatorRenda, type EntradaCalculo } from "./motor";
 
@@ -182,5 +183,26 @@ describe("D22 — recorrido por CPF", () => {
     const lista = [pg(1, 201103), pg(2, 201101)];
     selecionarPagamentos(lista, CPF, 201101, 201112, q("D22"));
     expect(lista.map((p) => p.numPagamento)).toEqual([1, 2]);
+  });
+});
+
+describe("D17 — aviso BENEFICIO ZERO no resumo do lote", () => {
+  it("mensagem com CPF mascarado", () => {
+    expect(mensagemBeneficioZero("01234567890")).toBe("BENEFICIO ZERO: CPF=***.***.678-90");
+  });
+
+  it("conta e guarda o aviso; linha extra no resumo só quando > 0", () => {
+    const r = novoResumo(202609);
+    expect(r).toMatchObject({ beneficiosZero: 0, avisosBeneficioZero: [] });
+    const semAviso = linhasResumo(r);
+    expect(semAviso.some((l) => l.startsWith("BENEFICIO ZERO"))).toBe(false);
+    registrarBeneficioZero(r, "01234567890");
+    registrarBeneficioZero(r, "12345678909");
+    expect(r.beneficiosZero).toBe(2);
+    expect(r.avisosBeneficioZero).toEqual(["BENEFICIO ZERO: CPF=***.***.678-90", "BENEFICIO ZERO: CPF=***.***.789-09"]);
+    const linhas = linhasResumo(r);
+    expect(linhas).toHaveLength(semAviso.length + 1);
+    expect(linhas.at(-2)).toBe("BENEFICIO ZERO...: 2");
+    expect(linhas.at(-3)).toBe("VLR TOTAL ABONO..: 0.00");
   });
 });

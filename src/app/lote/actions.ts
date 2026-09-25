@@ -1,6 +1,6 @@
 "use server";
 
-import { detalheErroQuirks, lerQuirks } from "@/domain/quirks";
+import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { ejecutarLotePagamentos } from "@/server/lotePagamentos";
 import type { EstadoLote } from "./estado";
 
@@ -12,7 +12,7 @@ const ERRO_INESPERADO = "Erro inesperado ao processar a solicitação. Tente nov
 export async function executarLoteAction(): Promise<EstadoLote> {
   // D8/D17: la configuración se lee una vez por corrida; el lote usa el mismo motor
   // y la misma configuración que el cálculo individual.
-  let quirks;
+  let quirks: Quirks;
   try {
     quirks = lerQuirks();
   } catch (e) {

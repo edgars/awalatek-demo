@@ -3,9 +3,11 @@ import {
   acumularGerado,
   acumularSelecao,
   deveRegistrarProgresso,
+  mensagemBeneficioZero,
   mensagemLoteInterrompido,
   mensagemProgresso,
   novoResumo,
+  registrarBeneficioZero,
   selecionarBeneficiario,
   type ResumoLote,
   type Selecao,
@@ -211,6 +213,11 @@ async function processar({ dtHoje, agora = new Date(), db = prisma, log = (l) =>
           // LEGACY-QUIRK(D17): arrastre al siguiente calculado (solo en modo legado).
           if (arrastaFatorRenda) fatorRendaAnterior = r.calc.fatorRenda;
           acumularGerado(resumo, r.calc);
+          // CORRECAO(D17): el pago con valor 0 se genera igual, pero se avisa antes de la remesa.
+          if (!arrastaFatorRenda && r.calc.vlrBruto === 0) {
+            registrarBeneficioZero(resumo, b.numCpf);
+            log(mensagemBeneficioZero(b.numCpf));
+          }
           if (deveRegistrarProgresso(resumo.gerados)) log(mensagemProgresso(resumo.gerados, b.numCpf));
         }
         break;

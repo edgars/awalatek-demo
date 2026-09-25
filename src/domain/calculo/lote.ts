@@ -91,6 +91,13 @@ export interface ResumoLote {
   ignoradosPorMotivo: Record<MotivoIgnorado, number>;
   /** Mensajes "ERRO: PROG NAO ENCONTRADO …" en el orden en que ocurrieron. */
   mensagensErro: string[];
+  /**
+   * CORRECAO(D17): pagos generados con valor 0 (renta > 9.999,99 sin arrastre), para que
+   * sean visibles antes de la remesa. Siempre 0 / vacío en modo legado (no existe en BATCHPGT).
+   */
+  beneficiosZero: number;
+  /** "BENEFICIO ZERO: CPF=<enmascarado>" en el orden en que ocurrieron. */
+  avisosBeneficioZero: string[];
 }
 
 /** Inicializa contadores y totales en 0 (BATCHPGT:113-121). */
@@ -107,7 +114,24 @@ export function novoResumo(competencia: number): ResumoLote {
     vlrTotalAbono: 0,
     ignoradosPorMotivo: { CPF_REPETIDO: 0, NAO_ATIVO: 0, JA_GERADO: 0, PROGRAMA_INATIVO: 0 },
     mensagensErro: [],
+    beneficiosZero: 0,
+    avisosBeneficioZero: [],
   };
+}
+
+/** CORRECAO(D17): "BENEFICIO ZERO: CPF=<cpf>" con el CPF enmascarado (NFR-04). */
+export function mensagemBeneficioZero(numCpf: string): string {
+  return `BENEFICIO ZERO: CPF=${mascaraCpfLista(numCpf)}`;
+}
+
+/**
+ * CORRECAO(D17): cuenta un pago generado con valor 0 y guarda su aviso. El pago se
+ * genera igual (spec); el aviso lo hace visible. Muta y devuelve `r`.
+ */
+export function registrarBeneficioZero(r: ResumoLote, numCpf: string): ResumoLote {
+  r.beneficiosZero += 1;
+  r.avisosBeneficioZero.push(mensagemBeneficioZero(numCpf));
+  return r;
 }
 
 /** Suma un pago generado a los contadores/totales (BATCHPGT:338-342). Muta y devuelve `r`. */
@@ -170,6 +194,8 @@ export function linhasResumo(r: ResumoLote): string[] {
     `VLR TOTAL DESC...: ${reais(r.vlrTotalDesconto)}`,
     `VLR TOTAL LIQUIDO: ${reais(r.vlrTotalLiquido)}`,
     `VLR TOTAL ABONO..: ${reais(r.vlrTotalAbono)}`,
+    // CORRECAO(D17): línea extra solo si hubo pagos con valor 0 (nunca en modo legado).
+    ...(r.beneficiosZero > 0 ? [`BENEFICIO ZERO...: ${r.beneficiosZero}`] : []),
     sep,
   ];
 }

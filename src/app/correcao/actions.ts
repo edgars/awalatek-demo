@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { detalheErroQuirks, lerQuirks } from "@/domain/quirks";
+import { detalheErroQuirks, lerQuirks, type Quirks } from "@/domain/quirks";
 import { corrigirPagamentos } from "@/server/correcao";
 import type { CampoCorrecao, EstadoCorrecao } from "./estado";
 
@@ -45,7 +45,7 @@ export async function corrigirPagamentosAction(_anterior: EstadoCorrecao, dados:
     return { ok: false, mensagem: issue?.message ?? ERRO_INESPERADO, campo };
   }
   // D9/D22: la configuración de correcciones se lee una vez por solicitud.
-  let quirks;
+  let quirks: Quirks;
   try {
     quirks = lerQuirks();
   } catch (e) {
@@ -54,7 +54,7 @@ export async function corrigirPagamentosAction(_anterior: EstadoCorrecao, dados:
     return { ok: false, mensagem: ERRO_INESPERADO };
   }
   try {
-    const r = await corrigirPagamentos(parsed.data.numCpf, parsed.data.compIni, parsed.data.compFim, undefined, undefined, quirks);
+    const r = await corrigirPagamentos(parsed.data.numCpf, parsed.data.compIni, parsed.data.compFim, { quirks });
     if (r.ok && r.qtdRegistros > 0) {
       // La consulta y el detalle de pagos muestran la corrección.
       revalidatePath("/pagamentos");

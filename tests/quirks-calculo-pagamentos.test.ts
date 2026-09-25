@@ -9,11 +9,12 @@ import { corrigirPagamentosAction } from "@/app/correcao/actions";
 import { recalcularDescontosAction } from "@/app/descontos/actions";
 import { executarLoteAction } from "@/app/lote/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
-import { completaDv } from "@/domain/cpf";
+import { completaDv, mascaraCpfLista } from "@/domain/cpf";
 import { competenciaDaData } from "@/domain/calculo/motor";
 import { hoje } from "@/domain/legacyDate";
 import { createPrismaClient } from "@/server/db";
 import { BENEFICIARIOS_SEED, cpfComDv, seed } from "../prisma/seed";
+import { main as cliLote } from "../scripts/lote-pagamentos";
 import { arquivoRetorno, type DetalheCnab } from "./fixtures/cnab240";
 
 // Correcciones configurables del grupo B (D8, D9, D13, D17, D22, D23) a nivel de
@@ -66,7 +67,17 @@ function form(campos: Record<string, string | File>): FormData {
 }
 
 let proximoNum = 1000;
-async function pagamento(dados: { numCpf?: string; anoMesRef: number; vlrBruto: number; vlrLiquido?: number; vlrDescontoTotal?: number; numPagamento?: number }) {
+async function pagamento(dados: {
+  numCpf?: string;
+  anoMesRef: number;
+  vlrBruto: number;
+  vlrLiquido?: number;
+  vlrDescontoTotal?: number;
+  numPagamento?: number;
+  sitPagamento?: string;
+  vlrCorrecao?: number;
+  indCorrigido?: string;
+}) {
   return prisma.pagamento.create({
     data: {
       numPagamento: dados.numPagamento ?? proximoNum++,
@@ -76,7 +87,9 @@ async function pagamento(dados: { numCpf?: string; anoMesRef: number; vlrBruto: 
       vlrBruto: dados.vlrBruto,
       vlrLiquido: dados.vlrLiquido ?? dados.vlrBruto,
       vlrDescontoTotal: dados.vlrDescontoTotal ?? 0,
-      sitPagamento: "G",
+      sitPagamento: dados.sitPagamento ?? "G",
+      vlrCorrecao: dados.vlrCorrecao ?? null,
+      indCorrigido: dados.indCorrigido ?? null,
       dtGeracao: 20260901,
       hrGeracao: 100000,
       usrInclusao: "TESTE",
@@ -129,6 +142,25 @@ describe("configuração inválida → erro genérico, log sem PII, nada gravado
   });
 });
 
+describe("CLI do lote — configuração inválida", () => {
+  it("sai com código 2, sem tocar a base e sem PII no log", async () => {
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const saida = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await cliLote({ SIFAP_QUIRKS_CORRIGIDOS: "D99" })).toBe(2);
+      expect(await prisma.pagamento.count()).toBe(0);
+      expect(saida).not.toHaveBeenCalled();
+      const logado = JSON.stringify(erro.mock.calls);
+      expect(logado).toContain("configuração LEGACY-QUIRK inválida");
+      expect(logado).toContain("SIFAP_QUIRKS_CORRIGIDOS");
+      expect(logado).not.toContain(CPF_MARIA);
+    } finally {
+      erro.mockRestore();
+      saida.mockRestore();
+    }
+  });
+});
+
 describe("D8 — cálculo individual e lote com a mesma configuração", () => {
   it("legado (lista vazia): MARIA 09/2026 → 122,20", async () => {
     const r = await calcularBeneficioAction(null, form({ numCpf: CPF_MARIA, competencia: "202609" }));
@@ -170,12 +202,12 @@ describe("D17 — renda > 9.999,99 no lote", () => {
     const b2 = await novoBeneficiario("500000002", 2000000);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {
-      const r = await executarLoteAction();
-      expect(r).toMatchObject({ ok: true, resumo: { gerados: 3, erros: 0 } });
+      const lote = await executarLoteAction();
+      expect(lote).toMatchObject({ ok: true, resumo: { gerados: 3, erros: 0 } });
       const comp = competenciaDaData(hoje().data);
       const p2 = await prisma.pagamento.findFirstOrThrow({ where: { numCpf: b2, anoMesRef: comp } });
       const ind = await calcularBeneficioAction(null, form({ numCpf: b2, competencia: String(comp) }));
-      return { p2, ind };
+      return { p2, ind, lote, b2 };
     } finally {
       log.mockRestore();
       await prisma.pagamento.deleteMany({ where: { numCpf: { in: [b1, b2] } } });
@@ -184,13 +216,19 @@ describe("D17 — renda > 9.999,99 no lote", () => {
   }
 
   it("legado: o lote arrasta o fator 0,85 (bruto > 0) e diverge do individual (0)", async () => {
-    const { p2, ind } = await cenario("");
+    const { p2, ind, lote } = await cenario("");
+    expect(lote).toMatchObject({ ok: true, resumo: { beneficiosZero: 0, avisosBeneficioZero: [] } });
     expect(p2.vlrBruto).toBeGreaterThan(0);
     expect(ind).toMatchObject({ ok: true, resumo: { vlrBruto: 0 } });
   });
 
-  it("D17: o lote não arrasta → 0, igual ao individual", async () => {
-    const { p2, ind } = await cenario("D17");
+  it("D17: o lote não arrasta → 0, igual ao individual; aviso BENEFICIO ZERO contado no resumo", async () => {
+    const { p2, ind, lote, b2 } = await cenario("D17");
+    expect(lote).toMatchObject({
+      ok: true,
+      resumo: { gerados: 3, beneficiosZero: 1, avisosBeneficioZero: [`BENEFICIO ZERO: CPF=${mascaraCpfLista(b2)}`] },
+    });
+    expect(JSON.stringify(lote)).not.toContain(b2);
     expect(p2).toMatchObject({ vlrBruto: 0, vlrLiquido: 0 });
     expect(ind).toMatchObject({ ok: true, resumo: { vlrBruto: 0, vlrLiquido: 0 } });
   });
@@ -245,33 +283,59 @@ describe("D22 — leitura por CPF sem parada antecipada", () => {
 });
 
 describe("D13 — CALCDSCT recalcula o líquido", () => {
-  async function preparar() {
+  // Bruto 800,00: contribuição social 5 % = 40,00 + judicial fixo 50,00 = 90,00 (o total
+  // do CALCDSCT inclui a contribuição; teto 30 % = 240,00 não corta) → líquido 710,00.
+  async function preparar(extra: { sitPagamento?: string; vlrCorrecao?: number; indCorrigido?: string } = {}) {
     const b = await prisma.beneficiario.findUniqueOrThrow({ where: { numCpf: CPF_MARIA } });
     await prisma.beneficiarioDesconto.deleteMany({ where: { beneficiarioId: b.id } });
     await prisma.beneficiarioDesconto.create({
       data: { beneficiarioId: b.id, occurrence: 1, tipoDesconto: "J", vlrDesconto: 5000, pctDesconto: "0.00", dtInicioDsct: 20250101, dtFimDsct: 0 },
     });
-    return pagamento({ anoMesRef: 202609, vlrBruto: 80000, vlrLiquido: 77600, vlrDescontoTotal: 2400 });
+    return pagamento({ anoMesRef: 202609, vlrBruto: 80000, vlrLiquido: 77600, vlrDescontoTotal: 2400, ...extra });
   }
+  const recalcular = (numPagamento: number) => recalcularDescontosAction(null, form({ numCpf: CPF_MARIA, numPagamento: String(numPagamento) }));
 
   it("legado: só o desconto muda; líquido intacto, sem liquidoRecalculado", async () => {
     const p = await preparar();
-    const r = await recalcularDescontosAction(null, form({ numCpf: CPF_MARIA, numPagamento: String(p.numPagamento) }));
-    expect(r).toMatchObject({ ok: true, resumo: { vlrLiquido: 77600 } });
+    const r = await recalcular(p.numPagamento);
+    expect(r).toMatchObject({ ok: true, resumo: { vlrDesconto: 9000, vlrContribuicao: 4000, vlrLiquido: 77600 } });
     expect(r).not.toHaveProperty("resumo.liquidoRecalculado");
-    expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ vlrLiquido: 77600 });
+    expect(r).not.toHaveProperty("resumo.avisoLiquido");
+    expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ vlrDescontoTotal: 9000, vlrLiquido: 77600 });
   });
 
-  it("D13: grava vlrLiquido = bruto − desconto (fórmula do motor) e o informa", async () => {
+  it("D13 (status G): grava vlrLiquido = 800,00 − 90,00 = 710,00 e o informa", async () => {
     vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D13");
     const p = await preparar();
-    const r = await recalcularDescontosAction(null, form({ numCpf: CPF_MARIA, numPagamento: String(p.numPagamento) }));
-    if (!r?.ok) throw new Error("falhou");
-    expect(r.resumo.vlrDesconto).toBeGreaterThan(0);
-    expect(r.resumo).toMatchObject({ vlrBruto: 80000, vlrLiquido: 80000 - r.resumo.vlrDesconto, liquidoRecalculado: true });
-    const depois = await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } });
-    expect(depois).toMatchObject({ vlrDescontoTotal: r.resumo.vlrDesconto, vlrLiquido: 80000 - r.resumo.vlrDesconto });
-    expect(depois.vlrLiquido).not.toBe(77600);
+    const r = await recalcular(p.numPagamento);
+    expect(r).toMatchObject({ ok: true, resumo: { vlrBruto: 80000, vlrContribuicao: 4000, vlrDesconto: 9000, vlrLiquido: 71000, liquidoRecalculado: true } });
+    expect(r).not.toHaveProperty("resumo.avisoLiquido");
+    expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ vlrDescontoTotal: 9000, vlrLiquido: 71000 });
+  });
+
+  it.each(["P", "D", "E", "C"])("D13 (status %s): líquido não é alterado; aviso LIQUIDO NAO RECALCULADO", async (sit) => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D13");
+    const p = await preparar({ sitPagamento: sit });
+    const r = await recalcular(p.numPagamento);
+    expect(r).toMatchObject({
+      ok: true,
+      resumo: { vlrDesconto: 9000, vlrLiquido: 77600, avisoLiquido: `LIQUIDO NAO RECALCULADO: PAGAMENTO COM STATUS ${sit}` },
+    });
+    expect(r).not.toHaveProperty("resumo.liquidoRecalculado");
+    expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ vlrDescontoTotal: 9000, vlrLiquido: 77600 });
+  });
+
+  it("D13 com correção IPCA (vlrCorrecao, S): o líquido parte do bruto ORIGINAL; a correção fica intacta", async () => {
+    vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "D13");
+    const p = await preparar({ vlrCorrecao: 80664, indCorrigido: "S" });
+    const r = await recalcular(p.numPagamento);
+    expect(r).toMatchObject({ ok: true, resumo: { vlrBruto: 80000, vlrDesconto: 9000, vlrLiquido: 71000, liquidoRecalculado: true } });
+    expect(await prisma.pagamento.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({
+      vlrBruto: 80000,
+      vlrLiquido: 71000,
+      vlrCorrecao: 80664,
+      indCorrigido: "S",
+    });
   });
 });
 

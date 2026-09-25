@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { executarLoteAction } from "@/app/lote/actions";
 import type { PrismaClient } from "@/generated/prisma/client";
 import { completaDv } from "@/domain/cpf";
@@ -41,6 +41,12 @@ afterAll(async () => {
   delete globalPrisma.prisma;
   vi.unstubAllEnvs();
   rmSync(dir, { recursive: true, force: true });
+});
+
+// Modo legado explícito: un SIFAP_QUIRKS_CORRIGIDOS del .env/entorno del desarrollador
+// no cambia estos tests (las correcciones tienen tests propios).
+beforeEach(() => {
+  vi.stubEnv("SIFAP_QUIRKS_CORRIGIDOS", "");
 });
 
 function lote(dtHoje: number, extra: { log?: (l: string) => void; db?: PrismaClient } = {}) {

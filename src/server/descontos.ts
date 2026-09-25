@@ -18,6 +18,14 @@ export const MSG_DESCONTOS_CALCULADOS = "DESCONTOS CALCULADOS";
  */
 export const MSG_DESCONTO_EXCEDE_LIMITE = "VALOR DE DESCONTO EXCEDE O LIMITE";
 
+/** CORRECAO(D13): el líquido de un pago ya enviado/pagado no se toca. */
+export function mensagemLiquidoNaoRecalculado(sitPagamento: string): string {
+  return `LIQUIDO NAO RECALCULADO: PAGAMENTO COM STATUS ${sitPagamento}`;
+}
+
+/** Status del pago recién generado (aún no enviado): solo en él se recalcula el líquido (D13). */
+const SIT_GERADO = "G";
+
 /** Mayor valor de una columna Int de la base (Int32). */
 const INT32_MAX = 2_147_483_647;
 
@@ -53,9 +61,19 @@ export type ResumoDescontos = {
   vlrLiquido: number;
   /** CORRECAO(D13): presente (true) solo si el líquido se recalculó y se grabó. */
   liquidoRecalculado?: true;
+  /** CORRECAO(D13): "LIQUIDO NAO RECALCULADO: …" cuando el pago no está en status G. */
+  avisoLiquido?: string;
   /** Descuentos registrados en orden de occurrence. */
   descontos: DescontoResumo[];
 };
+
+export interface OpcoesRecalculo {
+  db?: PrismaClient;
+  /** Momento de la ejecución; default = ahora. */
+  agora?: Date;
+  /** Correcciones activas (D13), leídas una vez por la acción; default = legado. */
+  quirks?: Pick<Quirks, "corrigidos">;
+}
 
 export type ResultadoRecalculo = { ok: true; mensagem: string; resumo: ResumoDescontos } | { ok: false; mensagem: string };
 
@@ -75,9 +93,7 @@ function usuarioOperativo(): string {
 export async function recalcularDescontos(
   numCpf: string,
   numPagamento: number,
-  db: PrismaClient = prisma,
-  agora: Date = new Date(),
-  quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO,
+  { db = prisma, agora = new Date(), quirks = QUIRKS_PADRAO }: OpcoesRecalculo = {},
 ): Promise<ResultadoRecalculo> {
   return db.$transaction(async (tx) => {
     // Orden del legado: primero el pago (CALCDSCT:75/:82), luego el beneficiario (:91).
@@ -117,7 +133,16 @@ export async function recalcularDescontos(
     // CORRECAO(D13): con la corrección activa se recalcula y graba vlrLiquido con la
     // fórmula del motor (FR-CAL-10: bruto − descuento, mínimo 0; el bruto ya incluye
     // 13.º y abono). El 3 % plano del motor no cambia.
-    const recalculaLiquido = corrige(quirks, "D13");
+    // - `r.vlrTotal` es el total de CALCDSCT: contribución social progresiva + descuentos
+    //   registrados, con el tope del 30 % (D2). Es lo que se graba en vlrDescontoTotal,
+    //   así que el líquido queda coherente con ese campo.
+    // - La base es el bruto ORIGINAL (vlrBruto). CALCCORR guarda el valor corregido por
+    //   IPCA aparte (vlrCorrecao/indCorrigido) y nunca cambió vlrLiquido: no se usa aquí.
+    // - Solo pagos en status G (generados, aún no enviados): el líquido de un pago ya
+    //   enviado/pagado/devuelto no se cambia y se devuelve un aviso.
+    const corrigeD13 = corrige(quirks, "D13");
+    const recalculaLiquido = corrigeD13 && pagamento.sitPagamento === SIT_GERADO;
+    const avisoLiquido = corrigeD13 && !recalculaLiquido ? mensagemLiquidoNaoRecalculado(pagamento.sitPagamento) : undefined;
     const vlrLiquido = recalculaLiquido ? calcularLiquido(pagamento.vlrBruto, r.vlrTotal) : pagamento.vlrLiquido;
     await tx.pagamento.update({
       where: { id: pagamento.id },
@@ -181,6 +206,7 @@ export async function recalcularDescontos(
         vlrLiquido,
         descontos,
         ...(recalculaLiquido ? { liquidoRecalculado: true as const } : {}),
+        ...(avisoLiquido ? { avisoLiquido } : {}),
       },
     } as const;
   });
