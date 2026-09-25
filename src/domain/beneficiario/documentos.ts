@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { calculaDv1, calculaDv2, normalizaCpfNumerico } from "../cpf";
-import type { Quirks } from "../quirks";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "../quirks";
 
 // Reglas del programa legado VALDOCS (FR-DOC-01..03): validación de documentos del
 // beneficiario (CPF, RG y documento especial por prefijo). Acumula errores (máx. 5)
@@ -56,10 +56,19 @@ export function validarCpfDoc(numCpf: string): boolean {
   return true;
 }
 
-/** VALIDA-RG: no vacío y longitud (hasta el primer espacio del A15) ≥ 5. */
-export function validarRg(rg: string): boolean {
+/**
+ * VALIDA-RG: no vacío y longitud ≥ 5. Legado: longitud hasta el primer espacio del A15;
+ * con CORRECAO(D20): caracteres no blancos. `quirks` default = legado.
+ */
+export function validarRg(rg: string, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): boolean {
   // Se simula el campo Natural A15: relleno con espacios y truncado a 15.
   const campo = String(rg ?? "").padEnd(TAMANHO_RG).slice(0, TAMANHO_RG);
+  if (corrige(quirks, "D20")) {
+    // CORRECAO(D20): la longitud cuenta los caracteres no blancos del A15 (se ignoran los
+    // espacios, internos o iniciales): "12 345678" → 8 → válido. Semántica de campo A de
+    // Natural: solo el espacio ASCII ' ' es blanco (un TAB cuenta como carácter). Vacío → 0 → inválido.
+    return campo.replaceAll(" ", "").length >= RG_TAMANHO_MINIMO;
+  }
   // RK-2b0e2875eb48 (VALDOCS:148): IF #RG = ' ' THEN MOVE FALSE TO #RG-OK / ESCAPE ROUTINE.
   if (campo.trim() === "") return false;
   // EXAMINE #RG FOR ' ' GIVING POSITION #RG-LEN: posición 1-based del primer espacio (0 = no hay).
@@ -94,14 +103,20 @@ export function acumularErroDoc(erros: string[], mensagem: string): void {
 
 /**
  * Validación de documentos de VALDOCS: acumula errores en el orden del legado
- * (CPF → RG). Título de elector y CTPS no se validan. El flag D4 se inyecta.
+ * (CPF → RG). Título de elector y CTPS no se validan. El flag D4 se inyecta; la lista
+ * de corregidos (D20) es opcional (ausente = legado).
  */
-export function validarDocumentos(dados: DadosValdocs, quirks: Pick<Quirks, "docEspecialHabilitado">): ResultadoValdocs {
+export function validarDocumentos(
+  dados: DadosValdocs,
+  quirks: Pick<Quirks, "docEspecialHabilitado"> & Partial<Pick<Quirks, "corrigidos">> = QUIRKS_PADRAO,
+): ResultadoValdocs {
   const erros: string[] = [];
   // RK-82c01a2ea13d (VALDOCS:69): IF NOT #CPF-OK → "CPF INVALIDO".
   if (!validarCpfDoc(dados.numCpf)) acumularErroDoc(erros, MENSAGENS_VALDOCS.cpfInvalido);
   // RK-b0821b60ecb6 (VALDOCS:79): IF NOT #RG-OK → "RG INVALIDO OU FORMATO INCORRETO".
-  if (!validarRg(dados.rg)) acumularErroDoc(erros, MENSAGENS_VALDOCS.rgInvalido);
+  if (!validarRg(dados.rg, { corrigidos: quirks.corrigidos ?? QUIRKS_PADRAO.corrigidos })) {
+    acumularErroDoc(erros, MENSAGENS_VALDOCS.rgInvalido);
+  }
 
   // LEGACY-QUIRK(D4): un CPF con prefijo especial anula todos los errores (incluido el RG)
   // y el resultado pasa a V. Riesgo de seguridad: solo con LEGACY_DOC_ESPECIAL_ENABLED=true

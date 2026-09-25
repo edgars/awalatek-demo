@@ -1,7 +1,7 @@
 "use server";
 
 import { entradaValdocsSchema, validarDocumentos } from "@/domain/beneficiario/documentos";
-import { lerQuirks } from "@/domain/quirks";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoValidacaoDocumentos } from "./estado";
 
 // Server Action de /validacao/documentos (VALDOCS). Solo valida: VALDOCS no graba
@@ -25,15 +25,10 @@ export async function validarDocumentosAction(
     ctps: texto(dados, "ctps"),
   });
   if (!parsed.success) return { ok: false, mensagem: parsed.error.issues[0]?.message ?? ERRO_INESPERADO };
-  // LEGACY-QUIRK(D4): el flag se lee en el servidor en cada ejecución y se inyecta en el dominio.
-  let quirks;
-  try {
-    quirks = lerQuirks();
-  } catch {
-    // Motivo sin datos personales para operaciones; al usuario, el mensaje genérico.
-    console.error("[validacao-documentos] configuração inválida: LEGACY_DOC_ESPECIAL_ENABLED");
-    return { ok: false, mensagem: ERRO_INESPERADO };
-  }
+  // LEGACY-QUIRK(D4) y D20: la configuración se lee en el servidor en cada ejecución y se
+  // inyecta en el dominio. Inválida → el log nombra la variable (sin PII); al usuario, el genérico.
+  const quirks = lerQuirksServidor("validacao-documentos");
+  if (!quirks) return { ok: false, mensagem: ERRO_INESPERADO };
   try {
     const r = validarDocumentos(parsed.data, quirks);
     return { ok: true, resultado: r.resultado, erros: r.erros, docEspecial: r.docEspecial };

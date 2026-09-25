@@ -3,14 +3,15 @@
 import { revalidatePath } from "next/cache";
 import type { z } from "zod";
 import {
-  alteracaoBeneficiarioSchema,
   CAMPOS_FORMULARIO_CADASTRO,
   campoDoErro,
+  esquemaAlteracaoBeneficiario,
   inclusaoBeneficiarioSchema,
   primeiroErroDosCampos,
   type OperacaoCadastro,
 } from "@/domain/beneficiario/cadastro";
 import { alterarBeneficiario, incluirBeneficiario, type Resultado } from "@/server/beneficiarios";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoAcao } from "./estado";
 
 // Server Actions de /beneficiarios: zod en el borde; reglas en el dominio.
@@ -56,8 +57,11 @@ export async function incluirBeneficiarioAction(_anterior: EstadoAcao, dados: Fo
   const bruto = Object.fromEntries(CAMPOS_FORMULARIO_CADASTRO.map((c) => [c, texto(dados, c)]));
   const parsed = inclusaoBeneficiarioSchema.safeParse(bruto);
   if (!parsed.success) return falhaValidacao("I", bruto, parsed.error);
+  // D5: la configuración se lee una vez por solicitud y se inyecta en el caso de uso.
+  const quirks = lerQuirksServidor("beneficiarios");
+  if (!quirks) return { ok: false, mensagens: [ERRO_INESPERADO] };
   try {
-    return resposta(await incluirBeneficiario(parsed.data));
+    return resposta(await incluirBeneficiario(parsed.data, undefined, quirks));
   } catch (e) {
     return falhaInesperada("inclusão", e);
   }
@@ -73,10 +77,14 @@ export async function alterarBeneficiarioAction(cpf: string, _anterior: EstadoAc
   const cpfForm = (bruto.numCpf ?? "").replace(/\D/g, "");
   if (cpfForm && cpfForm !== cpf) return falha("Campo não editável na alteração: CPF.", "numCpf");
   bruto.numCpf = cpf;
-  const parsed = alteracaoBeneficiarioSchema.safeParse(bruto);
+  // D5 y D18: la configuración se lee una vez por solicitud. Con D18 legado el status no
+  // se valida (la pantalla no lo envía) y el dominio lo graba en blanco (o S por edad).
+  const quirks = lerQuirksServidor("beneficiarios");
+  if (!quirks) return { ok: false, mensagens: [ERRO_INESPERADO] };
+  const parsed = esquemaAlteracaoBeneficiario(quirks).safeParse(bruto);
   if (!parsed.success) return falhaValidacao("A", bruto, parsed.error);
   try {
-    return resposta(await alterarBeneficiario(parsed.data));
+    return resposta(await alterarBeneficiario(parsed.data, undefined, quirks));
   } catch (e) {
     return falhaInesperada("alteração", e);
   }

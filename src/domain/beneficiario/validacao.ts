@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizaCpfNumerico, validaCpfCompleto } from "../cpf";
+import { corrige, QUIRKS_PADRAO, type Quirks } from "../quirks";
 import { SITUACOES_BENEFICIARIO, UFS } from "./cadastro";
 
 // Reglas del programa legado VALBENEF (FR-VAL-01..05): validación cadastral
@@ -46,8 +47,13 @@ export function anoAtualDe(datn: number): number {
   return Math.trunc(datn / 10000);
 }
 
-/** Fecha de nacimiento AAAAMMDD válida (FR-VAL-03). */
-export function validarDataNascimento(dtNasc: number, anoAtual: number): boolean {
+/** Año bisiesto del calendario gregoriano. */
+export function anoBissexto(ano: number): boolean {
+  return (ano % 4 === 0 && ano % 100 !== 0) || ano % 400 === 0;
+}
+
+/** Fecha de nacimiento AAAAMMDD válida (FR-VAL-03). `quirks` decide D16 (default = legado). */
+export function validarDataNascimento(dtNasc: number, anoAtual: number, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): boolean {
   if (!Number.isInteger(dtNasc)) return false;
   // RK-dec345b9d4e4 (VALBENEF:244): COMPUTE #ANO = #DT-NASC / 10000.
   const ano = Math.trunc(dtNasc / 10000);
@@ -60,15 +66,27 @@ export function validarDataNascimento(dtNasc: number, anoAtual: number): boolean
   // RK-f60066fede08 (VALBENEF:252): IF #MES < 1 OR #MES > 12 → inválida / ESCAPE ROUTINE.
   if (mes < 1 || mes > 12) return false;
   // RK-db3b53eeb364 (VALBENEF:256): IF #DIA < 1 OR #DIA > #DIAS-MES(#MES) → inválida.
+  let diasMes: number = DIAS_MES[mes - 1] ?? 0;
+  if (mes === 2 && corrige(quirks, "D16")) {
+    // CORRECAO(D16): febrero con 29 días solo en año bisiesto (gregoriano); si no, 28.
+    diasMes = anoBissexto(ano) ? 29 : 28;
+  }
   // LEGACY-QUIRK(D16): #DIAS-MES(2) = 29 siempre; 29/02 de año no bisiesto es válido.
-  if (dia < 1 || dia > (DIAS_MES[mes - 1] ?? 0)) return false;
+  if (dia < 1 || dia > diasMes) return false;
   return true;
 }
 
-/** Nombre con nombre y apellido (FR-VAL-04). */
-export function validarNome(nome: string): boolean {
+/** Nombre con nombre y apellido (FR-VAL-04). `quirks` decide D19 (default = legado). */
+export function validarNome(nome: string, quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO): boolean {
   // Se simula el campo Natural A60: relleno con espacios y truncado a 60.
   const campo = String(nome ?? "").padEnd(TAMANHO_NOME).slice(0, TAMANHO_NOME);
+  if (corrige(quirks, "D19")) {
+    // CORRECAO(D19): quitados los espacios de los extremos, exige al menos dos palabras (un
+    // espacio entre caracteres no blancos); el relleno del A60 ya no cuenta como separador.
+    // Semántica de campo A de Natural: solo el espacio ASCII ' ' es blanco/separador (no el TAB).
+    const semBordas = campo.replace(/^ +| +$/g, "");
+    return semBordas.includes(" ");
+  }
   // RK-9c6ba0322e06 (VALBENEF:264): IF #NOME = ' ' → inválido / ESCAPE ROUTINE.
   if (campo.trim() === "") return false;
   // EXAMINE #NOME FOR ' ' GIVING POSITION #POS: posición 1-based del primer espacio (0 = no hay).
@@ -112,16 +130,21 @@ export function acumularErro(erros: string[], mensagem: string): void {
 
 /**
  * Validación consolidada de VALBENEF: acumula todos los errores en el orden del
- * legado (CPF → fecha → nombre → UF → status). `anoAtual` se inyecta.
+ * legado (CPF → fecha → nombre → UF → status). `anoAtual` se inyecta; `quirks`
+ * decide D4b, D16 y D19 (default = legado).
  */
-export function validarCadastroConsolidado(dados: DadosValbenef, anoAtual: number): ResultadoValbenef {
+export function validarCadastroConsolidado(
+  dados: DadosValbenef,
+  anoAtual: number,
+  quirks: Pick<Quirks, "corrigidos"> = QUIRKS_PADRAO,
+): ResultadoValbenef {
   const erros: string[] = [];
   // RK-d92621a0cc50 (VALBENEF:116): IF NOT #CPF-VALIDO → "CPF INVALIDO - DIGITO VERIFICADOR".
-  if (!validaCpfCompleto(dados.numCpf)) acumularErro(erros, MENSAGENS_VALBENEF.cpfInvalido);
+  if (!validaCpfCompleto(dados.numCpf, quirks)) acumularErro(erros, MENSAGENS_VALBENEF.cpfInvalido);
   // RK-b776e6f05132 (VALBENEF:126): IF NOT #DT-VALIDA → "DATA NASCIMENTO INVALIDA".
-  if (!validarDataNascimento(dados.dtNascimento, anoAtual)) acumularErro(erros, MENSAGENS_VALBENEF.dataNascimentoInvalida);
+  if (!validarDataNascimento(dados.dtNascimento, anoAtual, quirks)) acumularErro(erros, MENSAGENS_VALBENEF.dataNascimentoInvalida);
   // RK-39e9b653aa4d (VALBENEF:136): IF NOT #NOME-VALIDO → "NOME INVALIDO - DEVE TER NOME E SOBRENOME".
-  if (!validarNome(dados.nomeCompleto)) acumularErro(erros, MENSAGENS_VALBENEF.nomeInvalido);
+  if (!validarNome(dados.nomeCompleto, quirks)) acumularErro(erros, MENSAGENS_VALBENEF.nomeInvalido);
   // RK-bb74de6a3c53 (VALBENEF:154): IF NOT #UF-OK → "UF INVALIDA".
   if (!validarUf(dados.uf)) acumularErro(erros, MENSAGENS_VALBENEF.ufInvalida);
   // RK-3414a3783a2e (VALBENEF:164): status fuera de A/S/C/I/D → "STATUS INVALIDO".
@@ -139,7 +162,7 @@ const truncado = (largura: number) => z.string().transform((s) => s.slice(0, lar
 
 export const entradaValbenefSchema = z.object({
   // #CPF es N11: dígitos con ceros a la izquierda; en blanco = 0 = "00000000000"
-  // (válido por LEGACY-QUIRK(D4b)). Más de 11 dígitos → no pasa el módulo 11.
+  // (válido por LEGACY-QUIRK(D4b); inválido con CORRECAO(D4b)). Más de 11 dígitos → no pasa el módulo 11.
   numCpf: z.string().transform(normalizaCpfNumerico),
   nomeCompleto: truncado(60), // #NOME A60
   // AAAAMMDD (N8); vacío o no numérico → 0 (fecha inválida).

@@ -9,6 +9,7 @@ import {
 import { normalizaCpfNumerico } from "@/domain/cpf";
 import { hoje } from "@/domain/legacyDate";
 import { obterBeneficiario } from "@/server/beneficiarios";
+import { lerQuirksServidor } from "@/server/quirksConfig";
 import type { EstadoCarga, EstadoValidacao } from "./estado";
 
 // Server Actions de /validacao/cadastro (VALBENEF). Solo validan y leen:
@@ -39,9 +40,12 @@ export async function validarCadastroAction(_anterior: EstadoValidacao, dados: F
     sitBeneficiario: texto(dados, "sitBeneficiario"),
   });
   if (!parsed.success) return { ok: false, mensagem: parsed.error.issues[0]?.message ?? ERRO_INESPERADO };
+  // D4b, D16 y D19: la configuración se lee en el servidor en cada ejecución y se inyecta en el dominio.
+  const quirks = lerQuirksServidor("validacao-cadastro");
+  if (!quirks) return { ok: false, mensagem: ERRO_INESPERADO };
   try {
     // RK-4e7cf0ea0beb (VALBENEF:110): ano atual a partir da data do sistema.
-    const r = validarCadastroConsolidado(parsed.data, anoAtualDe(hoje().data));
+    const r = validarCadastroConsolidado(parsed.data, anoAtualDe(hoje().data), quirks);
     return { ok: true, resultado: r.resultado, erros: r.erros };
   } catch (e) {
     return falhaInesperada("validação", e);

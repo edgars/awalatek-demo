@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@/generated/prisma/client";
 import { anoAtualDe, avaliarElegibilidade, type ResultadoElegibilidade } from "@/domain/elegibilidade";
 import { hoje } from "@/domain/legacyDate";
+import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 
 // Caso de uso de elegibilidad (VALELEG). Solo lectura: lee Beneficiario por CPF y
@@ -9,12 +10,14 @@ import { prisma } from "@/server/db";
 /**
  * `numCpf`: 11 dígitos (ya normalizado); `codPrograma`: código del programa.
  * `anoAtual` se inyecta en tests; por defecto sale de la fecha del sistema.
+ * `quirks`: flags LEGACY-QUIRK (D12); por defecto, legado (QUIRKS_PADRAO); la acción/página lee el entorno y los pasa.
  */
 export async function verificarElegibilidade(
   numCpf: string,
   codPrograma: string,
   db: PrismaClient = prisma,
   anoAtual: number = anoAtualDe(hoje().data),
+  quirks: Quirks = QUIRKS_PADRAO,
 ): Promise<ResultadoElegibilidade> {
   // FIND BENEFICIARIO-V WITH CPF = #CPF (N11: fuera de formato no encuentra nada).
   const benef = /^\d{11}$/.test(numCpf)
@@ -47,5 +50,5 @@ export async function verificarElegibilidade(
         },
       })
     : null;
-  return avaliarElegibilidade(benef, programa, anoAtual);
+  return avaliarElegibilidade(benef, programa, anoAtual, quirks);
 }

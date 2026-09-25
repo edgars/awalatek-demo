@@ -17,28 +17,53 @@ import {
   SEXOS_DEPENDENTE,
   verificarLimite,
 } from "@/domain/beneficiario/dependentes";
+import { QUIRKS_PADRAO, type QuirkCorrigivel } from "@/domain/quirks";
 import type { EstadoDependente } from "./estado";
 
 type Acao = (estado: EstadoDependente, dados: FormData) => Promise<EstadoDependente>;
+
+/** El cliente no lee el entorno: el servidor le pasa si D6 está corregido. */
+function quirksLimite(limiteCorrigido: boolean) {
+  return limiteCorrigido ? { corrigidos: new Set<QuirkCorrigivel>(["D6"]) } : QUIRKS_PADRAO;
+}
 
 /**
  * Pantalla 4.6 — DADOS DO DEPENDENTE en serie. Cada "Incluir outro dependente" monta un
  * formulario nuevo (respuesta S de CADDEPEND:126); "Concluir" vuelve a la lista (N).
  * `bloqueio` = mensaje literal que impide incluir (titular C/D o límite D6).
+ * `limiteCorrigido` = CORRECAO(D6) activa en el servidor (máximo 5).
  */
-export function InclusaoDependentes({ acao, bloqueio }: { acao: Acao; bloqueio: string | null }) {
+export function InclusaoDependentes({ acao, bloqueio, limiteCorrigido = false }: { acao: Acao; bloqueio: string | null; limiteCorrigido?: boolean }) {
   const [rodada, setRodada] = useState(0);
-  return <FormDependente key={rodada} acao={acao} bloqueio={bloqueio} onOutro={() => setRodada((r) => r + 1)} />;
+  return (
+    <FormDependente
+      key={rodada}
+      acao={acao}
+      bloqueio={bloqueio}
+      limiteCorrigido={limiteCorrigido}
+      onOutro={() => setRodada((r) => r + 1)}
+    />
+  );
 }
 
-function FormDependente({ acao, bloqueio, onOutro }: { acao: Acao; bloqueio: string | null; onOutro: () => void }) {
+function FormDependente({
+  acao,
+  bloqueio,
+  limiteCorrigido,
+  onOutro,
+}: {
+  acao: Acao;
+  bloqueio: string | null;
+  limiteCorrigido: boolean;
+  onOutro: () => void;
+}) {
   const { estado, onSubmit, pendente } = useAcaoFormulario<EstadoDependente>(acao, null);
   const router = useRouter();
 
   if (estado?.ok) {
     // Solo se ofrece otra inclusión si el estado refrescado la permite: titular no C/D
     // (`bloqueio` viene de la página revalidada) y total dentro del límite D6.
-    const podeIncluirOutro = bloqueio === null && estado.total !== undefined && verificarLimite(estado.total) === null;
+    const podeIncluirOutro = bloqueio === null && estado.total !== undefined && verificarLimite(estado.total, quirksLimite(limiteCorrigido)) === null;
     // RK-db6fc93c9e4c (CADDEPEND:126): S continúa; cualquier otra respuesta termina.
     const responder = (resposta: "S" | "N") => {
       if (continuarInclusao(resposta)) onOutro();

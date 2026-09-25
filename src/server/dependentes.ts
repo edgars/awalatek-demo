@@ -7,6 +7,7 @@ import {
   type DadosDependente,
 } from "@/domain/beneficiario/dependentes";
 import { hoje } from "@/domain/legacyDate";
+import { QUIRKS_PADRAO, type Quirks } from "@/domain/quirks";
 import { prisma } from "@/server/db";
 
 // Casos de uso de dependientes (CADDEPEND). Orquesta dominio + Prisma, sin lógica de
@@ -73,8 +74,14 @@ export async function listarDependentes(numCpf: string, db: PrismaClient = prism
 /**
  * Inclusão de um dependente (uma volta do laço de CADDEPEND). A escrita da ocorrência
  * `numDependentes + 1` e o incremento do contador ficam na mesma transação.
+ * `quirks`: flags LEGACY-QUIRK (D6); por defecto, legado (QUIRKS_PADRAO); la acción/página lee el entorno y los pasa.
  */
-export async function incluirDependente(numCpf: string, dados: DadosDependente, db: PrismaClient = prisma): Promise<ResultadoDependente> {
+export async function incluirDependente(
+  numCpf: string,
+  dados: DadosDependente,
+  db: PrismaClient = prisma,
+  quirks: Quirks = QUIRKS_PADRAO,
+): Promise<ResultadoDependente> {
   const usuario = usuarioOperativo();
   try {
     return await db.$transaction(async (tx) => {
@@ -90,7 +97,7 @@ export async function incluirDependente(numCpf: string, dados: DadosDependente, 
             select: { occurrence: true, cpfDependente: true },
           })
         : [];
-      const decisao = decidirInclusao(titular, dados, ocorrencias);
+      const decisao = decidirInclusao(titular, dados, ocorrencias, quirks);
       if (!decisao.ok || !titular) throw new FalhaTransacao(decisao.ok ? [MENSAGENS_CADDEPEND.naoEncontrado] : decisao.mensagens);
 
       // Control optimista: el contador leído debe seguir vigente (otra inclusión concurrente lo cambiaría).
