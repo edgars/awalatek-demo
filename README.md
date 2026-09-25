@@ -147,6 +147,49 @@ docker compose up --build
 
 App no ar: serviço único `app` (Next.js, porta 3000), SQLite no volume `sifap-data`.
 Lote mensal: `docker compose run --rm app npm run lote:pagamentos`.
+Detalhes na seção [Deployment](#deployment-docker-compose).
+
+---
+
+## Deployment (docker-compose)
+
+ADR-007 (`docs/architecture.md` §7): um único serviço `app` — imagem multi-stage
+(`Dockerfile`, Node 24, Next.js `output: "standalone"`, usuário não-root) — e a
+base SQLite no volume nomeado `sifap-data`, montado em `/data`
+(`DATABASE_URL=file:/data/sifap.db`, fixado no `docker-compose.yml`).
+
+```bash
+cp .env.example .env              # SIFAP_USER, LEGACY_DOC_ESPECIAL_ENABLED, SIFAP_PORT
+docker compose up --build -d      # http://localhost:${SIFAP_PORT:-3000}
+docker compose logs -f app
+```
+
+- **Arranque:** `docker-entrypoint.sh` executa `prisma migrate deploy` e depois
+  `node server.js`. Se a migração falhar, o contêiner termina com erro (código ≠ 0).
+  O entrypoint também migra antes de `docker compose run …`, então qualquer comando
+  funciona com o volume vazio.
+- **Lote mensal (BATCHPGT):** `docker compose run --rm app npm run lote:pagamentos`
+  — imprime o resumo; código de saída ≠ 0 em erro. Agendável pelo cron do host
+  (ex.: `0 6 1 * * cd /opt/sifap && docker compose run --rm app npm run lote:pagamentos`).
+- **Seed de demonstração (opcional, nunca automático):**
+  `docker compose run --rm app npm run db:seed` (idempotente, dados fictícios).
+- **Fuso horário:** `TZ=America/Sao_Paulo` na imagem e no compose (usado por `hoje()`).
+- **Persistência:** `docker compose down` / `up` preservam os dados; só
+  `docker compose down -v` apaga o volume.
+- **Backup / restauração do volume** (com o app parado, para uma cópia consistente):
+
+  ```bash
+  docker compose stop app
+  docker run --rm -v "$(basename "$PWD")_sifap-data:/data" -v "$PWD:/backup" \
+    busybox tar czf /backup/sifap-data-$(date +%Y%m%d).tgz -C /data .
+  docker compose start app
+  # restauração: mesmo comando com `tar xzf /backup/<arquivo>.tgz -C /data`
+  ```
+
+  O nome do volume leva o prefixo do projeto compose (`docker volume ls | grep sifap-data`).
+
+Fora do Docker: `npm run build && npm start` (o `postbuild` copia `.next/static`
+para a saída standalone) e `npm run db:deploy` para aplicar migrações.
 
 ---
 

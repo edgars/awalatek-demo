@@ -1,0 +1,19 @@
+# SIFAP — ADR-007: un único servicio `app` (Next.js + API), SQLite en el volumen `sifap-data`.
+#   docker compose up --build -d
+#   docker compose run --rm app npm run lote:pagamentos
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${SIFAP_PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: file:/data/sifap.db
+      SIFAP_USER: ${SIFAP_USER:-SIFAPUSR}
+      LEGACY_DOC_ESPECIAL_ENABLED: ${LEGACY_DOC_ESPECIAL_ENABLED:-false}
+      TZ: America/Sao_Paulo
+    volumes:
+      - sifap-data:/data
+
+volumes:
+  sifap-data:

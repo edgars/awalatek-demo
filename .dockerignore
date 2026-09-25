@@ -1,0 +1,33 @@
+# Dependencias y salidas de build (se regeneran dentro de la imagen)
+node_modules
+.next
+dist
+out
+src/generated
+*.tsbuildinfo
+next-env.d.ts
+
+# Bases SQLite locales / e2e
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Entorno y secretos
+.env
+.env*.local
+
+# Tests y reportes
+test-results
+playwright-report
+blob-report
+coverage
+
+# Herramientas, docs y planificación
+.git
+.claude
+_bmad
+_bmad-output
+docs
+.DS_Store
+*.log
